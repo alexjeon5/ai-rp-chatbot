@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI 롤플레이 &amp; 어시스턴트</title>
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%2315111a%22%2F%3E%3Cpath%20d%3D%22M7%205.5h18a4.5%204.5%200%200%201%204.5%204.5v8a4.5%204.5%200%200%201-4.5%204.5H14.5L8%2028v-5.5H7A4.5%204.5%200%200%201%202.5%2018v-8A4.5%204.5%200%200%201%207%205.5z%22%20fill%3D%22%23d9b168%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3Ccircle%20cx%3D%2222%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3C%2Fsvg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<aside id="sidebar" class="sidebar">
+  <header class="brand">
+    <span class="brand-mark">
+      <span class="brand-line">AI 롤플레이</span>
+      <span class="brand-line brand-sub">&amp; 어시스턴트</span>
+    </span>
+    <button id="btn-close-sidebar" class="icon-btn only-narrow" aria-label="사이드바 닫기">✕</button>
+  </header>
+
+  <nav class="mode-tabs">
+    <button class="mode-tab is-on" data-mode="rp">롤플레이</button>
+    <button class="mode-tab" data-mode="assistant">어시스턴트</button>
+  </nav>
+
+  <div class="rail-scroll">
+    <section class="rail-group">
+      <div class="rail-head">
+        <h2>대화</h2>
+        <span class="head-pair">
+          <button id="btn-toggle-adult" class="ghost-btn" title="성인 모드로 진행 중인 대화를 목록에서 숨깁니다">성인 숨기기</button>
+          <button id="btn-new-chat" class="ghost-btn">새 대화</button>
+          <button id="btn-new-assistant" class="ghost-btn" hidden>새 채팅</button>
+        </span>
+      </div>
+      <ul id="chat-list" class="rail-list"></ul>
+    </section>
+
+    <section class="rail-group" id="character-group">
+      <div class="rail-head">
+        <h2>캐릭터</h2>
+        <span class="head-pair">
+          <button id="btn-seed-characters" class="ghost-btn" title="앱에 들어 있는 기본 캐릭터 중 아직 없는 것만 추가합니다">기본 캐릭터</button>
+          <button id="btn-new-character" class="ghost-btn">새로 만들기</button>
+        </span>
+      </div>
+      <ul id="character-list" class="rail-list"></ul>
+    </section>
+  </div>
+
+  <footer class="rail-foot">
+    <button id="btn-personas" class="foot-btn">내 페르소나</button>
+    <button id="btn-settings" class="foot-btn">설정</button>
+  </footer>
+</aside>
+
+<main class="stage">
+  <header class="stage-head">
+    <button id="btn-open-sidebar" class="icon-btn only-narrow" aria-label="목록 열기">☰</button>
+    <div class="stage-title">
+      <h1 id="chat-title">대화를 선택해 주세요</h1>
+      <p id="chat-sub" class="stage-sub"></p>
+    </div>
+    <div class="head-actions">
+      <select id="chat-preset" class="head-select" title="이 대화에 쓸 대화 모드" hidden></select>
+      <button id="btn-save-character" class="ghost-btn" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
+      <button id="btn-rename" class="ghost-btn" hidden>이름 바꾸기</button>
+      <button id="btn-delete-chat" class="ghost-btn danger" hidden>대화 삭제</button>
+    </div>
+  </header>
+
+  <div id="messages" class="messages">
+    <div class="empty-stage">
+      <p class="empty-line">아직 시작한 대화가 없습니다.</p>
+      <p class="empty-help">왼쪽에서 캐릭터를 고르면 대화가 시작됩니다.</p>
+    </div>
+  </div>
+
+  <div id="composer" class="composer" hidden>
+    <div id="stream-status" class="stream-status" hidden>
+      <span class="pulse"></span><span id="stream-label">응답 생성 중</span>
+      <button id="btn-stop" class="ghost-btn">중지</button>
+    </div>
+    <div class="composer-row">
+      <textarea id="input" rows="1" placeholder="무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다."></textarea>
+      <div class="composer-side">
+        <button id="btn-send" class="send-btn">보내기</button>
+        <button id="btn-regen" class="ghost-btn" title="마지막 답변을 지우고 다시 생성합니다">재전송</button>
+      </div>
+    </div>
+    <p class="composer-hint">
+      <span class="keys">Enter 전송 · Shift+Enter 줄바꿈</span>
+      <span class="quick-bar">
+        <button id="btn-thinking" class="quick-toggle" type="button" aria-pressed="false" hidden>생각</button>
+        <button id="btn-websearch" class="quick-toggle" type="button" aria-pressed="false" hidden>웹 검색</button>
+        <select id="quick-provider" class="quick-select" title="이 대화를 보낼 엔진"></select>
+        <button id="active-model" class="quick-model" type="button" title="누르면 설정이 열립니다">모델 미설정</button>
+      </span>
+    </p>
+  </div>
+</main>
+
+<!-- 캐릭터 편집 -->
+<dialog id="dlg-character" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title" id="char-dlg-title">캐릭터 만들기</h2>
+    <div class="sheet-body">
+      <div class="grid-2">
+        <label class="field short"><span>아이콘</span><input id="c-avatar" maxlength="2" placeholder="🌙"></label>
+        <label class="field"><span>이름</span><input id="c-name" required placeholder="유하린"></label>
+      </div>
+      <label class="field"><span>태그</span><input id="c-tags" placeholder="일상, 학원물 (쉼표로 구분)"></label>
+      <label class="field"><span>한 줄 소개</span><input id="c-description" placeholder="같은 과 선배. 밤에만 옥상에 나타난다."></label>
+      <label class="field"><span>성격</span><textarea id="c-personality" rows="3" placeholder="무심한 척하지만 은근히 챙긴다. 자기 얘기는 잘 하지 않는다."></textarea></label>
+      <label class="field"><span>말투</span><textarea id="c-speech" rows="2" placeholder="짧은 문장. 놀릴 때는 끝을 끈다."></textarea></label>
+      <label class="field"><span>배경과 상황</span><textarea id="c-scenario" rows="3" placeholder="늦은 밤 학교 옥상. {{user}}가 문을 열고 들어선다."></textarea></label>
+      <label class="field"><span>첫 대사</span><textarea id="c-greeting" rows="3" placeholder='*고개만 돌려 {{user}}를 본다.* "이 시간에 여긴 왜 왔어."'></textarea></label>
+      <label class="field"><span>대화 예시</span><textarea id="c-exampleDialogue" rows="4" placeholder="{{user}}: 선배는요?&#10;{{char}}: *어깨를 으쓱한다.* &quot;나야 뭐, 늘 여기 있었지.&quot;"></textarea></label>
+      <label class="field"><span>추가 설정</span><textarea id="c-notes" rows="3" placeholder="세계관 규칙, 금기, 관계도 등"></textarea></label>
+      <p class="field-hint">{{char}}는 캐릭터 이름, {{user}}는 내 페르소나 이름으로 바뀝니다.</p>
+    </div>
+    <div class="sheet-foot">
+      <button id="c-delete" class="ghost-btn danger" type="button">삭제</button>
+      <span class="spacer"></span>
+      <button id="c-once" class="ghost-btn" type="button" title="목록에 남기지 않고 이번 대화에만 씁니다">이번만 쓰기</button>
+      <button id="c-cancel" class="ghost-btn" type="button">취소</button>
+      <button id="c-save" value="save" class="send-btn" type="submit">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 페르소나 -->
+<dialog id="dlg-persona" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">내 페르소나</h2>
+    <div class="sheet-body">
+      <p class="field-hint">대화에서 {{user}}로 불릴 나 자신입니다. 여러 개를 두고 골라 쓸 수 있습니다.</p>
+      <ul id="persona-list" class="persona-list"></ul>
+      <div class="divider"></div>
+      <div class="grid-2">
+        <label class="field"><span>이름</span><input id="p-name" placeholder="나"></label>
+        <label class="field"><span>소개</span><input id="p-description" placeholder="평범한 대학생. 호기심이 많다."></label>
+      </div>
+      <button id="p-add" class="ghost-btn" type="button">페르소나 추가</button>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button value="close" class="send-btn" type="submit">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 설정 -->
+<dialog id="dlg-settings" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">설정</h2>
+    <div class="sheet-body">
+      <label class="field"><span>사용할 엔진</span>
+        <select id="s-provider">
+          <option value="lmstudio">LM Studio (로컬)</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="gemini">Google Gemini</option>
+        </select>
+      </label>
+
+      <div class="provider-box">
+        <label class="field"><span>서버 주소</span><input id="s-baseurl" spellcheck="false"></label>
+        <label class="field" id="s-key-field"><span>API 키</span>
+          <span class="model-row">
+            <input id="s-apikey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-...">
+            <button id="s-key-toggle" class="ghost-btn" type="button" aria-pressed="false">보기</button>
+          </span>
+        </label>
+        <label class="field"><span>모델</span>
+          <span class="model-row">
+            <span class="combo">
+              <input id="s-model" spellcheck="false" autocomplete="off" placeholder="모델 이름"
+                     role="combobox" aria-expanded="false" aria-controls="model-list">
+              <div id="model-list" class="combo-list" role="listbox" hidden></div>
+            </span>
+            <button id="s-fetch-models" class="ghost-btn" type="button">불러오기</button>
+          </span>
+        </label>
+        <p id="s-model-msg" class="field-hint"></p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="grid-4">
+        <label class="field"><span>온도 <b id="v-temp"></b></span><input id="s-temp" type="range" min="0" max="2" step="0.05"></label>
+        <label class="field"><span>top_k</span><input id="s-topk" type="number" min="0" max="200" step="1"></label>
+        <label class="field"><span>반복 억제</span><input id="s-repeat" type="number" min="1" max="1.5" step="0.01"></label>
+        <label class="field"><span>응답 최대 길이</span><input id="s-maxtokens" type="number" min="64" max="32000" step="64"></label>
+        <label class="field"><span>기억할 메시지 수</span><input id="s-history" type="number" min="4" max="200" step="2"></label>
+      </div>
+      <p class="field-hint">top_k 는 LM Studio·Anthropic·Gemini 에만 전달됩니다. OpenAI 는 이 값을 받지 않습니다.<br>
+      Anthropic 은 온도 상한이 1 이라, 1 을 넘겨 두면 1 로 잘라 보냅니다. LM Studio·Gemini 는 2 까지 받습니다.<br>
+      반복 억제는 로컬 엔진에만 전달됩니다. 같은 말이 되풀이되면 1.15~1.2 까지 올려 보세요. 1 은 억제 없음입니다.</p>
+
+      <label class="field"><span>대화 모드</span>
+        <span class="preset-row">
+          <select id="s-preset"></select>
+          <button id="s-preset-new" class="ghost-btn" type="button">새로 만들기</button>
+          <button id="s-preset-rename" class="ghost-btn" type="button">이름 바꾸기</button>
+          <button id="s-preset-delete" class="ghost-btn danger" type="button">삭제</button>
+        </span>
+      </label>
+      <label class="check-row">
+        <input id="s-ask-mode" type="checkbox">
+        <span>새 대화를 시작할 때 모드를 물어보기</span>
+      </label>
+      <label class="check-row">
+        <input id="s-preset-adult" type="checkbox">
+        <span>성인 전용 모드 — 로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.</span>
+      </label>
+      <label class="field"><span>시스템 프롬프트</span>
+        <textarea id="s-template" rows="14" spellcheck="false"></textarea>
+      </label>
+      <p class="field-hint">{{char}} {{user}} {{description}} {{personality}} {{speech}} {{scenario}} {{persona}} 자리에 캐릭터 정보가 들어갑니다. 비어 있는 항목은 줄째로 빠집니다. {{char}} 가 한 번도 없는 모드에는 캐릭터 블록이 맨 뒤에 자동으로 붙습니다.</p>
+      <span class="model-row">
+        <select id="s-template-source" title="어떤 기본 모드의 내용을 가져올지"></select>
+        <button id="s-reset-template" class="ghost-btn" type="button">가져오기</button>
+      </span>
+      <p class="field-hint">지금 편집 중인 모드의 내용을 고른 기본 모드 원본으로 덮어씁니다. 저장을 눌러야 확정됩니다.</p>
+
+      <div class="divider"></div>
+
+      <label class="field"><span>어시스턴트 모드 프롬프트</span>
+        <textarea id="s-assistant-prompt" rows="6" spellcheck="false"></textarea>
+      </label>
+      <div class="grid-4">
+        <label class="field"><span>온도 <b id="v-atemp"></b></span><input id="s-atemp" type="range" min="0" max="2" step="0.05"></label>
+        <label class="field"><span>top_k</span><input id="s-atopk" type="number" min="0" max="200" step="1"></label>
+        <label class="field"><span>반복 억제</span><input id="s-arepeat" type="number" min="1" max="1.5" step="0.01"></label>
+        <label class="field"><span>응답 최대 길이</span><input id="s-amaxtokens" type="number" min="64" max="32000" step="64"></label>
+      </div>
+      <p class="field-hint">어시스턴트 모드는 캐릭터와 페르소나를 쓰지 않습니다. 이 프롬프트와 대화 내용만 보냅니다.</p>
+    </div>
+    <div class="sheet-foot">
+      <a href="/api/export" download class="ghost-btn as-link">백업 내려받기</a>
+      <button id="btn-open-dev" class="ghost-btn" type="button">개발자 설정</button>
+      <span class="spacer"></span>
+      <button id="s-cancel" class="ghost-btn" type="button">취소</button>
+      <button id="s-save" value="save" class="send-btn" type="submit">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 새 대화 모드 고르기 -->
+<dialog id="dlg-newchat" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title" id="nc-title">어떤 모드로 시작할까요</h2>
+    <div class="sheet-body">
+      <div id="nc-character" class="cast-card"></div>
+      <ul id="nc-list" class="mode-list"></ul>
+      <p class="field-hint">대화를 시작한 뒤에도 상단 선택기에서 바꿀 수 있습니다.</p>
+    </div>
+    <div class="sheet-foot">
+      <label class="check-row">
+        <input id="nc-remember" type="checkbox">
+        <span>다음부터 묻지 않고 고른 모드로 바로 시작</span>
+      </label>
+      <span class="spacer"></span>
+      <button id="nc-cancel" class="ghost-btn" type="button">취소</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 개발자 설정 -->
+<dialog id="dlg-dev" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">개발자 설정</h2>
+    <div class="sheet-body">
+
+      <h3 class="sheet-sub">메시지 표시 방식</h3>
+      <p class="field-hint">모델이 내놓은 글을 화면에서 어떻게 꾸밀지 정합니다. 저장된 원문은 바뀌지 않습니다.</p>
+      <label class="check-row"><input id="d-mk-asterisk" type="checkbox"><span><code>*별표*</code> 를 묘사로 표시</span></label>
+      <label class="check-row"><input id="d-mk-paren" type="checkbox"><span><code>(괄호)</code> 를 묘사로 표시</span></label>
+      <label class="check-row"><input id="d-mk-speaker" type="checkbox"><span>줄 맨 앞의 <code>이름:</code> 을 화자 라벨로</span></label>
+      <label class="check-row"><input id="d-mk-quote" type="checkbox"><span><code>"따옴표"</code> 안을 대사로 강조</span></label>
+
+      <div class="divider"></div>
+
+      <h3 class="sheet-sub">프롬프트</h3>
+      <label class="check-row">
+        <input id="d-particle" type="checkbox">
+        <span>한국어 조사 자동 교정 — <code>{{char}}가</code> 를 이름의 받침에 맞춰 "유하린이 / 루나가" 로 고칩니다</span>
+      </label>
+
+      <div class="divider"></div>
+
+      <h3 class="sheet-sub">테마</h3>
+      <div class="theme-grid">
+        <label class="swatch"><input id="d-bg" type="color"><span>배경</span></label>
+        <label class="swatch"><input id="d-panel" type="color"><span>패널</span></label>
+        <label class="swatch"><input id="d-line" type="color"><span>선</span></label>
+        <label class="swatch"><input id="d-text" type="color"><span>글자</span></label>
+        <label class="swatch"><input id="d-muted" type="color"><span>흐린 글자</span></label>
+        <label class="swatch"><input id="d-accent" type="color"><span>강조</span></label>
+      </div>
+      <div class="grid-2">
+        <label class="field short"><span>글자 크기</span><input id="d-fontsize" type="number" min="12" max="22" step="1"></label>
+        <label class="field"><span>본문 글꼴</span><input id="d-fontsans" spellcheck="false"></label>
+      </div>
+      <label class="field"><span>제목·이름 글꼴</span><input id="d-fontserif" spellcheck="false"></label>
+      <p class="field-hint">CSS font-family 값을 그대로 씁니다. 설치된 글꼴이나 이미 불러온 웹폰트만 적용됩니다.</p>
+      <button id="d-theme-reset" class="ghost-btn" type="button">기본 테마로</button>
+
+      <div class="divider"></div>
+
+      <h3 class="sheet-sub">엔진 추가</h3>
+      <p class="field-hint">Ollama, vLLM, llama.cpp, OpenRouter 등 OpenAI 호환 서버를 붙일 수 있습니다.</p>
+      <ul id="d-provider-list" class="persona-list"></ul>
+      <div class="grid-2">
+        <label class="field"><span>이름</span><input id="d-p-label" placeholder="Ollama"></label>
+        <label class="field"><span>형식</span>
+          <select id="d-p-type">
+            <option value="openai">OpenAI 호환</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </label>
+      </div>
+      <label class="field"><span>서버 주소</span><input id="d-p-baseurl" spellcheck="false" placeholder="http://localhost:11434/v1"></label>
+      <label class="field"><span>API 키 — 로컬 서버면 비워 두세요</span><input id="d-p-apikey" type="password" spellcheck="false"></label>
+      <button id="d-p-add" class="ghost-btn" type="button">엔진 추가</button>
+
+      <div class="divider"></div>
+
+      <h3 class="sheet-sub">진단</h3>
+      <p class="field-hint">이 대화에서 실제로 모델에 보내는 시스템 프롬프트 전문을 봅니다. 캐릭터 설정이 제대로 들어갔는지, 비어 있는 항목이 어떻게 빠졌는지 확인할 수 있습니다.</p>
+      <button id="d-show-system" class="ghost-btn" type="button">시스템 프롬프트 열기</button>
+
+      <div class="divider"></div>
+
+      <h3 class="sheet-sub">감춰 둔 모델</h3>
+      <p class="field-hint">쓰려고 했으나 "없는 모델"이라고 거부당한 것들입니다. 목록에서 자동으로 빠집니다. 계정 상태가 바뀌었다면 지우고 다시 시도해 보세요.</p>
+      <ul id="d-hidden-models" class="persona-list"></ul>
+
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button id="d-cancel" class="ghost-btn" type="button">취소</button>
+      <button value="save" class="send-btn" type="submit">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 시스템 프롬프트 보기 -->
+<dialog id="dlg-system" class="sheet sheet-wide">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">시스템 프롬프트</h2>
+    <div class="system-meta">
+      <span id="sys-source">—</span>
+      <span class="spacer"></span>
+      <span id="sys-count"></span>
+    </div>
+    <div class="system-body">
+      <pre id="sys-text" class="code-out"></pre>
+    </div>
+    <div class="sheet-foot">
+      <button id="sys-copy" class="ghost-btn" type="button">복사</button>
+      <span class="spacer"></span>
+      <button value="close" class="send-btn" type="submit">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

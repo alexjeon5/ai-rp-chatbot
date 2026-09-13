@@ -1,0 +1,12 @@
+services:
+  rp-chat:
+    build: .
+    container_name: rp-chat
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./data:/data
+    extra_hosts:
+      # 컨테이너에서 호스트 PC의 LM Studio 를 부를 때 씁니다.
+      - "host.docker.internal:host-gateway"

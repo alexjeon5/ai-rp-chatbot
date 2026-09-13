@@ -1,0 +1,17 @@
+{
+  "name": "rp-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "개인용 롤플레잉 AI 채팅 (API + LM Studio)",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
