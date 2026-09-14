@@ -5,6 +5,9 @@ import { store, uid, flushAll, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from
 import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './src/providers.js';
 import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
+import {
+  isLocalUrl, checkBaseUrl, resolveApiKey, maskProviders, rateLimit, sameOrigin
+} from './src/security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5173;
@@ -13,8 +16,33 @@ const HOST = process.env.HOST || '127.0.0.1';
 await store.load();
 
 const app = express();
+
+// 리버스 프록시(Nginx Proxy Manager) 뒤에 있으면 켭니다.
+// 켜야 요청 제한이 프록시 IP 하나가 아니라 실제 접속자 기준으로 걸립니다.
+if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+
 app.use(express.json({ limit: '2mb' }));
+app.use('/api', sameOrigin);
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 밖으로 요청을 내보내는 경로만 제한합니다. 화면 조작은 막지 않습니다.
+const generateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.'
+});
+const modelsLimit = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.'
+});
+
+/** 엔진 설정을 쓸 때는 항상 이걸 거칩니다. 환경변수 키가 우선 적용됩니다. */
+function engineConfig(providerKey) {
+  const cfg = store.settings.providers[providerKey];
+  if (!cfg) return null;
+  return { ...cfg, apiKey: resolveApiKey(providerKey, cfg) };
+}
 
 const settings = () => store.settings;
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
@@ -31,10 +59,12 @@ const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
 function settingsPayload() {
   const webSearchCapable = {};
   for (const [key, cfg] of Object.entries(store.settings.providers)) {
-    webSearchCapable[key] = supportsWebSearch(key, cfg);
+    webSearchCapable[key] = supportsWebSearch(key, { ...cfg, apiKey: resolveApiKey(key, cfg) });
   }
   return {
     ...store.settings,
+    // API 키는 브라우저로 내보내지 않습니다. 들어 있는지 여부만 알려 줍니다.
+    providers: maskProviders(store.settings.providers),
     webSearchCapable,
     defaultTemplate: DEFAULT_SYSTEM_TEMPLATE,
     // 내장 틀의 원본 내용. 설정에서 '기본 내용 가져오기' 로 되돌릴 때 씁니다.
@@ -69,11 +99,31 @@ app.put('/api/settings', (req, res) => {
   }
   if (body.params) Object.assign(s.params, body.params);
   if (body.providers) {
+    // 주소를 먼저 전부 검사합니다. 하나라도 걸리면 아무것도 저장하지 않습니다.
+    for (const [key, cfg] of Object.entries(body.providers)) {
+      if (cfg?.baseUrl === undefined) continue;
+      const verdict = checkBaseUrl(String(cfg.baseUrl));
+      if (!verdict.ok) {
+        return res.status(400).json({ error: `'${key}' 엔진 주소를 쓸 수 없습니다.\n${verdict.reason}` });
+      }
+    }
+
     for (const [key, cfg] of Object.entries(body.providers)) {
       if (s.providers[key]) {
         // 이 기록은 서버가 실제 오류를 보고 쌓는 것이라, 클라이언트 사본으로 덮지 않습니다.
-        const { unavailableModels, ...safe } = cfg || {};
+        // hasApiKey / keyFromEnv 는 서버가 만들어 내보낸 표시용 값이라 되돌려 받지 않습니다.
+        const { unavailableModels, hasApiKey, keyFromEnv, apiKey, ...safe } = cfg || {};
         Object.assign(s.providers[key], safe);
+
+        /*
+         * 키는 이제 마스킹해서 내려보내므로, 화면에서 돌아오는 값은 대개 빈 문자열입니다.
+         * 그걸 그대로 덮으면 저장해 둔 키가 지워집니다.
+         *   빈 값  → 그대로 둠 (사용자가 건드리지 않은 것)
+         *   null  → 지우기 (화면의 '키 지우기')
+         *   그 외  → 새 키로 교체
+         */
+        if (apiKey === null) s.providers[key].apiKey = '';
+        else if (typeof apiKey === 'string' && apiKey.trim()) s.providers[key].apiKey = apiKey.trim();
       }
       else if (cfg && cfg.label) {
         // 커스텀 엔진 추가. 내장 엔진 키와 겹치지 않는 이름만 받습니다.
@@ -110,9 +160,17 @@ app.put('/api/settings', (req, res) => {
   res.json(settingsPayload());
 });
 
-app.get('/api/models', wrap(async (req, res) => {
+app.get('/api/models', modelsLimit, wrap(async (req, res) => {
   const provider = req.query.provider || settings().activeProvider;
-  const models = await listModels(provider, settings().providers[provider]);
+  const config = engineConfig(provider);
+  if (!config) return res.status(400).json({ error: `설정되지 않은 엔진: ${provider}` });
+
+  // 저장된 값이라도 한 번 더 봅니다. 허용 목록이 바뀌었거나
+  // settings.json 을 직접 고친 경우가 있습니다.
+  const verdict = checkBaseUrl(config.baseUrl);
+  if (!verdict.ok) return res.status(400).json({ error: verdict.reason });
+
+  const models = await listModels(provider, config);
   res.json({ models });
 }));
 
@@ -160,10 +218,6 @@ app.post('/api/characters/seed', (req, res) => {
 });
 
 /* ---------------- 대화 ---------------- */
-
-/** 사설망·localhost 주소인지. 로컬 엔진은 API 키를 요구하지 않습니다. */
-const isLocalUrl = (url = '') =>
-  /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url);
 
 /** 대화에 박혀 있는 1회성 캐릭터가 우선입니다. */
 const characterOf = (chat) => chat.character || store.characters.get(chat.characterId);
@@ -295,7 +349,7 @@ app.delete('/api/chats/:id/messages/:mid', (req, res) => {
 
 /* ---------------- 생성 (SSE) ---------------- */
 
-app.post('/api/chats/:id/generate', wrap(async (req, res) => {
+app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   const s = settings();
   const chat = store.chats.get(req.params.id);
   if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
@@ -317,9 +371,12 @@ app.post('/api/chats/:id/generate', wrap(async (req, res) => {
   }
 
   const provider = req.body?.provider || s.activeProvider;
-  const config = s.providers[provider];
+  const config = engineConfig(provider);
   if (!config) return res.status(400).json({ error: `설정되지 않은 엔진: ${provider}` });
   if (!config.model) return res.status(400).json({ error: '설정에서 모델을 먼저 선택해 주세요.' });
+
+  const verdict = checkBaseUrl(config.baseUrl);
+  if (!verdict.ok) return res.status(400).json({ error: verdict.reason });
   if (!config.apiKey && !isLocalUrl(config.baseUrl)) {
     return res.status(400).json({ error: `${config.label} API 키가 비어 있습니다. 설정에서 입력해 주세요.` });
   }
@@ -451,7 +508,9 @@ function describeFailure(error, provider, config) {
   const gone = readsAsModelGone(error);
   if (!gone) return error.message;
 
-  const list = config.unavailableModels || (config.unavailableModels = []);
+  // config 는 키를 채워 넣은 사본이므로, 기록은 저장된 원본 쪽에 남겨야 합니다.
+  const stored = store.settings.providers[provider] || config;
+  const list = stored.unavailableModels || (stored.unavailableModels = []);
   if (config.model && !list.includes(config.model)) {
     list.push(config.model);
     store.saveSettings();

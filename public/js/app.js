@@ -812,7 +812,17 @@ function fillProviderBox(key) {
   setKeyVisible(false);
   const cfg = draftProviders[key];
   $('s-baseurl').value = cfg.baseUrl || '';
-  $('s-apikey').value = cfg.apiKey || '';
+  /*
+   * 서버는 키를 내려보내지 않습니다. 칸은 늘 비어 있고, 뭔가 입력했을 때만 교체됩니다.
+   * 저장된 키가 있는지는 placeholder 로 알려 줍니다.
+   */
+  $('s-apikey').value = '';
+  $('s-apikey').placeholder = cfg.keyFromEnv
+    ? '환경변수로 지정되어 있습니다 (여기서 바꿀 수 없음)'
+    : cfg.hasApiKey
+      ? '저장됨 — 바꾸려면 새 키를 입력하세요'
+      : 'API 키를 입력하세요';
+  $('s-apikey').disabled = Boolean(cfg.keyFromEnv);
   $('s-model').value = cfg.model || '';
   $('s-key-field').hidden = key === 'lmstudio';
   $('s-model-msg').textContent = key === 'lmstudio'
@@ -933,11 +943,13 @@ comboInput.addEventListener('blur', () => setTimeout(closeCombo, 120));
 /** 화면에 떠 있던 엔진의 입력값을 임시본에 담아둡니다. */
 function stashProvider() {
   if (!draftProviders?.[shownProvider]) return;
+  const typedKey = $('s-apikey').value.trim();
   Object.assign(draftProviders[shownProvider], {
     baseUrl: $('s-baseurl').value.trim(),
-    apiKey: $('s-apikey').value.trim(),
     model: $('s-model').value.trim()
   });
+  // 빈 칸은 '건드리지 않음' 입니다. 서버가 저장해 둔 키를 그대로 씁니다.
+  if (typedKey) draftProviders[shownProvider].apiKey = typedKey;
 }
 
 /** 화면에 떠 있던 모드의 내용을 임시본에 담아둡니다. */

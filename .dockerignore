@@ -1,0 +1,8 @@
+# data/ 에는 API 키가 평문으로 들어 있습니다.
+# .gitignore 는 docker build 에 적용되지 않으므로 여기에 따로 적어야 합니다.
+data/
+node_modules/
+*.log
+.git/
+.gitignore
+*.md

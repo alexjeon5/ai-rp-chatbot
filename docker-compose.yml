@@ -3,10 +3,26 @@ services:
     build: .
     container_name: rp-chat
     restart: unless-stopped
+    user: "1000:1000"          # 호스트의 pi 계정. ./data 쓰기 권한을 맞추기 위함입니다.
     ports:
-      - "5173:5173"
+      # 127.0.0.1 에 묶어 둡니다. Nginx Proxy Manager 만 붙을 수 있고,
+      # 같은 LAN 의 다른 기기가 5173 으로 직접 들어오지 못합니다.
+      - "127.0.0.1:5173:5173"
     volumes:
       - ./data:/data
-    extra_hosts:
-      # 컨테이너에서 호스트 PC의 LM Studio 를 부를 때 씁니다.
-      - "host.docker.internal:host-gateway"
+    environment:
+      # --- 엔진 주소 허용 목록 (SSRF 방지) ---
+      # LM Studio 가 도는 PC 의 LAN IP. 여기 없는 내부 주소로는 요청이 나가지 않습니다.
+      LOCAL_ENGINE_HOSTS: "192.168.0.10"
+      # OpenRouter 등 직접 추가한 외부 엔진이 있을 때만 씁니다.
+      # EXTRA_ENGINE_HOSTS: "openrouter.ai"
+
+      # --- API 키 ---
+      # 여기에 넣으면 data/settings.json 에 평문으로 남지 않습니다.
+      # 값은 .env 파일에 두고 깃에는 올리지 마세요.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+
+      # 리버스 프록시 뒤에 있으므로 켭니다. 요청 제한이 실제 접속자 기준으로 걸립니다.
+      TRUST_PROXY: "1"
