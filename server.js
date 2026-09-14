@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { store, uid, flushAll, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from './src/store.js';
 import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './src/providers.js';
+import { listLogs, clearLogs } from './src/logs.js';
 import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import {
@@ -173,6 +174,12 @@ app.get('/api/models', modelsLimit, wrap(async (req, res) => {
   const models = await listModels(provider, config);
   res.json({ models });
 }));
+
+/* ---------------- 통신 로그 ---------------- */
+
+/** 대화 내용은 담지 않습니다 — 요청 대상 주소·상태 코드·걸린 시간·오류 메시지뿐입니다. */
+app.get('/api/logs', (req, res) => res.json({ logs: listLogs() }));
+app.delete('/api/logs', (req, res) => { clearLogs(); res.json({ ok: true }); });
 
 /* ---------------- 캐릭터 / 페르소나 ---------------- */
 

@@ -4,7 +4,44 @@
  * async generator 로 통일되어 있습니다. 새 백엔드를 붙이려면 여기에만 추가하면 됩니다.
  */
 
+import { logHttp, trimBody } from './logs.js';
+
 const trimSlash = (u = '') => u.replace(/\/+$/, '');
+
+function hostOfUrl(u = '') {
+  try { return new URL(u).host; } catch { return u; }
+}
+function pathOfUrl(u = '') {
+  try { return new URL(u).pathname; } catch { return u; }
+}
+
+/**
+ * fetch 를 그대로 감싸되, 통신 로그를 남깁니다.
+ * 키·본문 내용은 담지 않고, 어디로/얼마나 걸려서/몇 번 상태였는지만 남깁니다.
+ * 실패했을 때는 응답 본문을 복제해서(clone) 읽습니다 — 원본은 그대로라 이후
+ * assertOk() 등이 다시 res.text() 를 해도 문제없습니다.
+ */
+async function timedFetch(meta, url, options) {
+  const start = Date.now();
+  const base = { provider: meta.provider, host: hostOfUrl(url), path: pathOfUrl(url), kind: meta.kind, retry: meta.retry, detail: meta.detail };
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (networkErr) {
+    logHttp({ ...base, durationMs: Date.now() - start, error: trimBody(networkErr.message || String(networkErr), 300) });
+    networkErr.httpLogged = true; // 이미 위에서 남겼습니다.
+    throw networkErr;
+  }
+  const durationMs = Date.now() - start;
+  if (!res.ok) {
+    let bodyText = '';
+    try { bodyText = await res.clone().text(); } catch { /* 본문을 못 읽어도 상태 코드는 남깁니다 */ }
+    logHttp({ ...base, status: res.status, durationMs, error: trimBody(bodyText, 600) || res.statusText });
+  } else {
+    logHttp({ ...base, status: res.status, durationMs });
+  }
+  return res;
+}
 
 /**
  * 웹 검색을 붙일 수 있는 조합인지.
@@ -51,6 +88,7 @@ async function assertOk(res, name) {
   const err = new Error(`${name} ${res.status}: ${body.slice(0, 500) || res.statusText}`);
   err.status = res.status;
   err.body = body;
+  err.httpLogged = true; // timedFetch 가 이 응답을 이미 로그에 남겼습니다.
   throw err;
 }
 
@@ -151,37 +189,47 @@ function quirksFromError(text = '', current) {
   return changed ? next : null;
 }
 
-async function* openaiCompatible({ config, system, messages, params, signal, extra, webSearch, sources }) {
+async function* openaiCompatible({ provider, config, system, messages, params, signal, extra, webSearch, sources }) {
   const openAiHost = isOpenAiHost(config.baseUrl);
   let quirks = {
     completionTokens: openAiHost,
     dropSampling: openAiHost && looksLikeReasoningModel(config.model)
   };
 
-  const send = () => fetch(`${trimSlash(config.baseUrl)}/chat/completions`, {
-    method: 'POST',
-    signal,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey || 'not-needed'}`
-    },
-    body: JSON.stringify(buildOpenAiBody({ config, system, messages, params, extra, quirks, webSearch }))
-  });
+  const send = (retry = false) => timedFetch(
+    { provider, kind: 'chat', detail: config.model, retry },
+    `${trimSlash(config.baseUrl)}/chat/completions`,
+    {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey || 'not-needed'}`
+      },
+      body: JSON.stringify(buildOpenAiBody({ config, system, messages, params, extra, quirks, webSearch }))
+    }
+  );
 
   let res = await send();
   if (res.status === 400) {
     // 파라미터 때문에 거부당했다면 한 번만 고쳐서 다시 보냅니다.
     const text = await res.text().catch(() => '');
     if (webSearch && /web_search/i.test(text)) {
-      throw new Error(
+      const err = new Error(
         `웹 검색을 지원하지 않는 모델입니다 (${config.model}). ` +
         'gpt-5-search-api 처럼 이름에 search 가 들어간 모델을 선택하거나 웹 검색을 꺼 주세요.'
       );
+      err.httpLogged = true;
+      throw err;
     }
     const fixed = quirksFromError(text, quirks);
-    if (!fixed) throw new Error(`OpenAI 호환 서버 400: ${text.slice(0, 500)}`);
+    if (!fixed) {
+      const err = new Error(`OpenAI 호환 서버 400: ${text.slice(0, 500)}`);
+      err.httpLogged = true;
+      throw err;
+    }
     quirks = fixed;
-    res = await send();
+    res = await send(true);
   }
   await assertOk(res, 'OpenAI 호환 서버');
 
@@ -213,7 +261,7 @@ const THINKING_MODES = [
   () => null
 ];
 
-async function* anthropic({ config, system, messages, params, signal, webSearch, sources, thinking, onThought }) {
+async function* anthropic({ provider, config, system, messages, params, signal, webSearch, sources, thinking, onThought }) {
   /*
    * 사고를 켜면 temperature 와 top_k 를 함께 보낼 수 없습니다.
    * budget_tokens 는 max_tokens 보다 작아야 하고, 사고 토큰도 max_tokens 에서 함께 빠집니다.
@@ -246,23 +294,31 @@ async function* anthropic({ config, system, messages, params, signal, webSearch,
     return body;
   };
 
-  const send = () => fetch(`${trimSlash(config.baseUrl)}/messages`, {
-    method: 'POST',
-    signal,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify(build())
-  });
+  const send = (retry = false) => timedFetch(
+    { provider, kind: 'chat', detail: config.model, retry },
+    `${trimSlash(config.baseUrl)}/messages`,
+    {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify(build())
+    }
+  );
 
   let res = await send();
   while (res.status === 400 && modeIndex < THINKING_MODES.length - 1) {
     const text = await res.text().catch(() => '');
-    if (!/thinking/i.test(text)) throw new Error(`Anthropic 400: ${text.slice(0, 500)}`);
+    if (!/thinking/i.test(text)) {
+      const err = new Error(`Anthropic 400: ${text.slice(0, 500)}`);
+      err.httpLogged = true;
+      throw err;
+    }
     modeIndex += 1;
-    res = await send();
+    res = await send(true);
   }
   await assertOk(res, 'Anthropic');
 
@@ -314,7 +370,7 @@ function geminiError(text = '', webSearch, config) {
   return `Gemini 400: ${text.slice(0, 500)}`;
 }
 
-async function* gemini({ config, system, messages, params, signal, webSearch, sources, thinking, onThought }) {
+async function* gemini({ provider, config, system, messages, params, signal, webSearch, sources, thinking, onThought }) {
   // 키는 쿼리스트링 대신 헤더로 보냅니다. URL 은 로그·프록시에 그대로 남습니다.
   const url = `${trimSlash(config.baseUrl)}/models/${encodeURIComponent(config.model)}:streamGenerateContent?alt=sse`;
   const modes = geminiThinkingModes(config.model, thinking);
@@ -345,22 +401,27 @@ async function* gemini({ config, system, messages, params, signal, webSearch, so
     }
   });
 
-  const send = () => fetch(url, {
-    method: 'POST',
-    signal,
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
-    body: JSON.stringify(build())
-  });
+  const send = (retry = false) => timedFetch(
+    { provider, kind: 'chat', detail: config.model, retry },
+    url,
+    { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey }, body: JSON.stringify(build()) }
+  );
 
   let res = await send();
   while (res.status === 400 && modeIndex < modes.length - 1) {
     const text = await res.text().catch(() => '');
-    if (!/thinking/i.test(text)) throw new Error(geminiError(text, webSearch, config));
+    if (!/thinking/i.test(text)) {
+      const err = new Error(geminiError(text, webSearch, config));
+      err.httpLogged = true;
+      throw err;
+    }
     modeIndex += 1;
-    res = await send();
+    res = await send(true);
   }
   if (res.status === 400) {
-    throw new Error(geminiError(await res.text().catch(() => ''), webSearch, config));
+    const err = new Error(geminiError(await res.text().catch(() => ''), webSearch, config));
+    err.httpLogged = true;
+    throw err;
   }
   await assertOk(res, 'Gemini');
 
@@ -406,11 +467,29 @@ function pickAdapter(provider, config) {
   return adapter;
 }
 
-export function streamChat({ provider, ...rest }) {
+export async function* streamChat({ provider, ...rest }) {
   if (rest.webSearch && !supportsWebSearch(provider, rest.config)) {
     throw new Error(`웹 검색을 지원하지 않는 엔진입니다 (${rest.config?.label || provider}). 로컬 모델에는 검색 도구가 없습니다.`);
   }
-  return pickAdapter(provider, rest.config)(rest);
+  const start = Date.now();
+  try {
+    yield* pickAdapter(provider, rest.config)({ ...rest, provider });
+  } catch (e) {
+    // HTTP 단계 실패는 timedFetch 가 이미 남겼습니다. 여기서는 응답이 200 으로 시작됐지만
+    // 스트림 도중(SSE data 안의 오류 등) 결국 실패로 끝난, 아직 안 남겨진 경우만 남깁니다.
+    if (!e.httpLogged) {
+      logHttp({
+        provider,
+        host: hostOfUrl(rest.config?.baseUrl || ''),
+        path: '(그 외 오류)',
+        kind: 'chat',
+        durationMs: Date.now() - start,
+        detail: rest.config?.model,
+        error: trimBody(e.message || String(e), 300)
+      });
+    }
+    throw e;
+  }
 }
 
 /* ---------- 모델 목록 ---------- */
@@ -421,9 +500,11 @@ export async function listModels(provider, config) {
   const base = trimSlash(config.baseUrl);
   const kind = ADAPTERS[provider] ? provider : config.type;
   if (kind === 'lmstudio' || kind === 'openai') {
-    const res = await fetch(`${base}/models`, {
-      headers: { Authorization: `Bearer ${config.apiKey || 'not-needed'}` }
-    });
+    const res = await timedFetch(
+      { provider, kind: 'models' },
+      `${base}/models`,
+      { headers: { Authorization: `Bearer ${config.apiKey || 'not-needed'}` } }
+    );
     await assertOk(res, '모델 목록');
     const json = await res.json();
     const ids = (json.data || []).map((m) => m.id).filter(Boolean);
@@ -442,9 +523,11 @@ export async function listModels(provider, config) {
       url.searchParams.set('limit', '1000');
       if (afterId) url.searchParams.set('after_id', afterId);
 
-      const res = await fetch(url, {
-        headers: { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' }
-      });
+      const res = await timedFetch(
+        { provider, kind: 'models', retry: page > 0 },
+        url,
+        { headers: { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' } }
+      );
       await assertOk(res, '모델 목록');
       const json = await res.json();
 
@@ -474,7 +557,11 @@ export async function listModels(provider, config) {
       url.searchParams.set('pageSize', '1000');
       if (pageToken) url.searchParams.set('pageToken', pageToken);
 
-      const res = await fetch(url, { headers: { 'x-goog-api-key': config.apiKey } });
+      const res = await timedFetch(
+        { provider, kind: 'models', retry: page > 0 },
+        url,
+        { headers: { 'x-goog-api-key': config.apiKey } }
+      );
       await assertOk(res, '모델 목록');
       const json = await res.json();
 

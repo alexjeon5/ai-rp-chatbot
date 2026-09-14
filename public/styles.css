@@ -8,6 +8,7 @@
   --brass: #d9b168;
   --brass-soft: #8d7340;
   --danger: #c97b84;
+  --ok: #8fae94;
   --serif: 'Gowun Batang', 'Nanum Myeongjo', serif;
   --sans: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
   --rail: 276px;
@@ -1274,6 +1275,51 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .persona-row .grow { flex: 1; min-width: 0; }
 .persona-row .p-name { font-family: var(--serif); }
 .persona-row .p-desc { font-size: 12.5px; color: var(--muted); }
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  overflow: auto;
+  padding: 16px 22px;
+  margin: 0;
+  list-style: none;
+}
+.log-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.log-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.log-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--ok);
+}
+.log-fail .log-dot { background: var(--danger); }
+.log-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.log-provider { font-family: var(--serif); }
+.log-path { color: var(--muted); }
+.log-tag {
+  font-size: 11px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+.log-status { font-variant-numeric: tabular-nums; }
+.log-fail .log-status { color: var(--danger); }
+.log-ok .log-status { color: var(--ok); }
+.log-ms { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+.log-detail { margin-top: 4px; color: var(--muted); }
+.log-error {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
 
 .icon-btn {
   border: 0;

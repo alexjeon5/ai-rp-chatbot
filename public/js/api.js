@@ -17,6 +17,8 @@ export const api = {
   models: (provider) => req(`/api/models?provider=${encodeURIComponent(provider)}`),
   clearUnavailable: (provider) =>
     req(`/api/providers/${encodeURIComponent(provider)}/unavailable`, { method: 'DELETE' }),
+  logs: () => req('/api/logs'),
+  clearLogs: () => req('/api/logs', { method: 'DELETE' }),
 
   characters: () => req('/api/characters'),
   createCharacter: (body) => req('/api/characters', { method: 'POST', body }),

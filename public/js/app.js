@@ -212,6 +212,9 @@ for (const tab of document.querySelectorAll('.mode-tab')) {
     // 다른 모드의 대화가 열려 있었다면 닫습니다.
     const chatMode = state.chat?.kind === 'assistant' ? 'assistant' : 'rp';
     if (state.chat && chatMode !== state.mode) closeChat();
+    // 대화를 아예 안 열어 둔 상태였다면 closeChat 이 실행되지 않으므로,
+    // 가운데 안내 문구를 여기서 새 모드에 맞게 다시 그립니다.
+    else if (!state.chat) ui.renderEmptyStage(state.mode);
 
     ui.renderChatList(visibleChats(), state.chat?.id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
   });
@@ -1317,4 +1320,57 @@ dlgDev.addEventListener('close', async () => {
   applyDev(state.settings.dev);
   paintModelBadge();
   ui.toast('개발자 설정을 저장했습니다');
+});
+
+/* ---------------- 통신 로그 ---------------- */
+
+const dlgLogs = $('dlg-logs');
+const escLog = (t = '') =>
+  String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString('ko-KR', { hour12: false });
+}
+
+function paintLogs(logs) {
+  $('log-count').textContent = logs.length ? `최근 ${logs.length}건 (최신 순)` : '기록이 없습니다';
+  $('log-list').innerHTML = logs.length ? logs.map((l) => {
+    const ok = !l.error;
+    const statusText = l.status ?? (ok ? '' : '연결 실패');
+    return `<li class="log-row ${ok ? 'log-ok' : 'log-fail'}">
+      <div class="log-row-head">
+        <span class="log-dot"></span>
+        <span class="log-time">${fmtTime(l.at)}</span>
+        <span class="log-provider">${escLog(l.provider || '?')}</span>
+        <span class="log-path">${escLog(l.path || '')}</span>
+        ${l.retry ? '<span class="log-tag">재시도</span>' : ''}
+        <span class="spacer"></span>
+        <span class="log-status">${escLog(statusText)}</span>
+        <span class="log-ms">${l.durationMs != null ? `${l.durationMs}ms` : ''}</span>
+      </div>
+      ${l.detail ? `<div class="log-detail">${escLog(l.detail)}</div>` : ''}
+      ${l.error ? `<pre class="log-error">${escLog(l.error)}</pre>` : ''}
+    </li>`;
+  }).join('') : '<li class="rail-empty">아직 통신 기록이 없습니다. 대화를 한 번 보내 보세요.</li>';
+}
+
+async function loadLogs() {
+  $('log-list').innerHTML = '<li class="rail-empty">불러오는 중…</li>';
+  try {
+    const { logs } = await api.logs();
+    paintLogs(logs);
+  } catch (err) {
+    $('log-list').innerHTML = `<li class="rail-empty">불러오지 못했습니다 — ${escLog(err.message)}</li>`;
+  }
+}
+
+$('d-show-logs').addEventListener('click', () => {
+  dlgLogs.showModal();
+  loadLogs();
+});
+$('log-refresh').addEventListener('click', loadLogs);
+$('log-clear').addEventListener('click', async () => {
+  if (!confirm('통신 로그를 모두 지울까요?')) return;
+  await api.clearLogs();
+  loadLogs();
 });
