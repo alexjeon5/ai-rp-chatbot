@@ -315,7 +315,7 @@ AI 특유의 과도한 일관성, 뻔한 표현, 지나치게 매끄러운 구�
 /** 내장 틀의 원본 내용. '기본 내용 가져오기' 가 이 목록에서 꺼내 씁니다. */
 // 일반 셋을 먼저, 성인 셋을 뒤로 묶어 둡니다. 목록·모드 선택 창에서 섞이지 않게 하기 위함입니다.
 export const BUILTIN_TEMPLATES = () => [
-  { id: 'default', name: '기본 롤플레이', template: DEFAULT_SYSTEM_TEMPLATE, adult: false },
+  { id: 'default', name: '롤플레이', template: DEFAULT_SYSTEM_TEMPLATE, adult: false },
   { id: 'novelist', name: '소설 모드', template: NOVELIST_TEMPLATE, adult: false },
   { id: 'narrator', name: '연출 모드', template: NARRATOR_TEMPLATE, adult: false },
   { id: 'adult', name: '성인 롤플레이', template: ADULT_TEMPLATE, adult: true },
@@ -514,6 +514,7 @@ export class Store {
     if (!Array.isArray(s.presets) || !s.presets.length) s.presets = BUILTIN_TEMPLATES();
 
     const RENAMED = {
+      default: ['기본 롤플레이', '롤플레이'],
       novelist: ['소설가 모드', '소설 모드'],
       adult: ['성인 모드 (로컬 전용)', '성인 롤플레이']
     };
