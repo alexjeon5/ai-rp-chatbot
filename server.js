@@ -6,6 +6,8 @@ import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './s
 import { listLogs, clearLogs } from './src/logs.js';
 import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
+import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
+import { GEN_SYSTEM, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
 import {
   isLocalUrl, checkBaseUrl, resolveApiKey, maskProviders, rateLimit, sameOrigin
 } from './src/security.js';
@@ -217,6 +219,77 @@ const CHARACTER_FIELDS = [
 
 crud('characters', store.characters, CHARACTER_FIELDS);
 crud('personas', store.personas, ['name', 'description']);
+
+/* ---------------- 랜덤 페르소나 ---------------- */
+
+/**
+ * 1단계 — 씨앗 태그만 굴립니다. 모델을 부르지 않으므로 즉시 끝나고 요청 제한도 걸지 않습니다.
+ * body: { seeds?, only?: ['trait', ...] }  only 를 주면 그 항목만 다시 굴립니다.
+ */
+app.post('/api/personas/roll', (req, res) => {
+  const keep = sanitizeSeeds(req.body?.seeds || {});
+  const only = Array.isArray(req.body?.only)
+    ? req.body.only.filter((k) => SEED_KEYS.includes(k))
+    : null;
+  res.json({ seeds: rollSeeds(keep, only?.length ? only : null), fields: SEED_FIELDS });
+});
+
+/**
+ * 2단계 — 씨앗 태그를 모델에 넘겨 소개 문단을 받습니다.
+ * 엔진이 없거나 실패하면 태그만으로 만든 문장을 대신 돌려줍니다 (fallback: true).
+ */
+app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
+  const s = settings();
+  const seeds = rollSeeds(sanitizeSeeds(req.body?.seeds || {}));
+  const provider = req.body?.provider || s.activeProvider;
+  const config = engineConfig(provider);
+
+  const bail = (reason) => res.json({
+    seeds,
+    name: seeds.name,
+    description: fallbackDescription(seeds),
+    fallback: true,
+    reason
+  });
+
+  if (!config || !config.model) return bail('엔진이나 모델이 설정되지 않았습니다.');
+  const verdict = checkBaseUrl(config.baseUrl);
+  if (!verdict.ok) return bail(verdict.reason);
+  if (!config.apiKey && !isLocalUrl(config.baseUrl)) return bail(`${config.label} API 키가 비어 있습니다.`);
+
+  const controller = new AbortController();
+  let finished = false;
+  res.on('close', () => { if (!finished) controller.abort(); });
+
+  // 소개 한 문단이면 충분하므로 길이를 짧게 잡고, 온도는 설정값을 따릅니다.
+  const params = { ...s.params, maxTokens: Math.min(s.params.maxTokens ?? 2048, 700) };
+  const stripper = makeThoughtStripper({});
+  let text = '';
+  try {
+    const stream = streamChat({
+      provider,
+      config,
+      system: withThinking(GEN_SYSTEM, false),
+      messages: [{ role: 'user', content: buildGenPrompt(seeds) }],
+      params,
+      signal: controller.signal
+    });
+    for await (const chunk of stream) {
+      text += stripper.feed(chunk);
+      if (looksRepetitive(text)) { controller.abort(); break; }
+    }
+    text += stripper.flush();
+  } catch (e) {
+    finished = true;
+    if (controller.signal.aborted) return;
+    return bail(e.message);
+  }
+
+  finished = true;
+  const description = cleanGenerated(text);
+  if (!description) return bail('모델이 빈 응답을 보냈습니다.');
+  res.json({ seeds, name: seeds.name, description, fallback: false });
+}));
 
 /** 내장 캐릭터 중 아직 없는 것만 추가합니다. 기존 캐릭터는 손대지 않습니다. */
 app.post('/api/characters/seed', (req, res) => {

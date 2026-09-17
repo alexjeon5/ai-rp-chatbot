@@ -448,6 +448,32 @@ export function renderPersonaList(personas, activeId) {
     .join('');
 }
 
+/**
+ * 랜덤 페르소나의 씨앗 태그를 칩으로 그립니다.
+ * 칩 하나를 누르면 그 항목만 다시 굴리므로 data-key 를 남겨 둡니다.
+ * fields 는 서버가 내려준 [{ key, label }] 순서를 그대로 씁니다.
+ */
+export function renderSeedChips(seeds, fields = []) {
+  const ul = document.getElementById('p-seeds');
+  if (!seeds) {
+    ul.hidden = true;
+    ul.innerHTML = '';
+    return;
+  }
+  ul.hidden = false;
+  ul.innerHTML = fields
+    .map(({ key, label }) => {
+      const value = seeds[key];
+      const text = Array.isArray(value) ? value.join(' · ') : value;
+      if (!text) return '';
+      return `<li><button type="button" class="seed-chip" data-key="${esc(key)}" title="다시 굴리기">
+        <span class="seed-label">${esc(label)}</span>
+        <span class="seed-value">${esc(text)}</span>
+      </button></li>`;
+    })
+    .join('');
+}
+
 /** 대화를 하나도 열지 않았을 때 가운데에 뜨는 안내를 모드에 맞게 씁니다. */
 export function renderEmptyStage(mode) {
   const box = document.getElementById('messages');

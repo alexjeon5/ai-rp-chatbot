@@ -145,6 +145,19 @@
         <label class="field"><span>이름</span><input id="p-name" placeholder="나"></label>
         <label class="field"><span>소개</span><input id="p-description" placeholder="평범한 대학생. 호기심이 많다."></label>
       </div>
+
+      <div class="seed-box">
+        <div class="seed-head">
+          <span class="field-hint grow">태그를 굴려 뼈대를 잡고, 문장은 AI 가 씁니다. 칩을 누르면 그 항목만 다시 굴립니다.</span>
+          <button id="p-roll" class="ghost-btn" type="button">🎲 랜덤</button>
+        </div>
+        <ul id="p-seeds" class="seed-chips" hidden></ul>
+        <div id="p-seed-actions" class="seed-actions" hidden>
+          <button id="p-write" class="ghost-btn" type="button">문장 만들기</button>
+          <span id="p-seed-note" class="field-hint"></span>
+        </div>
+      </div>
+
       <button id="p-add" class="ghost-btn" type="button">페르소나 추가</button>
     </div>
     <div class="sheet-foot">

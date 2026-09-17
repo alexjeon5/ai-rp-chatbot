@@ -30,6 +30,8 @@ export const api = {
   createPersona: (body) => req('/api/personas', { method: 'POST', body }),
   updatePersona: (id, body) => req(`/api/personas/${id}`, { method: 'PUT', body }),
   deletePersona: (id) => req(`/api/personas/${id}`, { method: 'DELETE' }),
+  rollPersonaSeeds: (seeds, only) => req('/api/personas/roll', { method: 'POST', body: { seeds, only } }),
+  generatePersona: (seeds) => req('/api/personas/generate', { method: 'POST', body: { seeds } }),
 
   chats: () => req('/api/chats'),
   chat: (id) => req(`/api/chats/${id}`),

@@ -1276,6 +1276,56 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .persona-row .p-name { font-family: var(--serif); }
 .persona-row .p-desc { font-size: 12.5px; color: var(--muted); }
 
+/* 랜덤 페르소나 씨앗 태그 */
+.seed-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.seed-head { display: flex; gap: 10px; align-items: center; }
+.seed-head .grow { flex: 1; min-width: 0; }
+
+.seed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.seed-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.seed-chip:hover { border-color: var(--brass-soft); }
+.seed-chip[disabled] { opacity: 0.5; cursor: default; }
+
+.seed-label {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--brass);
+}
+
+.seed-value { font-size: 12.5px; }
+
+.seed-actions { display: flex; gap: 10px; align-items: center; }
+
 .log-list {
   display: flex;
   flex-direction: column;

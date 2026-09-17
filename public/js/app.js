@@ -766,8 +766,64 @@ $('p-add').addEventListener('click', async () => {
   await api.createPersona({ name, description: $('p-description').value.trim() });
   $('p-name').value = '';
   $('p-description').value = '';
+  showSeeds(null);
+  seedNote('');
   state.personas = await api.personas();
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
+});
+
+/* --- 랜덤 페르소나 --- */
+
+// 지금 화면에 떠 있는 씨앗 태그. 칩을 눌러 항목 하나만 다시 굴릴 때 기준이 됩니다.
+let seedDraft = null;
+let seedFields = [];
+
+function showSeeds(seeds, fields) {
+  seedDraft = seeds;
+  if (fields?.length) seedFields = fields;
+  ui.renderSeedChips(seedDraft, seedFields);
+  $('p-seed-actions').hidden = !seedDraft;
+  if (seedDraft?.name) $('p-name').value = seedDraft.name;
+}
+
+const seedNote = (text = '') => { $('p-seed-note').textContent = text; };
+
+async function rollSeeds(only = null) {
+  try {
+    const { seeds, fields } = await api.rollPersonaSeeds(only ? seedDraft : {}, only);
+    showSeeds(seeds, fields);
+    seedNote('');
+  } catch (e) {
+    ui.toast(e.message);
+  }
+}
+
+$('p-roll').addEventListener('click', () => rollSeeds());
+
+$('p-seeds').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-key]');
+  if (chip) rollSeeds([chip.dataset.key]);
+});
+
+$('p-write').addEventListener('click', async () => {
+  if (!seedDraft) return;
+  const btn = $('p-write');
+  btn.disabled = true;
+  btn.textContent = '쓰는 중…';
+  seedNote('');
+  try {
+    const out = await api.generatePersona(seedDraft);
+    showSeeds(out.seeds);
+    $('p-name').value = out.name || $('p-name').value;
+    $('p-description').value = out.description;
+    // 모델을 못 쓰면 태그만으로 만든 문장이 옵니다. 왜 그런지 알려 줘야 고칠 수 있습니다.
+    seedNote(out.fallback ? `태그만으로 만들었습니다 — ${out.reason}` : '마음에 들면 아래 버튼으로 추가하세요.');
+  } catch (e) {
+    ui.toast(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '문장 만들기';
+  }
 });
 
 $('persona-list').addEventListener('click', async (e) => {
