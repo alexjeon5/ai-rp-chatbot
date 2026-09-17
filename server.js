@@ -9,7 +9,8 @@ import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
 import { GEN_SYSTEM, genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
 import {
-  CHAR_GEN_SYSTEM, CHAR_FIELDS as CHAR_GEN_FIELDS, buildCharPrompt, parseCharacter, looksUsable
+  CHAR_GEN_SYSTEM, CHAR_FIELDS as CHAR_GEN_FIELDS, buildCharPrompt, parseCharacter, looksUsable,
+  mergeCharacters, roughFallback
 } from './src/character-gen.js';
 import {
   isLocalUrl, checkBaseUrl, resolveApiKey, maskProviders, rateLimit, sameOrigin
@@ -338,41 +339,73 @@ app.post('/api/characters/draft', generateLimit, wrap(async (req, res) => {
   let finished = false;
   res.on('close', () => { if (!finished) controller.abort(); });
 
-  // 시트 열 칸을 채우려면 페르소나 한 문단보다 넉넉해야 합니다.
-  const params = { ...s.params, maxTokens: Math.max(s.params.maxTokens ?? 2048, 1500) };
-  const stripper = makeThoughtStripper({});
-  let text = '';
-  try {
+  // 구조화된 라벨 출력이 목적이라, 롤플레이용 온도보다 낮게 고정합니다.
+  // 온도가 높을수록 라벨을 바꿔 쓰거나 형식을 벗어나는 일이 잦아집니다.
+  const params = {
+    ...s.params,
+    temperature: Math.min(s.params.temperature ?? 1, 0.5),
+    maxTokens: Math.max(s.params.maxTokens ?? 2048, 1500)
+  };
+
+  /** 지금까지 정해진 값(known) 이후의 빈칸만 채우도록 한 번 부릅니다. */
+  const ask = async (known) => {
+    // 라벨 형식 텍스트는 "성격:", "말투:" 처럼 짧은 줄이 반복되는 모양이라
+    // 반복 감지가 오작동하기 쉬워, 이 엔드포인트에서는 반복 감지를 쓰지 않습니다.
+    // 대신 maxTokens 로 상한을 잡아 둡니다.
+    const stripper = makeThoughtStripper({});
+    let out = '';
     const stream = streamChat({
       provider,
       config,
       system: withThinking(CHAR_GEN_SYSTEM, false),
-      messages: [{ role: 'user', content: buildCharPrompt(brief, current) }],
+      messages: [{ role: 'user', content: buildCharPrompt(brief, known) }],
       params,
       signal: controller.signal
     });
-    for await (const chunk of stream) {
-      text += stripper.feed(chunk);
-      if (looksRepetitive(text)) { controller.abort(); break; }
-    }
-    text += stripper.flush();
+    for await (const chunk of stream) out += stripper.feed(chunk);
+    return out + stripper.flush();
+  };
+
+  let text;
+  try {
+    text = await ask(current);
   } catch (e) {
     finished = true;
     if (controller.signal.aborted) return;
     return res.status(502).json({ error: describeFailure(e, provider, config) });
   }
 
-  finished = true;
-  const character = parseCharacter(text);
-  // 사용자가 직접 채워 둔 칸이 우선입니다. 모델이 무시하고 다시 썼어도 되돌립니다.
-  Object.assign(character, current);
+  let character = mergeCharacters(current, parseCharacter(text));
+  let lastText = text;
+
+  // 첫 시도에서 알맹이(성격/소개/배경/말투 중 하나)가 안 나왔으면, 이미 채워진 항목은
+  // 그대로 두고 남은 빈칸만 한 번 더 요청합니다. 매번 처음부터 다시 시키는 것보다
+  // 빈칸만 채우게 하는 쪽이 형식이 훨씬 안정적으로 나옵니다.
   if (!looksUsable(character)) {
-    return res.status(502).json({
-      error: '모델 응답에서 캐릭터 시트를 읽지 못했습니다. 설명을 조금 더 구체적으로 적거나 다시 시도해 보세요.',
-      raw: text.slice(0, 500)
+    try {
+      const retryText = await ask(character);
+      lastText = retryText;
+      character = mergeCharacters(character, parseCharacter(retryText));
+    } catch (e) {
+      if (controller.signal.aborted) { finished = true; return; }
+      // 재시도 자체가 실패해도 첫 시도 결과는 살아 있으니 계속 진행합니다.
+    }
+  }
+
+  finished = true;
+
+  if (!looksUsable(character)) {
+    // 그래도 라벨을 못 읽었으면 빈 칸으로 돌려보내는 대신, 모델이 실제로 쓴 글을
+    // 추가 설정 칸에 남겨서 손으로라도 옮길 거리를 줍니다. 재시도가 있었다면
+    // 그쪽이 더 최근 시도이므로 재시도의 원문을 씁니다.
+    character = roughFallback(character, lastText);
+    return res.json({
+      character,
+      fallback: true,
+      reason: '모델이 형식을 지키지 않아 일부만 채워졌습니다. 나머지는 직접 채우거나 다시 시도해 보세요.'
     });
   }
-  res.json({ character });
+  res.json({ character, fallback: false });
 }));
 
 /* ---------------- 대화 ---------------- */

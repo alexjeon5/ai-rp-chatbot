@@ -733,11 +733,12 @@ $('c-draft').addEventListener('click', async () => {
   const btn = $('c-draft');
   btn.disabled = true;
   btn.textContent = '쓰는 중…';
-  draftNote('모델에 따라 30초 남짓 걸립니다.');
+  draftNote('모델에 따라 30초 남짓 걸립니다. 형식이 안 맞으면 한 번 더 시도합니다.');
   try {
-    const { character } = await api.draftCharacter(brief, current);
+    const { character, fallback, reason } = await api.draftCharacter(brief, current);
     for (const f of CHAR_FIELDS) if (character[f]) $(`c-${f}`).value = character[f];
-    draftNote('채웠습니다. 고친 뒤 저장하세요.');
+    // fallback 이어도 에러가 아니라, 채워진 만큼만 온 것입니다 — 계속 진행합니다.
+    draftNote(fallback ? `일부만 채워졌습니다 — ${reason}` : '채웠습니다. 고친 뒤 저장하세요.');
   } catch (e) {
     draftNote('');
     ui.toast(e.message);
