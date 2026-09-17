@@ -7,7 +7,7 @@ import { listLogs, clearLogs } from './src/logs.js';
 import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
-import { GEN_SYSTEM, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
+import { GEN_SYSTEM, genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
 import {
   CHAR_GEN_SYSTEM, CHAR_FIELDS as CHAR_GEN_FIELDS, buildCharPrompt, parseCharacter, looksUsable
 } from './src/character-gen.js';
@@ -234,16 +234,19 @@ app.post('/api/personas/roll', (req, res) => {
   const only = Array.isArray(req.body?.only)
     ? req.body.only.filter((k) => SEED_KEYS.includes(k))
     : null;
-  res.json({ seeds: rollSeeds(keep, only?.length ? only : null), fields: SEED_FIELDS });
+  const adult = Boolean(req.body?.adult);
+  res.json({ seeds: rollSeeds(keep, only?.length ? only : null, adult), fields: SEED_FIELDS });
 });
 
 /**
  * 2단계 — 씨앗 태그를 모델에 넘겨 소개 문단을 받습니다.
  * 엔진이 없거나 실패하면 태그만으로 만든 문장을 대신 돌려줍니다 (fallback: true).
+ * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 로컬 엔진으로만 나갑니다.
  */
 app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
   const s = settings();
-  const seeds = rollSeeds(sanitizeSeeds(req.body?.seeds || {}));
+  const adult = Boolean(req.body?.adult);
+  const seeds = rollSeeds(sanitizeSeeds(req.body?.seeds || {}), null, adult);
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
 
@@ -259,6 +262,10 @@ app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
   const verdict = checkBaseUrl(config.baseUrl);
   if (!verdict.ok) return bail(verdict.reason);
   if (!config.apiKey && !isLocalUrl(config.baseUrl)) return bail(`${config.label} API 키가 비어 있습니다.`);
+  // 대화의 성인 프리셋과 같은 규칙: 외부 API 로는 성인 태그를 내보내지 않습니다.
+  if (adult && !isLocalUrl(config.baseUrl)) {
+    return bail(`성인 페르소나 생성은 로컬 엔진으로만 가능합니다. 지금 선택된 엔진은 로컬 주소가 아닙니다 (${config.label}).`);
+  }
 
   const controller = new AbortController();
   let finished = false;
@@ -272,7 +279,7 @@ app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
     const stream = streamChat({
       provider,
       config,
-      system: withThinking(GEN_SYSTEM, false),
+      system: withThinking(genSystem(adult), false),
       messages: [{ role: 'user', content: buildGenPrompt(seeds) }],
       params,
       signal: controller.signal

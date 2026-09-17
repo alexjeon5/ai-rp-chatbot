@@ -418,9 +418,18 @@ docker compose up -d
 흘리는 경우가 잦아, 형식을 요구할수록 실패가 늘었습니다. 대신 `cleanGenerated()` 가 머리말(`소개:`),
 코드펜스, 목록 기호, 둘째 문단을 걷어냅니다.
 
+`rollSeeds(keep, only, adult)` 의 세 번째 인자가 풀을 완전히 바꿉니다 — `POOLS` 와
+`ADULT_POOLS` 는 같은 함수(`compatible`/`conflicts`)를 공유하지만 배열 자체는 분리되어 있어서,
+`adult: false` 로 부르면 성인 풀의 문구가 절대 섞이지 않습니다. `ADULT_POOLS.age` 에는
+"10대" 로 읽힐 수 있는 값을 아예 넣지 않았습니다 — 성인 캐릭터의 나이 안전장치입니다.
+
 `POST /api/personas/generate` 는 엔진 미설정·주소 거부·키 없음·모델 오류·빈 응답을 전부
 `fallbackDescription()` 으로 흡수해 **200 으로** 돌려줍니다 (`fallback: true`, `reason` 포함).
 페르소나를 만드는 중에 오류 창을 띄우는 것보다, 밋밋하더라도 문장이 들어가는 쪽이 낫기 때문입니다.
+`adult: true` 로 호출하면 대화의 성인 프리셋과 같은 규칙(`isLocalUrl`)을 한 번 더 검사합니다 —
+로컬이 아니면 모델을 부르지 않고 바로 `fallback: true` 로 빠집니다. 씨앗을 굴리기만 하는
+`/api/personas/roll` 은 모델을 안 부르므로 이 검사가 필요 없습니다.
+
 `maxTokens` 는 설정값과 무관하게 700 으로 잘라 둡니다 — 한 문단이면 충분한데 4096 을 주면
 로컬 모델이 계속 이어 씁니다.
 

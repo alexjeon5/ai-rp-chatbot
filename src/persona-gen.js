@@ -16,6 +16,20 @@ export const GEN_SYSTEM =
   '- 대사, 따옴표, 괄호 묘사, 제목, 머리말, 목록 기호를 쓰지 않습니다.\n' +
   '- 설명이나 사족 없이 본문만 출력합니다.';
 
+/**
+ * 성인 모드에 붙이는 추가 지시입니다. 노골적인 성적 묘사를 요청하는 게 아니라,
+ * 이 인물이 성인 대상 롤플레이의 상대역이라는 것과 나이·관계 관련 태그를
+ * 자연스럽게 문단에 녹이라는 정도입니다. 실제 성인 서술은 대화 쪽 시스템
+ * 프롬프트(성인 롤플레이 등)가 맡습니다 — 여기서는 여전히 소개 한 문단일 뿐입니다.
+ */
+const ADULT_GEN_NOTE =
+  '\n이 인물은 성인 대상 롤플레이의 상대역입니다. 태그에 있는 관계·연애 뉘앙스는 자연스럽게 담되,' +
+  ' 노골적인 성적 묘사 없이 인물 소개 수준으로만 씁니다.';
+
+export function genSystem(adult = false) {
+  return adult ? GEN_SYSTEM + ADULT_GEN_NOTE : GEN_SYSTEM;
+}
+
 export function buildGenPrompt(seeds) {
   const lines = seedsToLines(seeds);
   return `다음 태그로 인물 소개 한 문단을 써 주세요.\n\n${lines.join('\n')}\n\n본문만 출력하세요.`;

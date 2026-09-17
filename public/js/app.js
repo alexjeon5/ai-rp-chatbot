@@ -819,10 +819,11 @@ function showSeeds(seeds, fields) {
 }
 
 const seedNote = (text = '') => { $('p-seed-note').textContent = text; };
+const isAdultPersona = () => $('p-adult').checked;
 
 async function rollSeeds(only = null) {
   try {
-    const { seeds, fields } = await api.rollPersonaSeeds(only ? seedDraft : {}, only);
+    const { seeds, fields } = await api.rollPersonaSeeds(only ? seedDraft : {}, only, isAdultPersona());
     showSeeds(seeds, fields);
     seedNote('');
   } catch (e) {
@@ -831,6 +832,12 @@ async function rollSeeds(only = null) {
 }
 
 $('p-roll').addEventListener('click', () => rollSeeds());
+
+// 성인 여부를 바꾸면 풀이 통째로 달라지므로, 지금 뽑힌 태그는 버리고 다시 시작합니다.
+$('p-adult').addEventListener('change', () => {
+  showSeeds(null);
+  seedNote('');
+});
 
 $('p-seeds').addEventListener('click', (e) => {
   const chip = e.target.closest('[data-key]');
@@ -844,7 +851,7 @@ $('p-write').addEventListener('click', async () => {
   btn.textContent = '쓰는 중…';
   seedNote('');
   try {
-    const out = await api.generatePersona(seedDraft);
+    const out = await api.generatePersona(seedDraft, isAdultPersona());
     showSeeds(out.seeds);
     $('p-name').value = out.name || $('p-name').value;
     $('p-description').value = out.description;
