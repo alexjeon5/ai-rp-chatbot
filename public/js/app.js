@@ -710,8 +710,40 @@ function openCharacterDialog(ch) {
   // 이미 저장된 캐릭터를 고칠 때는 '이번만 쓰기' 가 뜻이 없습니다.
   $('c-once').hidden = Boolean(ch?.id);
   for (const f of CHAR_FIELDS) $(`c-${f}`).value = ch?.[f] || '';
+  $('c-brief').value = '';
+  draftNote('');
   dlgChar.showModal();
 }
+
+/* --- 줄글 → 캐릭터 시트 --- */
+
+const draftNote = (text = '') => { $('c-draft-note').textContent = text; };
+
+$('c-draft').addEventListener('click', async () => {
+  const brief = $('c-brief').value.trim();
+  if (!brief) return ui.toast('어떤 캐릭터인지 적어 주세요');
+
+  // 이미 채워 둔 칸은 모델에게 '정해진 것' 으로 넘기고, 응답에서도 덮어쓰지 않습니다.
+  const current = Object.fromEntries(
+    CHAR_FIELDS.map((f) => [f, $(`c-${f}`).value.trim()]).filter(([, v]) => v)
+  );
+
+  const btn = $('c-draft');
+  btn.disabled = true;
+  btn.textContent = '쓰는 중…';
+  draftNote('모델에 따라 30초 남짓 걸립니다.');
+  try {
+    const { character } = await api.draftCharacter(brief, current);
+    for (const f of CHAR_FIELDS) if (character[f]) $(`c-${f}`).value = character[f];
+    draftNote('채웠습니다. 고친 뒤 저장하세요.');
+  } catch (e) {
+    draftNote('');
+    ui.toast(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'AI 로 채우기';
+  }
+});
 
 $('c-once').addEventListener('click', () => {
   const draft = Object.fromEntries(CHAR_FIELDS.map((f) => [f, $(`c-${f}`).value.trim()]));

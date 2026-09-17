@@ -23,6 +23,7 @@ export const api = {
   characters: () => req('/api/characters'),
   createCharacter: (body) => req('/api/characters', { method: 'POST', body }),
   seedCharacters: () => req('/api/characters/seed', { method: 'POST', body: {} }),
+  draftCharacter: (brief, current) => req('/api/characters/draft', { method: 'POST', body: { brief, current } }),
   updateCharacter: (id, body) => req(`/api/characters/${id}`, { method: 'PUT', body }),
   deleteCharacter: (id) => req(`/api/characters/${id}`, { method: 'DELETE' }),
 

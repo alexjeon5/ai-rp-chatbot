@@ -1419,3 +1419,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+
+/* 줄글 → 캐릭터 시트 입력 상자 */
+.seed-box textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.seed-box textarea:focus { outline: none; border-color: var(--brass-soft); }

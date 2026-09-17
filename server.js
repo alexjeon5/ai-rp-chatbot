@@ -9,6 +9,9 @@ import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
 import { GEN_SYSTEM, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
 import {
+  CHAR_GEN_SYSTEM, CHAR_FIELDS as CHAR_GEN_FIELDS, buildCharPrompt, parseCharacter, looksUsable
+} from './src/character-gen.js';
+import {
   isLocalUrl, checkBaseUrl, resolveApiKey, maskProviders, rateLimit, sameOrigin
 } from './src/security.js';
 
@@ -296,6 +299,74 @@ app.post('/api/characters/seed', (req, res) => {
   const added = store.addMissingBuiltins();
   res.json({ added, characters: store.characters.all() });
 });
+
+/**
+ * 줄글 설명 하나를 캐릭터 시트로 바꿔 돌려줍니다. 저장은 하지 않습니다 —
+ * 화면의 입력 칸을 채워 주기만 하고, 사람이 고친 뒤 기존 저장 버튼으로 넣습니다.
+ * body: { brief, current?, provider? }  current 는 사용자가 이미 채워 둔 칸(그대로 유지됩니다).
+ */
+app.post('/api/characters/draft', generateLimit, wrap(async (req, res) => {
+  const s = settings();
+  const brief = String(req.body?.brief || '').trim().slice(0, 4000);
+  if (!brief) return res.status(400).json({ error: '어떤 캐릭터인지 먼저 적어 주세요.' });
+
+  const current = {};
+  for (const { key } of CHAR_GEN_FIELDS) {
+    const value = req.body?.current?.[key];
+    if (typeof value === 'string' && value.trim()) current[key] = value.trim().slice(0, 2000);
+  }
+
+  const provider = req.body?.provider || s.activeProvider;
+  const config = engineConfig(provider);
+  if (!config || !config.model) {
+    return res.status(400).json({ error: '설정에서 엔진과 모델을 먼저 선택해 주세요.' });
+  }
+  const verdict = checkBaseUrl(config.baseUrl);
+  if (!verdict.ok) return res.status(400).json({ error: verdict.reason });
+  if (!config.apiKey && !isLocalUrl(config.baseUrl)) {
+    return res.status(400).json({ error: `${config.label} API 키가 비어 있습니다. 설정에서 입력해 주세요.` });
+  }
+
+  const controller = new AbortController();
+  let finished = false;
+  res.on('close', () => { if (!finished) controller.abort(); });
+
+  // 시트 열 칸을 채우려면 페르소나 한 문단보다 넉넉해야 합니다.
+  const params = { ...s.params, maxTokens: Math.max(s.params.maxTokens ?? 2048, 1500) };
+  const stripper = makeThoughtStripper({});
+  let text = '';
+  try {
+    const stream = streamChat({
+      provider,
+      config,
+      system: withThinking(CHAR_GEN_SYSTEM, false),
+      messages: [{ role: 'user', content: buildCharPrompt(brief, current) }],
+      params,
+      signal: controller.signal
+    });
+    for await (const chunk of stream) {
+      text += stripper.feed(chunk);
+      if (looksRepetitive(text)) { controller.abort(); break; }
+    }
+    text += stripper.flush();
+  } catch (e) {
+    finished = true;
+    if (controller.signal.aborted) return;
+    return res.status(502).json({ error: describeFailure(e, provider, config) });
+  }
+
+  finished = true;
+  const character = parseCharacter(text);
+  // 사용자가 직접 채워 둔 칸이 우선입니다. 모델이 무시하고 다시 썼어도 되돌립니다.
+  Object.assign(character, current);
+  if (!looksUsable(character)) {
+    return res.status(502).json({
+      error: '모델 응답에서 캐릭터 시트를 읽지 못했습니다. 설명을 조금 더 구체적으로 적거나 다시 시도해 보세요.',
+      raw: text.slice(0, 500)
+    });
+  }
+  res.json({ character });
+}));
 
 /* ---------------- 대화 ---------------- */
 

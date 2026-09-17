@@ -109,6 +109,17 @@
   <form method="dialog" class="sheet-inner">
     <h2 class="sheet-title" id="char-dlg-title">캐릭터 만들기</h2>
     <div class="sheet-body">
+      <div class="seed-box">
+        <div class="seed-head">
+          <span class="field-hint grow">어떤 캐릭터인지 줄글로 적으면 AI 가 아래 항목을 채웁니다. 이미 적어 둔 칸은 그대로 둡니다.</span>
+        </div>
+        <textarea id="c-brief" rows="3" placeholder="밤에만 문을 여는 헌책방 주인. 30대 초반, 말수가 적고 손님을 귀찮아하는데 정작 책 얘기가 나오면 눈이 반짝인다."></textarea>
+        <div class="seed-actions">
+          <button id="c-draft" class="ghost-btn" type="button">AI 로 채우기</button>
+          <span id="c-draft-note" class="field-hint"></span>
+        </div>
+      </div>
+
       <div class="grid-2">
         <label class="field short"><span>아이콘</span><input id="c-avatar" maxlength="2" placeholder="🌙"></label>
         <label class="field"><span>이름</span><input id="c-name" required placeholder="유하린"></label>
