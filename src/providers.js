@@ -510,8 +510,9 @@ export async function listModels(provider, config) {
     const ids = (json.data || []).map((m) => m.id).filter(Boolean);
 
     // LM Studio 는 올려둔 모델만 주므로 그대로, OpenAI 는 임베딩·음성·이미지가 섞여 옵니다.
+    // 검색 모델(gpt-5-search-api 등)은 남겨 둡니다. 웹 검색은 이 모델로만 됩니다.
     if (!isOpenAiHost(config.baseUrl)) return keep(ids).sort();
-    const notChat = /embedding|whisper|tts|dall-e|moderation|image|audio|transcribe|search|similarity|davinci|babbage/i;
+    const notChat = /embedding|whisper|tts|dall-e|moderation|image|audio|transcribe|similarity|davinci|babbage/i;
     return keep(ids.filter((id) => !notChat.test(id))).sort();
   }
   if (kind === 'anthropic') {

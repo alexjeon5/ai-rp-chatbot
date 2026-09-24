@@ -253,7 +253,8 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET/POST/PUT/DELETE | `/api/personas[/:id]` | 페르소나 CRUD |
 | GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD |
 | POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제 |
-| POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate }` 바디 |
+| POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate }` 바디. 재전송은 새 응답이 생겼을 때만 이전 응답을 교체 |
+| POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
 | GET | `/api/chats/:id/system` | 진단용 — 조립된 시스템 프롬프트 미리보기 |
 | POST | `/api/chats/:id/save-character` | 1회성 캐릭터를 목록으로 승격 |
 | DELETE | `/api/providers/:key/unavailable` | 감춰진 모델 기록 초기화 |

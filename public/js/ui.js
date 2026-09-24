@@ -244,12 +244,50 @@ export function fillNames(text = '', { char = '캐릭터', user = '나' } = {}) 
   return out;
 }
 
+/**
+ * 알림은 popover 로 띄웁니다. 설정 창 같은 모달은 최상위 층에 올라가서,
+ * 일반 요소로 띄운 알림은 z-index 와 상관없이 그 아래에 깔려 보이지 않습니다.
+ * 매번 다시 열어야 가장 나중에 열린 모달보다 위에 놓입니다.
+ */
 export function toast(message) {
   const el = document.getElementById('toast');
+  const popover = typeof el.showPopover === 'function';
   el.textContent = message;
   el.hidden = false;
+  if (popover) {
+    if (el.matches(':popover-open')) el.hidePopover();
+    el.showPopover();
+  }
   clearTimeout(el._t);
-  el._t = setTimeout(() => { el.hidden = true; }, 2600);
+  el._t = setTimeout(() => {
+    if (popover && el.matches(':popover-open')) el.hidePopover();
+    el.hidden = true;
+  }, 2600);
+}
+
+/**
+ * 클립보드에 복사합니다. navigator.clipboard 는 https 나 localhost 에서만 열려 있어서,
+ * http://192.168.x.x 처럼 LAN 주소로 접속하면 없습니다. 그때는 옛 방식으로 복사합니다.
+ */
+export async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch { /* 권한 거부 등 — 아래 방식으로 한 번 더 시도합니다 */ }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  // 모달이 열려 있으면 그 안에 넣어야 선택·복사가 됩니다.
+  (document.querySelector('dialog[open]') || document.body).appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  ta.remove();
+  return ok;
 }
 
 export function renderChatList(chats, activeId, characters, { hideAdult = false, mode = 'rp' } = {}) {
