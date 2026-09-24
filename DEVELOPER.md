@@ -219,6 +219,13 @@ data: {"done": true, "message": {...}}   완료
 
 ---
 
+### 컨텍스트 예산 — `src/context.js`
+
+- `estimateTokens` 는 토크나이저 없이 글자 종류로 어림합니다 (한글 음절 0.9, ASCII 0.3, 그 밖 0.8)
+- `planContext` 가 한도(`provider.contextTokens`) − 시스템 − 뒤에 붙는 글(작가 노트 등) − 답변 여유(`maxTokens`) 안에서 최근 메시지부터 고릅니다. `historyLimit`(최대 메시지 수)는 그 위의 상한입니다. 마지막 메시지는 넘쳐도 보냅니다
+- 서버의 `planFor(chat)` 가 생성·미리보기·게이지(`GET /api/chats/:id/context`)·요약 판단에 같은 계산을 씁니다
+- 엔진이 실제 프롬프트 토큰 수를 알려 주면(`onUsage`: OpenAI 호환은 `stream_options.include_usage`, Anthropic `message_start`, Gemini `usageMetadata`) `nextRatio` 로 `settings.tokenRatio[엔진]` 을 갱신해 다음 어림에 곱합니다. `stream_options` 를 모르는 서버가 400 을 내면 빼고 다시 보냅니다
+
 ### 대화 한 개의 규칙 — `src/chat-ops.js`
 
 저장소와 무관한 순수 함수만 둡니다.
@@ -226,7 +233,7 @@ data: {"done": true, "message": {...}}   완료
 - **답변 넘겨보기** — `addSwipe` / `showSwipe` / `syncSwipe`. 메시지의 `content` 는 늘 보고 있는 장(`swipes[swipeIndex]`)과 같아서, 히스토리·미리보기 코드는 장을 몰라도 됩니다. 장은 최대 20개
 - **이어쓰기** — `CONTINUE_PROMPT` 를 사용자 턴으로 덧붙여 보내고 `joinContinuation` 으로 이어 붙입니다. 문장이 끝난 자리에서만 띄웁니다
 - **작가 노트** — `withAuthorNote` 가 보낼 히스토리 사본의 마지막 사용자 턴 끝에 붙입니다. 저장된 메시지는 건드리지 않습니다
-- **기억 요약** — `pendingForSummary` 가 기억할 메시지 수 밖으로 밀려났고 `chat.summaryUntilAt` 이후인 메시지를 고릅니다. id 가 아니라 시각으로 기억하므로 메시지를 지워도 처음부터 다시 요약하지 않습니다. 결과는 `buildSystem({ memory })` 로 시스템 프롬프트 끝에 붙습니다
+- **기억 요약** — `pendingForSummary` 가 컨텍스트 예산 밖으로 밀려났고 `chat.summaryUntilAt` 이후인 메시지를 고릅니다. id 가 아니라 시각으로 기억하므로 메시지를 지워도 처음부터 다시 요약하지 않습니다. 결과는 `buildSystem({ memory })` 로 시스템 프롬프트 끝에 붙습니다
 - **자동 기억** — `factsWindow` → `buildFactsPrompt` → `parseFactOps` → `applyFactOps`. 모델에게 목록 전체를 다시 쓰게 하지 않고 add/update/remove 만 받습니다. `auto: false`(직접)·`pinned` 항목은 모델이 못 바꿉니다. 항목은 `sourceIds` 로 근거 메시지를 기억하고, 메시지가 지워지거나 다른 장으로 넘어가면 `invalidateFacts` 가 치우고 `factsUntilAt` 을 되감아 다시 읽게 합니다. 요약·기억 확인은 `background` 맵에 등록되어 새 답변 요청이 오면 멈춥니다
 - **여러 인물** — `chat.castIds` 의 캐릭터가 `buildSystem({ cast })` 로 들어갑니다. 모델 호출은 한 번이고, 인물끼리의 대화는 줄 앞 `이름:` 으로 구분합니다
 
@@ -267,6 +274,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate, continue }` 바디. regenerate 는 마지막 답변에 새 장(`swipes`)을 얹고, continue 는 끝에 이어 붙임. 둘 다 새 내용이 생겼을 때만 바뀜 |
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
 | POST | `/api/chats/:id/facts/extract` | `{ auto }` 최근 대화에서 사실을 뽑아 `chat.facts` 에 추가·수정·삭제. auto 는 답변 4개 이상 쌓였을 때만. 새 generate 요청이 오면 멈춤 |
+| GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
 | GET | `/api/chats/:id/system` | 진단용 — 조립된 시스템 프롬프트 미리보기 |

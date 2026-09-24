@@ -50,6 +50,7 @@ export const api = {
     req(`/api/chats/${chatId}/messages/${mid}/swipe`, { method: 'PUT', body: { index } }),
   extractFacts: (chatId, auto = false) =>
     req(`/api/chats/${chatId}/facts/extract`, { method: 'POST', body: { auto } }),
+  context: (chatId) => req(`/api/chats/${chatId}/context`),
   summarize: (chatId, auto = false) =>
     req(`/api/chats/${chatId}/summarize`, { method: 'POST', body: { auto } }),
   editMessage: (chatId, mid, content) =>
@@ -59,7 +60,7 @@ export const api = {
 };
 
 /** SSE 응답을 읽으며 조각마다 onDelta 를 호출합니다. */
-export async function generate(chatId, { regenerate = false, resume = false, signal, onDelta, onThought, onSources }) {
+export async function generate(chatId, { regenerate = false, resume = false, signal, onDelta, onThought, onSources, onContext }) {
   const res = await fetch(`/api/chats/${chatId}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -91,6 +92,7 @@ export async function generate(chatId, { regenerate = false, resume = false, sig
       if (payload.delta) onDelta?.(payload.delta);
       if (payload.thought) onThought?.(payload.thought);
       if (payload.sources) onSources?.(payload.sources);
+      if (payload.context) onContext?.(payload.context);
       if (payload.done) result = payload;
     }
   }

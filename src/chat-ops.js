@@ -100,13 +100,14 @@ export const MEMORY_MAX_CHARS = 2400;
 const visibleOf = (chat) => chat.messages.filter((m) => !m.hidden && m.content?.trim());
 
 /**
- * 기억할 메시지 수 밖으로 밀려났는데 아직 요약에 들어가지 않은 메시지들.
+ * 컨텍스트 밖으로 밀려났는데 아직 요약에 들어가지 않은 메시지들.
+ * kept 는 이번에 모델에게 보내는(최근) 메시지 수입니다 — 토큰 예산으로 정해집니다.
  * 어디까지 요약했는지는 메시지 시각으로 기억합니다. id 로 기억하면
  * 그 메시지를 지웠을 때 처음부터 다시 요약하게 됩니다.
  */
-export function pendingForSummary(chat, limit) {
+export function pendingForSummary(chat, kept) {
   const visible = visibleOf(chat);
-  const dropped = visible.slice(0, Math.max(0, visible.length - limit));
+  const dropped = visible.slice(0, Math.max(0, visible.length - kept));
   const since = Number(chat.summaryUntilAt) || 0;
   return dropped.filter((m) => (m.at || 0) > since);
 }

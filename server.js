@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { store, uid, flushAll, merge, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from './src/store.js';
 import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './src/providers.js';
 import { listLogs, clearLogs } from './src/logs.js';
-import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
+import { buildSystem, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
+import { planContext, contextLimitOf, estimateTokens, nextRatio } from './src/context.js';
 import {
   addSwipe, showSwipe, syncSwipe, joinContinuation, CONTINUE_PROMPT, withAuthorNote,
   pendingForSummary, takeChunk, SUMMARY_MIN, SUMMARY_SYSTEM, buildSummaryPrompt, cleanSummary, MEMORY_MAX_CHARS,
@@ -635,6 +636,40 @@ function castOf(chat) {
     .filter(Boolean);
 }
 
+/**
+ * 이 대화를 지금 보낸다면 무엇이 들어가는지. 생성·미리보기·게이지·요약이 같은 계산을 씁니다.
+ * 토큰 한도 안에서 최근 메시지부터 채우고, '최대 메시지 수' 는 그 위의 상한입니다.
+ * @param {object} [o]
+ * @param {object} [o.basis] 히스토리를 뽑을 메시지 묶음 (다시 쓰기면 마지막 답변을 뺀 것)
+ * @param {string} [o.extra] 히스토리 뒤에 더 붙는 글 (이어쓰기·대신 쓰기 지시)
+ */
+function planFor(chat, { provider = settings().activeProvider, basis = chat, extra = '' } = {}) {
+  const s = settings();
+  const config = engineConfig(provider) || {};
+  const assistant = chat.kind === 'assistant';
+  const ctx = assistant ? null : rpContext(chat);
+  const system = assistant
+    ? withThinking(s.assistant.systemPrompt, Boolean(s.assistant.thinking))
+    : ctx?.system || '';
+  const params = assistant ? s.assistant.params : s.params;
+  const note = ctx && chat.authorNote?.trim()
+    ? fillVars(chat.authorNote, { char: ctx.character.name, user: ctx.persona?.name, particleFix: s.dev.particleFix })
+    : '';
+  const plan = planContext(basis.messages, {
+    system,
+    limit: contextLimitOf(config, isLocalUrl(config.baseUrl || '')),
+    reserve: Number(params.maxTokens) || 0,
+    maxMessages: Number(s.historyLimit) || 40,
+    extra: [note, extra].filter(Boolean).join('\n'),
+    ratio: s.tokenRatio?.[provider] || 1
+  });
+  return { ...plan, ctx, system, note, provider };
+}
+
+/** 보정 전 어림. 엔진이 알려 준 실제 토큰 수와 비교해 보정값을 만듭니다. */
+const rawPromptTokens = (system, history) =>
+  estimateTokens(system) + history.reduce((n, m) => n + estimateTokens(m.content) + 6, 0);
+
 /** 엔진을 쓸 수 있는지 봅니다. 문제가 있으면 사람이 읽을 안내를, 없으면 null 을 돌려줍니다. */
 function engineProblem(config, provider) {
   if (!config) return `설정되지 않은 엔진: ${provider}`;
@@ -710,14 +745,12 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   const basis = mode === 'regenerate' && target
     ? { ...chat, messages: chat.messages.slice(0, -1) }
     : chat;
-  let history = buildHistory(basis, s.historyLimit);
+  // 토큰 한도 안에 들어가는 만큼만 최근 메시지부터 보냅니다.
+  const plan = planFor(chat, { provider, basis, extra: mode === 'continue' ? CONTINUE_PROMPT : '' });
+  let history = plan.history;
   if (mode === 'continue') history.push({ role: 'user', content: CONTINUE_PROMPT });
-  if (!assistant && chat.authorNote?.trim()) {
-    const ctx = rpContext(chat);
-    history = withAuthorNote(history, fillVars(chat.authorNote, {
-      char: ctx.character.name, user: ctx.persona?.name, particleFix: s.dev.particleFix
-    }));
-  }
+  if (plan.note) history = withAuthorNote(history, plan.note);
+  const rawPrompt = rawPromptTokens(system, history);
   // 첫 대사도 없는 캐릭터에서 인사말을 다시 뽑는 경우처럼, 보낼 턴이 하나도 없을 수 있습니다.
   if (!history.length) history.push({ role: 'user', content: '(장면을 시작한다)' });
 
@@ -728,6 +761,16 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
     'X-Accel-Buffering': 'no'
   });
   const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  // 화면의 컨텍스트 게이지를 먼저 채웁니다.
+  send({ context: plan.usage });
+
+  // 엔진이 실제 프롬프트 토큰 수를 알려 주면 어림 보정값을 갱신하고 게이지에도 알려 줍니다.
+  const onUsage = ({ promptTokens }) => {
+    const ratio = nextRatio(s.tokenRatio?.[provider], promptTokens, rawPrompt);
+    s.tokenRatio = { ...(s.tokenRatio || {}), [provider]: ratio };
+    store.saveSettings();
+    send({ context: { ...plan.usage, actual: promptTokens } });
+  };
 
   // 브라우저가 창을 닫거나 '멈추기'를 누르면 응답 소켓이 끊깁니다.
   // req 의 close 는 요청 본문이 끝날 때도 발생하므로 res 를 봐야 합니다.
@@ -762,6 +805,7 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
       sources,
       thinking,
       onThought,
+      onUsage,
       signal: controller.signal
     });
     for await (const chunk of stream) {
@@ -843,11 +887,13 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
   if (chat.kind === 'assistant') return res.status(400).json({ error: '어시스턴트 대화는 요약하지 않습니다.' });
   const auto = Boolean(req.body?.auto);
 
-  let pending = pendingForSummary(chat, s.historyLimit);
+  // 지금 컨텍스트에 들어가는 메시지 수. 그보다 앞은 모델이 못 보므로 요약 대상입니다.
+  const keptNow = () => planFor(chat).usage.kept;
+  let pending = pendingForSummary(chat, keptNow());
   const reply = (extra = {}) => res.json({
     memory: chat.memory || '',
     summaryUntilAt: chat.summaryUntilAt || 0,
-    pending: pendingForSummary(chat, s.historyLimit).length,
+    pending: pendingForSummary(chat, keptNow()).length,
     ...extra
   });
   if (auto && (!s.memory?.autoSummarize || pending.length < SUMMARY_MIN)) return reply({ skipped: true });
@@ -897,7 +943,7 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
       chat.summaryUntilAt = chunk[chunk.length - 1].at || Date.now();
       store.chats.save(chat.id);
       summarized += chunk.length;
-      pending = pendingForSummary(chat, s.historyLimit);
+      pending = pendingForSummary(chat, keptNow());
     }
   } catch (e) {
     if (controller.signal.aborted) {
@@ -1057,6 +1103,21 @@ app.delete('/api/providers/:key/unavailable', (req, res) => {
   res.json({ cleared: count });
 });
 
+/**
+ * 컨텍스트 게이지. 지금 보낸다면 설정·기억 / 대화 / 답변 여유가 한도에서 얼마씩 차지하는지.
+ * query: provider (없으면 지금 엔진)
+ */
+app.get('/api/chats/:id/context', (req, res) => {
+  const chat = store.chats.get(req.params.id);
+  if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
+  const provider = String(req.query.provider || settings().activeProvider);
+  const plan = planFor(chat, { provider });
+  res.json({
+    ...plan.usage,
+    pendingSummary: chat.kind === 'assistant' ? 0 : pendingForSummary(chat, plan.usage.kept).length
+  });
+});
+
 /** 개발자 설정의 '시스템 프롬프트 미리보기'가 쓰는 엔드포인트입니다. */
 app.get('/api/chats/:id/system', (req, res) => {
   const s = settings();
@@ -1064,13 +1125,13 @@ app.get('/api/chats/:id/system', (req, res) => {
   if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
 
   if (chat.kind === 'assistant') {
-    return res.json({ system: s.assistant.systemPrompt, turns: buildHistory(chat, s.historyLimit).length });
+    return res.json({ system: s.assistant.systemPrompt, turns: planFor(chat).usage.kept });
   }
   const ctx = rpContext(chat);
   if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
   res.json({
     system: ctx.system,
-    turns: buildHistory(chat, s.historyLimit).length,
+    turns: planFor(chat).usage.kept,
     authorNote: chat.authorNote?.trim()
       ? fillVars(chat.authorNote, { char: ctx.character.name, user: ctx.persona?.name, particleFix: s.dev.particleFix })
       : ''

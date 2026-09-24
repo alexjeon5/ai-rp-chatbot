@@ -464,6 +464,8 @@ const defaultSettings = () => ({
   askModeOnNewChat: true,
   // 기억할 메시지 수 밖으로 밀려난 대화를 자동으로 요약해 둘지.
   memory: { autoSummarize: true, autoFacts: true },
+  // 엔진별 토큰 어림 보정값. 엔진이 알려 준 실제 토큰 수로 스스로 맞춰 갑니다.
+  tokenRatio: {},
   presets: BUILTIN_TEMPLATES(),
   params: { temperature: 1.0, maxTokens: 2048, topP: 0.95, topK: 64, repeatPenalty: 1.1 },
   assistant: {
@@ -488,10 +490,11 @@ const defaultSettings = () => ({
     }
   },
   providers: {
-    lmstudio: { label: 'LM Studio', type: 'openai', builtin: true, baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio', model: '', unavailableModels: [] },
-    openai: { label: 'OpenAI', type: 'openai', builtin: true, baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o', unavailableModels: [] },
-    anthropic: { label: 'Anthropic', type: 'anthropic', builtin: true, baseUrl: 'https://api.anthropic.com/v1', apiKey: '', model: 'claude-sonnet-5', unavailableModels: [] },
-    gemini: { label: 'Google Gemini', type: 'gemini', builtin: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: '', model: 'gemini-3.8-flash', unavailableModels: [] }
+    // contextTokens: 모델이 한 번에 받는 토큰 수. LM Studio 는 Context Length 설정과 같게 맞춥니다.
+    lmstudio: { label: 'LM Studio', type: 'openai', builtin: true, baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio', model: '', contextTokens: 16384, unavailableModels: [] },
+    openai: { label: 'OpenAI', type: 'openai', builtin: true, baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o', contextTokens: 128000, unavailableModels: [] },
+    anthropic: { label: 'Anthropic', type: 'anthropic', builtin: true, baseUrl: 'https://api.anthropic.com/v1', apiKey: '', model: 'claude-sonnet-5', contextTokens: 200000, unavailableModels: [] },
+    gemini: { label: 'Google Gemini', type: 'gemini', builtin: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: '', model: 'gemini-3.8-flash', contextTokens: 1000000, unavailableModels: [] }
   }
 });
 

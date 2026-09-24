@@ -815,6 +815,25 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .composer-hint .keys { flex: 1; min-width: 0; }
 
+/* ---------- 컨텍스트 게이지 ---------- */
+.ctx-gauge { display: inline-flex; gap: 7px; align-items: center; flex: none; cursor: help; }
+.ctx-bar {
+  display: flex;
+  width: 96px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--line);
+}
+.ctx-bar i { display: block; height: 100%; width: 0; transition: width 0.25s ease; }
+.ctx-bar .seg-sys { background: var(--muted); }
+.ctx-bar .seg-hist { background: var(--brass); }
+.ctx-bar .seg-res { background: var(--brass-soft); opacity: 0.55; }
+.ctx-gauge.is-warn .ctx-label { color: var(--brass); }
+.ctx-gauge.is-over .ctx-label { color: var(--danger); }
+.ctx-gauge.is-over .seg-hist { background: var(--danger); }
+.ctx-label { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 .quick-bar {
   display: flex;
   gap: 6px;

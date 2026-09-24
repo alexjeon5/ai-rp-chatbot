@@ -160,6 +160,8 @@ function buildOpenAiBody({ config, system, messages, params, extra, quirks, webS
 
   // 검색은 전용 모델(gpt-5-search-api, gpt-4o-search-preview 등)에서만 동작합니다.
   if (webSearch) body.web_search_options = {};
+  // 마지막 조각에 실제 토큰 수를 받아 컨텍스트 어림을 보정합니다. 모르는 서버면 빼고 다시 보냅니다.
+  if (!quirks.noUsage) body.stream_options = { include_usage: true };
 
   // max_tokens 는 OpenAI 에서 폐기되고 max_completion_tokens 로 바뀌었습니다.
   // 로컬 호환 서버(LM Studio, Ollama, llama.cpp)는 아직 max_tokens 만 압니다.
@@ -186,10 +188,14 @@ function quirksFromError(text = '', current) {
     next.dropSampling = true;
     changed = true;
   }
+  if (/stream_options|include_usage/i.test(text) && !current.noUsage) {
+    next.noUsage = true;
+    changed = true;
+  }
   return changed ? next : null;
 }
 
-async function* openaiCompatible({ provider, config, system, messages, params, signal, extra, webSearch, sources }) {
+async function* openaiCompatible({ provider, config, system, messages, params, signal, extra, webSearch, sources, onUsage }) {
   const openAiHost = isOpenAiHost(config.baseUrl);
   let quirks = {
     completionTokens: openAiHost,
@@ -238,6 +244,7 @@ async function* openaiCompatible({ provider, config, system, messages, params, s
     let json;
     try { json = JSON.parse(data); } catch { continue; }
     if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    if (json.usage?.prompt_tokens) onUsage?.({ promptTokens: json.usage.prompt_tokens });
     const choice = json.choices?.[0];
     for (const a of choice?.delta?.annotations || choice?.message?.annotations || []) {
       if (a?.type === 'url_citation') addSource(sources, a.url_citation?.url, a.url_citation?.title);
@@ -261,7 +268,7 @@ const THINKING_MODES = [
   () => null
 ];
 
-async function* anthropic({ provider, config, system, messages, params, signal, webSearch, sources, thinking, onThought }) {
+async function* anthropic({ provider, config, system, messages, params, signal, webSearch, sources, thinking, onThought, onUsage }) {
   /*
    * 사고를 켜면 temperature 와 top_k 를 함께 보낼 수 없습니다.
    * budget_tokens 는 max_tokens 보다 작아야 하고, 사고 토큰도 max_tokens 에서 함께 빠집니다.
@@ -326,6 +333,11 @@ async function* anthropic({ provider, config, system, messages, params, signal, 
     let json;
     try { json = JSON.parse(data); } catch { continue; }
     if (json.type === 'error') throw new Error(json.error?.message || 'Anthropic 오류');
+    if (json.type === 'message_start') {
+      const u = json.message?.usage || {};
+      const input = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      if (input) onUsage?.({ promptTokens: input });
+    }
 
     // 검색 결과는 별도 블록으로 옵니다. 본문 앞뒤 어디든 끼어들 수 있습니다.
     if (json.type === 'content_block_start' && json.content_block?.type === 'web_search_tool_result') {
@@ -370,7 +382,7 @@ function geminiError(text = '', webSearch, config) {
   return `Gemini 400: ${text.slice(0, 500)}`;
 }
 
-async function* gemini({ provider, config, system, messages, params, signal, webSearch, sources, thinking, onThought }) {
+async function* gemini({ provider, config, system, messages, params, signal, webSearch, sources, thinking, onThought, onUsage }) {
   // 키는 쿼리스트링 대신 헤더로 보냅니다. URL 은 로그·프록시에 그대로 남습니다.
   const url = `${trimSlash(config.baseUrl)}/models/${encodeURIComponent(config.model)}:streamGenerateContent?alt=sse`;
   const modes = geminiThinkingModes(config.model, thinking);
@@ -429,6 +441,7 @@ async function* gemini({ provider, config, system, messages, params, signal, web
     let json;
     try { json = JSON.parse(data); } catch { continue; }
     if (json.error) throw new Error(json.error.message || 'Gemini 오류');
+    if (json.usageMetadata?.promptTokenCount) onUsage?.({ promptTokens: json.usageMetadata.promptTokenCount });
 
     // 근거 자료는 마지막 청크에 groundingMetadata 로 붙어 옵니다.
     for (const chunk of json.candidates?.[0]?.groundingMetadata?.groundingChunks || []) {

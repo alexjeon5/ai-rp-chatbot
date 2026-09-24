@@ -173,6 +173,7 @@ $('quick-provider').addEventListener('change', async (e) => {
   try {
     state.settings = await api.saveSettings({ activeProvider: e.target.value });
     paintModelBadge();
+    refreshContext();
     const cfg = state.settings.providers[state.settings.activeProvider];
     ui.toast(cfg.model ? `엔진을 바꿨습니다 — ${cfg.label}` : `모델을 먼저 선택해 주세요 — ${cfg.label}`);
   } catch (err) {
@@ -238,6 +239,7 @@ function closeChat() {
   $('chat-persona').hidden = true;
   $('btn-websearch').hidden = true;
   $('btn-thinking').hidden = true;
+  paintContext(null);
   setStreaming(false);
   ui.renderEmptyStage(state.mode);
 }
@@ -286,6 +288,7 @@ $('chat-preset').addEventListener('change', async (e) => {
   paintQuickProvider();
   // 메신저 모드로 바꾸거나 빠져나오면 말풍선 모양이 달라집니다.
   if (!state.run) paintThread();
+  refreshContext();
 });
 
 /* ---------------- 대화 ---------------- */
@@ -316,6 +319,7 @@ async function openChat(id) {
   paintWebSearch();
   paintThinking();
   paintThread();
+  refreshContext();
   ui.renderChatList(visibleChats(), id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
   closeSidebarOnNarrow();
 }
@@ -549,6 +553,51 @@ const castOf = (chat) => (chat?.castIds || [])
 const charLabel = (chat) =>
   [characterOf(chat)?.name, ...castOf(chat).map((c) => c.name)].filter(Boolean).join(' · ') || '상대';
 
+/* ---------------- 컨텍스트 게이지 ---------------- */
+
+const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n));
+
+/**
+ * 입력창 아래 막대. 한도 가운데 설정·기억(회색) / 대화(금색) / 답변 여유(옅은 금색)가
+ * 얼마씩 차지하는지 보여 줍니다. 대화가 한도를 넘으면 옛 메시지부터 잘려 나갑니다.
+ */
+function paintContext(info) {
+  const gauge = $('ctx-gauge');
+  state.context = info || null;
+  if (!info || !state.chat) {
+    gauge.hidden = true;
+    return;
+  }
+  const { limit, system, history, extra = 0, reserve, kept, dropped, ratio, actual, over } = info;
+  const pct = (n) => `${Math.min(100, (n / limit) * 100).toFixed(1)}%`;
+  gauge.querySelector('.seg-sys').style.width = pct(system + extra);
+  gauge.querySelector('.seg-hist').style.width = pct(history);
+  gauge.querySelector('.seg-res').style.width = pct(reserve);
+  const used = system + extra + history;
+  $('ctx-label').textContent = `${fmtK(used)} / ${fmtK(limit)}` + (dropped ? ` · ${dropped}개 잘림` : '');
+  const share = (used + reserve) / limit;
+  gauge.classList.toggle('is-over', Boolean(over));
+  gauge.classList.toggle('is-warn', !over && share > 0.9);
+  gauge.title = [
+    `컨텍스트 한도 ${limit.toLocaleString()} 토큰 (설정 → 엔진에서 바꿉니다)`,
+    `· 설정·기억·노트 ${system + extra}`,
+    `· 대화 ${history} — 최근 메시지 ${kept}개를 보냅니다${dropped ? `, 앞의 ${dropped}개는 잘렸습니다` : ''}`,
+    `· 답변 여유 ${reserve} (응답 최대 길이)`,
+    actual ? `마지막 요청의 실제 입력: ${actual.toLocaleString()} 토큰` : null,
+    ratio && ratio !== 1 ? `어림 보정 ×${ratio} (엔진이 알려 준 실제 토큰 수로 맞춘 값)` : '토큰 수는 글자 수로 어림한 값입니다',
+    over ? '한도를 넘습니다. 응답 최대 길이를 줄이거나 컨텍스트 길이를 늘려 주세요.' : null
+  ].filter(Boolean).join('\n');
+  gauge.hidden = false;
+}
+
+/** 대화가 바뀌었을 때(열기·삭제·수정·엔진 변경 등) 게이지를 새로 받습니다. */
+async function refreshContext() {
+  const chat = state.chat;
+  if (!chat) return paintContext(null);
+  const info = await api.context(chat.id).catch(() => null);
+  if (state.chat === chat) paintContext(info);
+}
+
 function paintThread() {
   if (!state.chat) return;
   ui.renderThread(state.chat, characterOf(state.chat), personaOf(state.chat), {
@@ -666,6 +715,7 @@ async function run({ mode = 'new' } = {}) {
       regenerate: mode === 'regenerate',
       resume: mode === 'continue',
       signal: runState.controller.signal,
+      onContext: (info) => { if (isOpen()) paintContext(info); },
       onDelta: (d) => {
         acc += d;
         textEl.innerHTML = format(base + acc);
@@ -732,6 +782,7 @@ async function run({ mode = 'new' } = {}) {
     if (reload && isOpen()) setTimeout(() => { if (isOpen() && !state.run) openChat(chat.id); }, 300);
     else refreshChatList();
     if (succeeded) afterReply(chat);
+    if (isOpen()) refreshContext();
   }
 }
 
@@ -762,12 +813,13 @@ function setStreaming(on) {
 
 /* ---------------- 기억 요약 ---------------- */
 
-/** 기억할 메시지 수 밖으로 밀려났는데 아직 요약에 안 들어간 메시지 수. 서버와 같은 규칙입니다. */
+/**
+ * 컨텍스트 밖으로 밀려났는데 아직 요약에 안 들어간 메시지 수.
+ * 어디까지 들어가는지는 토큰 예산으로 서버가 정하므로, 게이지와 함께 받은 값을 씁니다.
+ */
 function pendingCount(chat) {
-  const visible = chat.messages.filter((m) => !m.hidden && m.content?.trim());
-  const dropped = visible.slice(0, Math.max(0, visible.length - state.settings.historyLimit));
-  const since = Number(chat.summaryUntilAt) || 0;
-  return dropped.filter((m) => (m.at || 0) > since).length;
+  if (state.chat === chat && state.context) return state.context.pendingSummary ?? 0;
+  return 0;
 }
 
 /** 답변이 끝난 뒤 뒤에서 기억을 정리합니다. 로컬 엔진이 한 번에 하나씩만 받으므로 차례로 돌립니다. */
@@ -801,13 +853,18 @@ async function autoFacts(chat) {
 /** 답변이 끝난 뒤 조용히 돕니다. 밀린 메시지가 기준보다 적으면 요청도 보내지 않습니다. */
 async function autoSummarize(chat) {
   if (chat.kind === 'assistant' || !state.settings.memory?.autoSummarize) return;
+  // 답변이 붙으며 잘리는 범위가 바뀌었으니 새로 받아 봅니다.
+  if (state.chat === chat) await refreshContext();
   if (pendingCount(chat) < 10) return;
   try {
     const r = await api.summarize(chat.id, true);
     if (!r.summarized) return;
     chat.memory = r.memory;
     chat.summaryUntilAt = r.summaryUntilAt;
-    if (state.chat === chat) ui.toast(`오래된 대화 ${r.summarized}개를 기억에 요약했습니다`);
+    if (state.chat === chat) {
+      ui.toast(`오래된 대화 ${r.summarized}개를 기억에 요약했습니다`);
+      refreshContext();
+    }
   } catch { /* 자동 요약은 실패해도 대화를 막지 않습니다 */ }
 }
 
@@ -914,6 +971,7 @@ $('btn-memory').addEventListener('click', async () => {
   if (fresh) {
     for (const k of ['facts', 'factsUntilAt', 'memory', 'summaryUntilAt', 'authorNote']) chat[k] = fresh[k];
   }
+  await refreshContext();
   draftFacts = structuredClone(chat.facts || []);
   paintFacts();
   paintFactStatus(chat);
@@ -942,6 +1000,7 @@ $('m-summarize').addEventListener('click', async () => {
     chat.summaryUntilAt = r.summaryUntilAt;
     $('m-memory').value = r.memory;
     ui.toast(r.summarized ? `옛 메시지 ${r.summarized}개를 요약했습니다` : '요약할 메시지가 없습니다');
+    await refreshContext();
   } catch (e) {
     ui.toast(`요약하지 못했습니다 — ${e.message}`);
   } finally {
@@ -963,6 +1022,7 @@ dlgMemory.addEventListener('close', async () => {
       state.settings = await api.saveSettings({ memory });
     }
     ui.toast('기억과 작가 노트를 저장했습니다');
+    refreshContext();
   } catch (e) {
     dlgMemory.returnValue = '';
     dlgMemory.showModal();
@@ -1013,6 +1073,7 @@ dlgCast.addEventListener('close', async () => {
   if (state.chat !== chat) return;
   paintChatSub();
   if (!state.run) paintThread();
+  refreshContext();
   const names = castOf(chat).map((c) => c.name);
   ui.toast(names.length ? `함께 등장: ${names.join(', ')}` : '함께 등장하는 인물을 모두 뺐습니다');
 });
@@ -1045,6 +1106,7 @@ document.getElementById('messages').addEventListener('click', async (e) => {
       if (!updated.sources) delete msg.sources;
       if (state.chat === chat) turn.replaceWith(turnFor(chat, msg));
       refreshChatList();
+      refreshContext();
     } catch (err) {
       ui.toast(`넘기지 못했습니다 — ${err.message}`);
     }
@@ -1061,6 +1123,7 @@ document.getElementById('messages').addEventListener('click', async (e) => {
     state.chat.messages = state.chat.messages.filter((m) => m.id !== mid);
     turn.remove();
     refreshChatList();
+    refreshContext();
     return;
   }
 
@@ -1081,6 +1144,7 @@ document.getElementById('messages').addEventListener('click', async (e) => {
       if (keep && ta.value.trim() !== msg.content) {
         msg.content = ta.value.trim();
         await api.editMessage(state.chat.id, mid, msg.content);
+        refreshContext();
       }
       next.innerHTML = ui.formatText(msg.content, { plain: state.chat.kind === 'assistant', bubbles: isBubbles(state.chat) });
       ta.replaceWith(next);
@@ -1411,6 +1475,8 @@ function fillProviderBox(key) {
       : 'API 키를 입력하세요';
   $('s-apikey').disabled = Boolean(cfg.keyFromEnv);
   $('s-model').value = cfg.model || '';
+  $('s-context').value = cfg.contextTokens || '';
+  $('s-context').placeholder = key === 'lmstudio' || /localhost|127\.0\.0\.1|192\.168\./.test(cfg.baseUrl || '') ? '16384' : '128000';
   $('s-key-field').hidden = key === 'lmstudio';
   $('s-model-msg').textContent = key === 'lmstudio'
     ? 'LM Studio 의 Developer 탭에서 서버를 켠 뒤 불러오기를 눌러 주세요.'
@@ -1531,9 +1597,12 @@ comboInput.addEventListener('blur', () => setTimeout(closeCombo, 120));
 function stashProvider() {
   if (!draftProviders?.[shownProvider]) return;
   const typedKey = $('s-apikey').value.trim();
+  const contextTokens = Number($('s-context').value);
   Object.assign(draftProviders[shownProvider], {
     baseUrl: $('s-baseurl').value.trim(),
-    model: $('s-model').value.trim()
+    model: $('s-model').value.trim(),
+    // 비워 두면 서버가 엔진 종류에 맞는 기본값을 씁니다.
+    contextTokens: contextTokens >= 1024 ? contextTokens : null
   });
   // 빈 칸은 '건드리지 않음' 입니다. 서버가 저장해 둔 키를 그대로 씁니다.
   if (typedKey) draftProviders[shownProvider].apiKey = typedKey;
@@ -1743,6 +1812,7 @@ dlgSettings.addEventListener('close', async () => {
   paintModelBadge();
   paintChatPreset();
   await refreshChatList();
+  refreshContext();
   ui.toast('설정을 저장했습니다');
 });
 
