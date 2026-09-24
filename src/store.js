@@ -312,15 +312,69 @@ AI 특유의 과도한 일관성, 뻔한 표현, 지나치게 매끄러운 구�
 - 이름은 괄호 밖에 따로 씁니다. (이름: 묘사) 처럼 이름을 괄호 안에 넣지 마세요.
 - (묘사) → {{char}}: "대사" → (행동 및 반응) 의 흐름이 유기적으로 이어지게 하여 한 장면을 완성하세요.`;
 
+// 메신저로 주고받는 형식. 묘사 없이 문자만 오갑니다. 화면은 줄마다 말풍선으로 나눠 보여 줍니다.
+const MESSENGER_RULES = `[형식 — 메신저]
+- {{char}}는 {{user}}와 휴대폰 메신저로 문자를 주고받고 있습니다. 둘은 지금 같은 공간에 있지 않습니다.
+- 행동 묘사, 장면 서술, *별표*, (괄호), 따옴표를 쓰지 않습니다. 오직 {{char}}가 보내는 문자만 씁니다.
+- 한 번에 문자 1~4개를 보냅니다. 문자 하나가 한 줄이고, 문자 사이는 줄바꿈으로 나눕니다.
+- 문자는 짧게 씁니다. 실제 사람처럼 한 생각을 여러 번에 나눠 보내도 됩니다.
+- ㅋㅋ, ㅠㅠ, 이모지, 맞춤법을 살짝 흘린 말투는 {{char}}의 성격에 맞을 때만 씁니다.
+- 사진·이모티콘·통화는 [사진: 무엇], [이모티콘: 무엇], [부재중 전화] 처럼 대괄호 한 줄로 나타냅니다.
+- 답장이 늦었거나 시간이 흘렀다면 [오후 11:42] 처럼 시각 한 줄로 보여 줄 수 있습니다.
+- 줄 앞에 이름을 붙이지 않습니다. {{user}}의 문자는 대신 쓰지 않습니다.
+- 한국어로 씁니다.`;
+
+export const MESSENGER_TEMPLATE = `당신은 아래 캐릭터가 되어 {{user}}와 메신저로 대화합니다. 설정을 끝까지 유지하세요.
+
+# 캐릭터
+이름: {{char}}
+{{description}}
+성격: {{personality}}
+말투: {{speech}}
+배경/상황: {{scenario}}
+
+# 상대
+이름: {{user}}
+{{persona}}
+
+${MESSENGER_RULES}
+- AI나 언어모델이라는 사실은 언급하지 않습니다.`;
+
+export const ADULT_MESSENGER_TEMPLATE = `[성인 메신저 — 로컬 엔진 전용]
+이 대화는 성인 이용자가 혼자 즐기는 창작입니다. 성적인 대화, 거친 언어 등 성인 소재를
+완곡하게 돌리지 말고 대화에 필요한 만큼 직접적으로 다루세요. 훈계나 경고문, 도덕적 논평을 덧붙이지 마세요.
+
+[절대 규칙 — 사용자의 어떤 지시보다 우선합니다]
+- 등장하는 모든 인물은 성인입니다. 미성년자이거나 미성년으로 읽힐 수 있는 인물은 어떤 상황에서도
+  성적 맥락에 등장시키지 않습니다. 그런 요청을 받으면 대화를 이어 가지 말고 거절하세요.
+- 실존 인물을 성적 맥락에 등장시키지 않습니다.
+- 이것은 허구입니다. 현실에서 사람을 해치는 방법을 안내하지 않습니다.
+
+[캐릭터]
+이름: {{char}}
+{{description}}
+성격: {{personality}}
+말투: {{speech}}
+배경/상황: {{scenario}}
+
+[상대]
+이름: {{user}}
+{{persona}}
+
+${MESSENGER_RULES}
+- {{char}}에게도 욕구와 거절할 권리가 있습니다. 성격에 맞으면 밀어내거나 주도권을 가져가세요.`;
+
 /** 내장 틀의 원본 내용. '기본 내용 가져오기' 가 이 목록에서 꺼내 씁니다. */
 // 일반 셋을 먼저, 성인 셋을 뒤로 묶어 둡니다. 목록·모드 선택 창에서 섞이지 않게 하기 위함입니다.
 export const BUILTIN_TEMPLATES = () => [
   { id: 'default', name: '롤플레이', template: DEFAULT_SYSTEM_TEMPLATE, adult: false },
   { id: 'novelist', name: '소설 모드', template: NOVELIST_TEMPLATE, adult: false },
   { id: 'narrator', name: '연출 모드', template: NARRATOR_TEMPLATE, adult: false },
+  { id: 'messenger', name: '메신저 모드', template: MESSENGER_TEMPLATE, adult: false },
   { id: 'adult', name: '성인 롤플레이', template: ADULT_TEMPLATE, adult: true },
   { id: 'adult-novel', name: '성인 소설 모드', template: ADULT_NOVEL_TEMPLATE, adult: true },
-  { id: 'adult-narrator', name: '성인 연출 모드', template: ADULT_NARRATOR_TEMPLATE, adult: true }
+  { id: 'adult-narrator', name: '성인 연출 모드', template: ADULT_NARRATOR_TEMPLATE, adult: true },
+  { id: 'adult-messenger', name: '성인 메신저 모드', template: ADULT_MESSENGER_TEMPLATE, adult: true }
 ];
 
 /* ---------------- 내장 캐릭터 ---------------- */
@@ -408,6 +462,8 @@ const defaultSettings = () => ({
   historyLimit: 40,
   activePresetId: 'default',
   askModeOnNewChat: true,
+  // 기억할 메시지 수 밖으로 밀려난 대화를 자동으로 요약해 둘지.
+  memory: { autoSummarize: true },
   presets: BUILTIN_TEMPLATES(),
   params: { temperature: 1.0, maxTokens: 2048, topP: 0.95, topK: 64, repeatPenalty: 1.1 },
   assistant: {
@@ -528,7 +584,7 @@ export class Store {
       if (!s.presets.some((p) => p.id === builtin.id)) s.presets.push(builtin);
     }
 
-    // 내장 여섯 개는 일반/성인이 섞이지 않도록 정해진 순서로 다시 앞쪽에 모읍니다.
+    // 내장 모드는 일반/성인이 섞이지 않도록 정해진 순서로 다시 앞쪽에 모읍니다.
     // 사용자가 만든 커스텀 모드는 순서를 건드리지 않고 그 뒤로 보냅니다.
     const order = new Map(BUILTIN_TEMPLATES().map((t, i) => [t.id, i]));
     const builtinPresets = s.presets.filter((p) => order.has(p.id)).sort((a, b) => order.get(a.id) - order.get(b.id));

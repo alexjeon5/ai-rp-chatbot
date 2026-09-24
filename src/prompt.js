@@ -69,7 +69,7 @@ function buildCastBlock(cast = []) {
   return sheets.join('\n\n');
 }
 
-export function buildSystem({ character, persona, template, cast = [], particleFix = true }) {
+export function buildSystem({ character, persona, template, cast = [], memory = '', particleFix = true }) {
   const vars = { char: character.name, user: persona?.name || '사용자', particleFix };
 
   // 자리표시자가 하나도 없는 틀(직접 써 온 프롬프트 등)이면 배역 정보가 들어갈 곳이 없습니다.
@@ -105,6 +105,8 @@ export function buildSystem({ character, persona, template, cast = [], particleF
   if (castBlock) {
     out += '\n\n이 인물들은 {{char}}와 마찬가지로 당신이 연기합니다. ' +
       '서로 말을 주고받게 하고, 장면에 필요하면 먼저 나서게 하세요. ' +
+      '여러 인물이 말할 때는 대사 줄 맨 앞에 "이름:" 을 붙여 누가 말하는지 구분하세요. ' +
+      '모든 인물이 매번 말할 필요는 없습니다. 장면에 맞는 인물만 나서게 하세요. ' +
       '다만 {{user}}의 대사와 행동은 여전히 쓰지 않습니다.';
   }
 
@@ -113,6 +115,10 @@ export function buildSystem({ character, persona, template, cast = [], particleF
   }
   if (character.notes?.trim()) {
     out += `\n\n# 추가 설정\n${character.notes.trim()}`;
+  }
+  // 기억할 메시지 수 밖으로 밀려난 대화의 요약. 맨 뒤에 두어 가장 최근 사정으로 읽히게 합니다.
+  if (memory?.trim()) {
+    out += `\n\n# 지금까지의 이야기\n아래는 앞선 대화의 요약입니다. 이 내용과 어긋나지 않게 이어 가세요.\n${memory.trim()}`;
   }
 
   return fillVars(out, vars).replace(/\n{3,}/g, '\n\n').trim();

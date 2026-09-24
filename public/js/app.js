@@ -232,6 +232,8 @@ function closeChat() {
   $('btn-rename').hidden = true;
   $('btn-delete-chat').hidden = true;
   $('btn-save-character').hidden = true;
+  $('btn-cast').hidden = true;
+  $('btn-memory').hidden = true;
   $('chat-preset').hidden = true;
   $('chat-persona').hidden = true;
   $('btn-websearch').hidden = true;
@@ -282,6 +284,8 @@ $('chat-preset').addEventListener('change', async (e) => {
   ui.toast(`대화 모드를 바꿨습니다 — ${preset.name}`);
   await refreshChatList();
   paintQuickProvider();
+  // 메신저 모드로 바꾸거나 빠져나오면 말풍선 모양이 달라집니다.
+  if (!state.run) paintThread();
 });
 
 /* ---------------- 대화 ---------------- */
@@ -300,6 +304,8 @@ async function openChat(id) {
   $('btn-rename').hidden = false;
   $('btn-delete-chat').hidden = false;
   $('btn-save-character').hidden = !state.chat.character;
+  $('btn-cast').hidden = assistant;
+  $('btn-memory').hidden = assistant;
   $('input').placeholder = assistant
     ? '무엇이든 물어보세요.'
     : '무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다.';
@@ -309,7 +315,7 @@ async function openChat(id) {
   paintQuickProvider();
   paintWebSearch();
   paintThinking();
-  ui.renderThread(state.chat, ch, personaOf(state.chat));
+  paintThread();
   ui.renderChatList(visibleChats(), id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
   closeSidebarOnNarrow();
 }
@@ -321,6 +327,7 @@ function paintChatSub() {
     ? '어시스턴트 모드 — 캐릭터 없이 대화합니다'
     : [
         state.chat.character ? '1회성 캐릭터' : null,
+        castOf(state.chat).length ? `함께: ${castOf(state.chat).map((c) => c.name).join(', ')}` : null,
         characterOf(state.chat)?.description,
         `내 페르소나 ${personaOf(state.chat)?.name || '미설정'}`
       ].filter(Boolean).join(' · ');
@@ -358,7 +365,7 @@ $('chat-persona').addEventListener('change', async (e) => {
   if (state.chat !== chat) return;
   paintChatSub();
   // 내 말풍선 위의 이름도 새 페르소나로 바뀌어야 합니다. 생성 중이면 화면을 건드리지 않습니다.
-  if (!state.run) ui.renderThread(chat, characterOf(chat), personaOf(chat));
+  if (!state.run) paintThread();
   ui.toast(`이 대화의 페르소나를 바꿨습니다 — ${personaOf(chat)?.name}. 다음 답변부터 반영됩니다.`);
 });
 
@@ -369,7 +376,9 @@ const MODE_NOTES = {
   narrator: '내 페르소나가 등장하지 않습니다. 상황만 지시하면 AI 가 주인공까지 전부 서술합니다.',
   adult: '성인 소재를 다룹니다. 표기와 호흡은 롤플레이와 같습니다.',
   'adult-novel': '성인 소재를 다룹니다. 표기와 호흡은 소설 모드와 같아, 여러 인물이 함께 나옵니다.',
-  'adult-narrator': '성인 소재를 다룹니다. 표기와 호흡은 연출 모드와 같습니다.'
+  'adult-narrator': '성인 소재를 다룹니다. 표기와 호흡은 연출 모드와 같습니다.',
+  messenger: '묘사 없이 메신저 문자만 주고받습니다. 한 번에 짧은 문자 몇 개씩, 말풍선으로 보입니다.',
+  'adult-messenger': '성인 소재를 다룹니다. 형식은 메신저 모드와 같습니다.'
 };
 
 const modeNote = (preset) =>
@@ -520,6 +529,49 @@ $('nc-list').addEventListener('click', async (e) => {
   await startChatWith(target, presetId);
 });
 
+/* ---------------- 대화 화면 그리기 ---------------- */
+
+// 줄마다 말풍선으로 보여 줄 모드. 직접 만든 모드는 해당하지 않습니다.
+const MESSENGER_PRESETS = new Set(['messenger', 'adult-messenger']);
+
+const presetOfChat = (chat) =>
+  state.settings.presets.find((p) => p.id === chat?.presetId) ||
+  state.settings.presets.find((p) => p.id === state.settings.activePresetId);
+
+const isBubbles = (chat) => chat?.kind !== 'assistant' && MESSENGER_PRESETS.has(presetOfChat(chat)?.id);
+
+/** 이 대화에 함께 등장하는 캐릭터들. 목록에서 지워진 것은 빠집니다. */
+const castOf = (chat) => (chat?.castIds || [])
+  .map((id) => state.characters.find((c) => c.id === id))
+  .filter(Boolean);
+
+/** 답변 위에 붙는 이름. 여럿이 함께 나오면 이름을 이어 붙입니다. */
+const charLabel = (chat) =>
+  [characterOf(chat)?.name, ...castOf(chat).map((c) => c.name)].filter(Boolean).join(' · ') || '상대';
+
+function paintThread() {
+  if (!state.chat) return;
+  ui.renderThread(state.chat, characterOf(state.chat), personaOf(state.chat), {
+    bubbles: isBubbles(state.chat),
+    charLabel: charLabel(state.chat)
+  });
+}
+
+/** 메시지 하나를 그립니다. 생성이 끝났거나 답변을 넘겨볼 때 그 자리를 갈아 끼웁니다. */
+function turnFor(chat, message) {
+  const assistant = chat.kind === 'assistant';
+  const isUser = message.role === 'user';
+  return ui.turnEl({
+    message,
+    speaker: isUser
+      ? (assistant ? '나' : personaOf(chat)?.name || '나')
+      : (assistant ? '어시스턴트' : charLabel(chat)),
+    isUser,
+    plain: assistant,
+    bubbles: isBubbles(chat)
+  });
+}
+
 async function send() {
   const input = $('input');
   const content = input.value.trim();
@@ -539,14 +591,7 @@ async function send() {
   }
   state.chat.messages.push(msg);
   const assistantMode = state.chat.kind === 'assistant';
-  document.getElementById('thread').appendChild(
-    ui.turnEl({
-      message: msg,
-      speaker: assistantMode ? '나' : personaOf(state.chat)?.name || '나',
-      isUser: true,
-      plain: assistantMode
-    })
-  );
+  document.getElementById('thread').appendChild(turnFor(state.chat, msg));
   if (assistantMode && state.chat.title === '새 채팅') {
     // 서버와 같은 규칙으로 첫 질문을 제목으로 씁니다.
     state.chat.title = content.slice(0, 24) || '새 채팅';
@@ -554,75 +599,83 @@ async function send() {
     refreshChatList();
   }
   ui.scrollToEnd({ force: true });
-  await run({ regenerate: false });
+  await run();
 }
 
-async function run({ regenerate }) {
+/**
+ * 답변을 받습니다.
+ *   new         마지막 턴 다음에 새 답변
+ *   regenerate  마지막 답변의 다른 버전. 이전 버전은 ‹ › 로 남습니다
+ *   continue    마지막 답변 끝에 이어쓰기
+ */
+async function run({ mode = 'new' } = {}) {
   if (!state.chat || state.run) return;
   const chat = state.chat;
   const thread = document.getElementById('thread');
   const isOpen = () => state.chat === chat;
+  const assistant = chat.kind === 'assistant';
+  const format = (t) => ui.formatText(t, { plain: assistant, bubbles: isBubbles(chat) });
+
+  const last = chat.messages[chat.messages.length - 1];
+  // 마지막이 내 메시지면 재전송은 그냥 새로 받기(실패한 요청 다시 보내기)입니다.
+  const target = mode !== 'new' && last?.role === 'assistant' ? last : null;
+  if (mode === 'continue' && !target) return ui.toast('이어 쓸 답변이 없습니다');
+  const targetEl = target && thread.querySelector(`[data-mid="${target.id}"]`);
 
   /*
-   * 다시 생성: 이전 답변은 새 답변이 도착할 때까지 숨겨만 둡니다.
-   * 실패하거나 아무것도 못 받고 멈추면 되살립니다. 서버도 같은 규칙입니다.
+   * 다른 버전: 지금 답변은 새 버전이 올 때까지 숨겨만 둡니다. 실패하면 되살립니다.
+   * 이어쓰기: 지금 답변 칸에 그대로 이어서 그립니다.
    */
-  const replaced = [];
-  if (regenerate) {
-    for (let i = chat.messages.length - 1; i >= 0 && chat.messages[i].role === 'assistant'; i--) {
-      replaced.push(chat.messages[i]);
-    }
+  let holder;
+  let textEl;
+  let base = '';
+  if (mode === 'continue') {
+    holder = targetEl;
+    textEl = targetEl.querySelector('.turn-text');
+    base = target.content;
+    for (const el of holder.querySelectorAll('.turn-tools, .swipe-nav')) el.hidden = true;
+  } else {
+    if (targetEl) targetEl.hidden = true;
+    holder = turnFor(chat, { id: 'pending', role: 'assistant', content: '' });
+    holder.querySelector('.turn-tools').remove();
+    thread.appendChild(holder);
+    textEl = holder.querySelector('.turn-text');
+    // 첫 글자가 올 때까지 빈 칸으로 두면 멈춘 것처럼 보입니다.
+    textEl.innerHTML = ui.TYPING;
   }
-  const replacedEls = replaced
-    .map((m) => thread.querySelector(`[data-mid="${m.id}"]`))
-    .filter(Boolean);
-  for (const el of replacedEls) el.hidden = true;
-
-  const assistant = chat.kind === 'assistant';
-  const character = characterOf(chat);
-  const placeholder = ui.turnEl({
-    message: { id: 'pending', content: '' },
-    speaker: assistant ? '어시스턴트' : character?.name || '상대',
-    isUser: false,
-    plain: assistant
-  });
-  placeholder.querySelector('.turn-tools').remove();
-  thread.appendChild(placeholder);
-  const textEl = placeholder.querySelector('.turn-text');
-  // 첫 글자가 올 때까지 빈 칸으로 두면 멈춘 것처럼 보입니다.
-  textEl.innerHTML = ui.TYPING;
   ui.scrollToEnd({ force: true });
 
   let finish;
-  const run = {
+  const runState = {
     chatId: chat.id,
     controller: new AbortController(),
     stopped: false,
     done: new Promise((resolve) => { finish = resolve; })
   };
-  state.run = run;
+  state.run = runState;
   setStreaming(true);
   let acc = '';
   let thought = '';
   let thoughtEl = null;
   let sourcesEl = null;
-  let restore = true;
+  let succeeded = false;
   let reload = false;
 
   try {
     const result = await generate(chat.id, {
-      regenerate,
-      signal: run.controller.signal,
+      regenerate: mode === 'regenerate',
+      resume: mode === 'continue',
+      signal: runState.controller.signal,
       onDelta: (d) => {
         acc += d;
-        textEl.innerHTML = ui.formatText(acc, { plain: assistant });
+        textEl.innerHTML = format(base + acc);
         if (isOpen()) ui.scrollToEnd();
       },
       onThought: (t) => {
         thought += t;
         if (!thoughtEl) {
           thoughtEl = ui.thoughtEl('');
-          placeholder.insertBefore(thoughtEl, textEl);
+          holder.insertBefore(thoughtEl, textEl);
         }
         thoughtEl.querySelector('.thought-body').textContent = thought;
         if (isOpen()) ui.scrollToEnd();
@@ -638,23 +691,22 @@ async function run({ regenerate }) {
       }
     });
     if (result.message) {
-      restore = false;
-      chat.messages = chat.messages.filter((m) => !replaced.includes(m));
-      for (const el of replacedEls) el.remove();
-      chat.messages.push(result.message);
-      placeholder.dataset.mid = result.message.id;
-      // 멈춘 답변은 서버가 정리한 본문으로 다시 그립니다.
-      textEl.innerHTML = ui.formatText(result.message.content, { plain: assistant });
-      placeholder.appendChild(toolsRow());
+      succeeded = true;
+      const msg = result.message;
+      const i = chat.messages.findIndex((m) => m.id === msg.id);
+      if (i >= 0) chat.messages[i] = msg;
+      else chat.messages.push(msg);
+      // 서버가 정리한 본문(넘겨보기 번호 포함)으로 다시 그립니다.
+      const fresh = turnFor(chat, msg);
+      holder.replaceWith(fresh);
+      if (targetEl && targetEl !== holder) targetEl.remove();
       if (isOpen()) ui.scrollToEnd();
-    } else {
-      placeholder.remove();
-      if (!run.stopped && isOpen()) ui.showError('응답이 비어 있습니다. 모델과 프롬프트 설정을 확인해 주세요.');
+    } else if (!runState.stopped && isOpen()) {
+      ui.showError('응답이 비어 있습니다. 모델과 프롬프트 설정을 확인해 주세요.');
     }
   } catch (e) {
-    placeholder.remove();
     // 연결을 끊어서 멈춘 경우엔 서버가 쓰던 답변을 저장했을 수 있어, 끝난 뒤 다시 읽습니다.
-    if (e.name === 'AbortError' && run.stopped) reload = true;
+    if (e.name === 'AbortError' && runState.stopped) reload = true;
     if (e.name !== 'AbortError' && isOpen()) {
       ui.showError(e.message);
       // 서버가 모델을 감췄을 수 있으니 설정을 다시 읽어 둡니다.
@@ -664,12 +716,22 @@ async function run({ regenerate }) {
       }
     }
   } finally {
-    if (restore) for (const el of replacedEls) el.hidden = false;
-    if (state.run === run) state.run = null;
+    if (!succeeded) {
+      if (mode === 'continue') {
+        textEl.innerHTML = format(base);
+        thoughtEl?.remove();
+        for (const el of holder.querySelectorAll('.turn-tools, .swipe-nav')) el.hidden = false;
+      } else {
+        holder.remove();
+        if (targetEl) targetEl.hidden = false;
+      }
+    }
+    if (state.run === runState) state.run = null;
     setStreaming(false);
     finish();
     if (reload && isOpen()) setTimeout(() => { if (isOpen() && !state.run) openChat(chat.id); }, 300);
     else refreshChatList();
+    if (succeeded) autoSummarize(chat);
   }
 }
 
@@ -679,32 +741,157 @@ async function run({ regenerate }) {
  * 서버에 닿지 못하거나 오래 걸리면 연결을 끊습니다.
  */
 async function stopGeneration() {
-  const run = state.run;
-  if (!run) return;
-  run.stopped = true;
-  const stopped = await api.stopChat(run.chatId).then((r) => r?.stopped).catch(() => false);
-  if (!stopped) run.controller.abort();
+  const runState = state.run;
+  if (!runState) return;
+  runState.stopped = true;
+  const stopped = await api.stopChat(runState.chatId).then((r) => r?.stopped).catch(() => false);
+  if (!stopped) runState.controller.abort();
   const timeout = new Promise((resolve) => setTimeout(resolve, 5000, 'timeout'));
-  if (await Promise.race([run.done, timeout]) === 'timeout') run.controller.abort();
-  await run.done;
-}
-
-function toolsRow() {
-  const div = document.createElement('div');
-  div.className = 'turn-tools';
-  div.innerHTML = `<button class="tool" data-act="edit">수정</button>
-    <button class="tool" data-act="copy">복사</button>
-    <button class="tool" data-act="delete">삭제</button>`;
-  return div;
+  if (await Promise.race([runState.done, timeout]) === 'timeout') runState.controller.abort();
+  await runState.done;
 }
 
 function setStreaming(on) {
   $('stream-status').hidden = !on;
   $('btn-send').disabled = on;
   $('btn-regen').disabled = on;
+  $('btn-continue').disabled = on;
   // 막대가 생기고 사라지면서 입력창 높이가 달라지므로 다시 맞춰 줍니다.
   ui.scrollToEnd();
 }
+
+/* ---------------- 기억 요약 ---------------- */
+
+/** 기억할 메시지 수 밖으로 밀려났는데 아직 요약에 안 들어간 메시지 수. 서버와 같은 규칙입니다. */
+function pendingCount(chat) {
+  const visible = chat.messages.filter((m) => !m.hidden && m.content?.trim());
+  const dropped = visible.slice(0, Math.max(0, visible.length - state.settings.historyLimit));
+  const since = Number(chat.summaryUntilAt) || 0;
+  return dropped.filter((m) => (m.at || 0) > since).length;
+}
+
+/** 답변이 끝난 뒤 조용히 돕니다. 밀린 메시지가 기준보다 적으면 요청도 보내지 않습니다. */
+async function autoSummarize(chat) {
+  if (chat.kind === 'assistant' || !state.settings.memory?.autoSummarize) return;
+  if (pendingCount(chat) < 10) return;
+  try {
+    const r = await api.summarize(chat.id, true);
+    if (!r.summarized) return;
+    chat.memory = r.memory;
+    chat.summaryUntilAt = r.summaryUntilAt;
+    if (state.chat === chat) ui.toast(`오래된 대화 ${r.summarized}개를 기억에 요약했습니다`);
+  } catch { /* 자동 요약은 실패해도 대화를 막지 않습니다 */ }
+}
+
+const dlgMemory = $('dlg-memory');
+
+function paintMemoryStatus(chat) {
+  const pending = pendingCount(chat);
+  $('m-status').textContent = pending
+    ? `아직 요약하지 않은 옛 메시지 ${pending}개`
+    : chat.summaryUntilAt ? '밀려난 대화를 모두 요약했습니다' : '아직 기억할 메시지 수를 넘지 않았습니다';
+  $('m-summarize').disabled = !pending;
+}
+
+$('btn-memory').addEventListener('click', () => {
+  if (!state.chat) return;
+  $('m-memory').value = state.chat.memory || '';
+  $('m-note').value = state.chat.authorNote || '';
+  $('m-auto').checked = state.settings.memory?.autoSummarize !== false;
+  paintMemoryStatus(state.chat);
+  dlgMemory.showModal();
+});
+
+$('m-cancel').addEventListener('click', () => dlgMemory.close('cancel'));
+
+$('m-summarize').addEventListener('click', async () => {
+  const chat = state.chat;
+  if (!chat) return;
+  const btn = $('m-summarize');
+  btn.disabled = true;
+  btn.textContent = '요약하는 중…';
+  try {
+    // 손으로 고친 기억이 있으면 먼저 저장해야 요약이 그 위에 쌓입니다.
+    await api.updateChat(chat.id, { memory: $('m-memory').value });
+    chat.memory = $('m-memory').value;
+    const r = await api.summarize(chat.id, false);
+    chat.memory = r.memory;
+    chat.summaryUntilAt = r.summaryUntilAt;
+    $('m-memory').value = r.memory;
+    ui.toast(r.summarized ? `옛 메시지 ${r.summarized}개를 요약했습니다` : '요약할 메시지가 없습니다');
+  } catch (e) {
+    ui.toast(`요약하지 못했습니다 — ${e.message}`);
+  } finally {
+    btn.textContent = '지금 요약하기';
+    paintMemoryStatus(chat);
+  }
+});
+
+dlgMemory.addEventListener('close', async () => {
+  if (dlgMemory.returnValue !== 'save' || !state.chat) return;
+  const chat = state.chat;
+  const patch = { memory: $('m-memory').value.trim(), authorNote: $('m-note').value.trim() };
+  const auto = $('m-auto').checked;
+  try {
+    await api.updateChat(chat.id, patch);
+    Object.assign(chat, patch);
+    if (auto !== (state.settings.memory?.autoSummarize !== false)) {
+      state.settings = await api.saveSettings({ memory: { autoSummarize: auto } });
+    }
+    ui.toast('기억과 작가 노트를 저장했습니다');
+  } catch (e) {
+    dlgMemory.returnValue = '';
+    dlgMemory.showModal();
+    ui.toast(`저장하지 못했습니다 — ${e.message}`);
+  }
+});
+
+/* ---------------- 함께 등장하는 인물 ---------------- */
+
+const dlgCast = $('dlg-cast');
+
+$('btn-cast').addEventListener('click', () => {
+  if (!state.chat) return;
+  const chosen = new Set(state.chat.castIds || []);
+  const others = state.characters.filter((c) => c.id !== state.chat.characterId);
+  const esc = ui.escapeHtml;
+  $('cast-list').innerHTML = others.length
+    ? others.map((c) => `<li class="persona-row">
+        <label class="check-row grow">
+          <input type="checkbox" value="${c.id}" ${chosen.has(c.id) ? 'checked' : ''}>
+          <span><span class="p-name">${esc(c.avatar || '◦')} ${esc(c.name)}</span>
+          <span class="p-desc">${esc(c.description || c.tags || '')}</span></span>
+        </label>
+      </li>`).join('')
+    : '<li class="rail-empty">함께 부를 다른 캐릭터가 없습니다. 먼저 캐릭터를 만들어 주세요.</li>';
+  dlgCast.showModal();
+});
+
+$('cast-list').addEventListener('change', () => {
+  // 서버도 8명에서 자릅니다. 넘기지 못하게 미리 막습니다.
+  const boxes = [...$('cast-list').querySelectorAll('input[type=checkbox]')];
+  const full = boxes.filter((b) => b.checked).length >= 8;
+  for (const b of boxes) b.disabled = full && !b.checked;
+});
+
+$('cast-cancel').addEventListener('click', () => dlgCast.close('cancel'));
+
+dlgCast.addEventListener('close', async () => {
+  if (dlgCast.returnValue !== 'save' || !state.chat) return;
+  const chat = state.chat;
+  const castIds = [...$('cast-list').querySelectorAll('input:checked')].map((b) => b.value);
+  try {
+    const saved = await api.updateChat(chat.id, { castIds });
+    chat.castIds = saved.castIds || [];
+  } catch (e) {
+    return ui.toast(`저장하지 못했습니다 — ${e.message}`);
+  }
+  if (state.chat !== chat) return;
+  paintChatSub();
+  if (!state.run) paintThread();
+  const names = castOf(chat).map((c) => c.name);
+  ui.toast(names.length ? `함께 등장: ${names.join(', ')}` : '함께 등장하는 인물을 모두 뺐습니다');
+});
 
 /* ---------------- 메시지 편집 ---------------- */
 
@@ -715,6 +902,30 @@ document.getElementById('messages').addEventListener('click', async (e) => {
   const mid = turn.dataset.mid;
   const msg = state.chat.messages.find((m) => m.id === mid);
   if (!msg) return;
+
+  if (btn.dataset.act === 'swipe-prev' || btn.dataset.act === 'swipe-next') {
+    if (state.run) return;
+    const chat = state.chat;
+    const total = msg.swipes?.length || 0;
+    const next = (msg.swipeIndex ?? total - 1) + (btn.dataset.act === 'swipe-next' ? 1 : -1);
+    // 마지막 장에서 › 를 누르면 새 버전을 씁니다. 마지막 답변일 때만.
+    if (next >= total) {
+      if (chat.messages[chat.messages.length - 1] === msg) run({ mode: 'regenerate' });
+      return;
+    }
+    if (next < 0) return;
+    try {
+      const updated = await api.swipe(chat.id, mid, next);
+      Object.assign(msg, updated);
+      if (!updated.thought) delete msg.thought;
+      if (!updated.sources) delete msg.sources;
+      if (state.chat === chat) turn.replaceWith(turnFor(chat, msg));
+      refreshChatList();
+    } catch (err) {
+      ui.toast(`넘기지 못했습니다 — ${err.message}`);
+    }
+    return;
+  }
 
   if (btn.dataset.act === 'copy') {
     ui.toast(await ui.copyText(msg.content) ? '복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
@@ -742,12 +953,12 @@ document.getElementById('messages').addEventListener('click', async (e) => {
       if (settled) return;
       settled = true;
       const next = document.createElement('div');
-      next.className = 'turn-text';
+      next.className = isBubbles(state.chat) ? 'turn-text is-bubbles' : 'turn-text';
       if (keep && ta.value.trim() !== msg.content) {
         msg.content = ta.value.trim();
         await api.editMessage(state.chat.id, mid, msg.content);
       }
-      next.innerHTML = ui.formatText(msg.content, { plain: state.chat.kind === 'assistant' });
+      next.innerHTML = ui.formatText(msg.content, { plain: state.chat.kind === 'assistant', bubbles: isBubbles(state.chat) });
       ta.replaceWith(next);
     };
     ta.addEventListener('blur', () => commit(true));
@@ -844,7 +1055,8 @@ input.addEventListener('keydown', (e) => {
   }
 });
 $('btn-send').addEventListener('click', send);
-$('btn-regen').addEventListener('click', () => run({ regenerate: true }));
+$('btn-regen').addEventListener('click', () => run({ mode: 'regenerate' }));
+$('btn-continue').addEventListener('click', () => run({ mode: 'continue' }));
 $('btn-stop').addEventListener('click', () => stopGeneration());
 
 /* ---------------- 캐릭터 시트 ---------------- */
@@ -1536,7 +1748,7 @@ for (const id of [...Object.keys(THEME_FIELDS), 'd-fontsize', 'd-fontsans', 'd-f
 for (const id of [...Object.keys(MARKUP_FIELDS)]) {
   $(id).addEventListener('change', () => {
     applyDev(readDevSheet());
-    if (state.chat) ui.renderThread(state.chat, characterOf(state.chat), personaOf(state.chat));
+    paintThread();
   });
 }
 
@@ -1617,7 +1829,7 @@ $('sys-copy').addEventListener('click', async () => {
 
 $('d-cancel').addEventListener('click', () => {
   applyDev(state.settings.dev);
-  if (state.chat) ui.renderThread(state.chat, characterOf(state.chat), personaOf(state.chat));
+  paintThread();
   dlgDev.close('cancel');
 });
 

@@ -46,6 +46,10 @@ export const api = {
   deleteChat: (id) => req(`/api/chats/${id}`, { method: 'DELETE' }),
 
   addMessage: (chatId, body) => req(`/api/chats/${chatId}/messages`, { method: 'POST', body }),
+  swipe: (chatId, mid, index) =>
+    req(`/api/chats/${chatId}/messages/${mid}/swipe`, { method: 'PUT', body: { index } }),
+  summarize: (chatId, auto = false) =>
+    req(`/api/chats/${chatId}/summarize`, { method: 'POST', body: { auto } }),
   editMessage: (chatId, mid, content) =>
     req(`/api/chats/${chatId}/messages/${mid}`, { method: 'PUT', body: { content } }),
   deleteMessage: (chatId, mid) =>
@@ -53,11 +57,11 @@ export const api = {
 };
 
 /** SSE 응답을 읽으며 조각마다 onDelta 를 호출합니다. */
-export async function generate(chatId, { regenerate = false, signal, onDelta, onThought, onSources }) {
+export async function generate(chatId, { regenerate = false, resume = false, signal, onDelta, onThought, onSources }) {
   const res = await fetch(`/api/chats/${chatId}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ regenerate }),
+    body: JSON.stringify({ regenerate, continue: resume }),
     signal
   });
   if (!res.ok) {

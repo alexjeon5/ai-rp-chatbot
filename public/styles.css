@@ -507,7 +507,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .stage-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 
-.head-actions { display: flex; gap: 8px; align-items: center; }
+.head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; }
 
 .messages {
   flex: 1;
@@ -552,6 +552,50 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .turn.user { display: flex; flex-direction: column; align-items: flex-end; }
+
+/* ---------- 메신저 모드 말풍선 ---------- */
+.turn-text.is-bubbles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  white-space: normal;
+}
+.turn.user .turn-text.is-bubbles {
+  align-items: flex-end;
+  padding: 0;
+  background: none;
+  max-width: 82%;
+}
+.bubble {
+  max-width: 82%;
+  padding: 7px 13px;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--panel-2);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.turn.user .bubble {
+  max-width: 100%;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--brass-soft);
+  color: var(--text);
+}
+.bubble.is-meta { color: var(--muted); font-size: 13.5px; font-style: italic; }
+.bubble-time { align-self: center; font-size: 11.5px; color: var(--muted); }
+
+/* ---------- 답변 넘겨보기 ---------- */
+.swipe-nav {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.swipe-nav .tool { font-size: 15px; line-height: 1; padding: 0 4px; }
+.swipe-nav .tool:disabled { opacity: 0.35; cursor: default; }
+.swipe-count { font-variant-numeric: tabular-nums; }
 
 .turn.user .turn-name { color: var(--muted); }
 

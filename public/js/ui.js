@@ -17,9 +17,33 @@ export const escapeHtml = (t = '') => esc(String(t));
  *   이름: "대사"        → 화자 라벨 + 대사
  * plain 모드(어시스턴트)에서는 롤플레이 표기 대신 코드 블록만 살립니다.
  */
-export function formatText(raw = '', { plain = false } = {}) {
+export function formatText(raw = '', { plain = false, bubbles = false } = {}) {
   if (plain) return renderMarkdown(raw);
+  if (bubbles) return renderBubbles(raw);
+  return formatLines(raw).join('\n');
+}
 
+/**
+ * 메신저 모드: 한 줄이 문자 하나입니다. 줄마다 말풍선으로 나눠 그립니다.
+ *   [사진: 바다]  [이모티콘: 하트]  → 첨부처럼 옅게
+ *   [오후 11:42]                   → 시각 표시
+ */
+function renderBubbles(raw = '') {
+  const lines = raw.split('\n');
+  const html = formatLines(raw);
+  return lines
+    .map((line, i) => {
+      const text = line.trim();
+      if (!text) return '';
+      if (/^\[(오전|오후)?\s*\d{1,2}:\d{2}\]$/.test(text)) return `<span class="bubble-time">${esc(text.slice(1, -1))}</span>`;
+      const meta = /^\[[^\]]+\]$/.test(text);
+      return `<span class="bubble${meta ? ' is-meta' : ''}">${meta ? esc(text) : html[i].trim()}</span>`;
+    })
+    .join('');
+}
+
+/** 롤플레이 표기를 한 줄씩 HTML 로 바꿉니다. */
+function formatLines(raw = '') {
   return esc(raw)
     .split('\n')
     .map((line) => {
@@ -41,8 +65,7 @@ export function formatText(raw = '', { plain = false } = {}) {
           .replace(/[\u201C]([^\u201D]+)[\u201D]/g, '<q>$1</q>');
       }
       return s;
-    })
-    .join('\n');
+    });
 }
 
 /* ----------------------------------------------------------------
@@ -387,17 +410,30 @@ function hostOf(url = '') {
   }
 }
 
-export function turnEl({ message, speaker, isUser, plain = false }) {
+/** 답변 넘겨보기. 두 장 이상일 때만 보입니다. */
+function swipeNav(message) {
+  const total = message.swipes?.length || 0;
+  if (total < 2) return '';
+  const at = (message.swipeIndex ?? total - 1) + 1;
+  return `<div class="swipe-nav" role="group" aria-label="다른 답변 넘겨보기">
+    <button type="button" class="tool" data-act="swipe-prev" ${at <= 1 ? 'disabled' : ''} aria-label="이전 답변">‹</button>
+    <span class="swipe-count">${at} / ${total}</span>
+    <button type="button" class="tool" data-act="swipe-next" aria-label="${at >= total ? '새 답변 쓰기' : '다음 답변'}">›</button>
+  </div>`;
+}
+
+export function turnEl({ message, speaker, isUser, plain = false, bubbles = false }) {
   const li = document.createElement('article');
   li.className = `turn ${isUser ? 'user' : 'char'}`;
   li.dataset.mid = message.id;
   li.innerHTML = `
     <div class="turn-name">${esc(speaker)}</div>
     ${message.thought ? `<details class="thought"><summary>생각 과정</summary><div class="thought-body">${esc(message.thought)}</div></details>` : ''}
-    <div class="turn-text">${formatText(message.content, { plain })}</div>
+    <div class="turn-text${bubbles ? ' is-bubbles' : ''}">${formatText(message.content, { plain, bubbles })}</div>
     ${message.sources?.length ? `<details class="sources"><summary>출처 ${message.sources.length}곳</summary><ol class="source-list">${message.sources
       .map((src) => `<li><a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title?.trim() || src.url)}</a></li>`)
       .join('')}</ol></details>` : ''}
+    ${isUser ? '' : swipeNav(message)}
     <div class="turn-tools">
       <button class="tool" data-act="edit">수정</button>
       <button class="tool" data-act="copy">복사</button>
@@ -406,7 +442,12 @@ export function turnEl({ message, speaker, isUser, plain = false }) {
   return li;
 }
 
-export function renderThread(chat, character, persona) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.bubbles] 메신저 모드 — 줄마다 말풍선
+ * @param {string} [opts.charLabel] 답변 위에 붙는 이름. 여럿이 함께 나오는 장면이면 이름을 이어 붙입니다
+ */
+export function renderThread(chat, character, persona, { bubbles = false, charLabel } = {}) {
   const box = document.getElementById('messages');
   const plain = chat.kind === 'assistant';
   box.innerHTML = '';
@@ -419,9 +460,10 @@ export function renderThread(chat, character, persona) {
         message: m,
         speaker: m.role === 'user'
           ? (plain ? '나' : persona?.name || '나')
-          : (plain ? '어시스턴트' : character?.name || '상대'),
+          : (plain ? '어시스턴트' : charLabel || character?.name || '상대'),
         isUser: m.role === 'user',
-        plain
+        plain,
+        bubbles
       })
     );
   }

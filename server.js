@@ -6,6 +6,10 @@ import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './s
 import { listLogs, clearLogs } from './src/logs.js';
 import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
+import {
+  addSwipe, showSwipe, syncSwipe, joinContinuation, CONTINUE_PROMPT, withAuthorNote,
+  pendingForSummary, takeChunk, SUMMARY_MIN, SUMMARY_SYSTEM, buildSummaryPrompt, cleanSummary, MEMORY_MAX_CHARS
+} from './src/chat-ops.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
 import { GEN_SYSTEM, genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
 import {
@@ -161,6 +165,7 @@ app.put('/api/settings', (req, res) => {
     if (typeof body.assistant.thinking === 'boolean') s.assistant.thinking = body.assistant.thinking;
     if (body.assistant.params) Object.assign(s.assistant.params, body.assistant.params);
   }
+  if (typeof body.memory?.autoSummarize === 'boolean') s.memory.autoSummarize = body.memory.autoSummarize;
   if (body.dev) {
     if (typeof body.dev.particleFix === 'boolean') s.dev.particleFix = body.dev.particleFix;
     if (body.dev.markup) Object.assign(s.dev.markup, body.dev.markup);
@@ -234,6 +239,10 @@ const CHARACTER_FIELDS = [
 function detachCharacter(character) {
   const copy = { ...CHARACTER_FIELDS.reduce((o, f) => ({ ...o, [f]: String(character[f] ?? '') }), {}), id: null };
   for (const chat of store.chats.all()) {
+    if (Array.isArray(chat.castIds) && chat.castIds.includes(character.id)) {
+      chat.castIds = chat.castIds.filter((id) => id !== character.id);
+      store.chats.save(chat.id);
+    }
     if (chat.characterId !== character.id || chat.character) continue;
     chat.character = { ...copy };
     chat.characterId = null;
@@ -508,9 +517,19 @@ app.post('/api/chats', (req, res) => {
 app.put('/api/chats/:id', (req, res) => {
   const chat = store.chats.get(req.params.id);
   if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
-  if (req.body.title) chat.title = req.body.title;
-  if (req.body.personaId !== undefined) chat.personaId = req.body.personaId;
-  if (req.body.presetId !== undefined) chat.presetId = req.body.presetId;
+  const body = req.body || {};
+  if (body.title) chat.title = body.title;
+  if (body.personaId !== undefined) chat.personaId = body.personaId;
+  if (body.presetId !== undefined) chat.presetId = body.presetId;
+  // 기억(요약)과 작가 노트는 사람이 직접 고칠 수 있습니다.
+  if (typeof body.memory === 'string') chat.memory = body.memory.slice(0, MEMORY_MAX_CHARS * 2);
+  if (typeof body.authorNote === 'string') chat.authorNote = body.authorNote.slice(0, 2000);
+  if (Array.isArray(body.castIds)) {
+    // 함께 등장할 인물. 목록에 있는 캐릭터만, 주인공은 빼고, 겹치지 않게 받습니다.
+    chat.castIds = [...new Set(body.castIds)]
+      .filter((id) => typeof id === 'string' && id !== chat.characterId && store.characters.has(id))
+      .slice(0, 8);
+  }
   store.chats.save(chat.id);
   res.json(chat);
 });
@@ -546,6 +565,18 @@ app.put('/api/chats/:id/messages/:mid', (req, res) => {
   if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
   msg.content = String(req.body?.content ?? msg.content);
   msg.editedAt = Date.now();
+  syncSwipe(msg);
+  store.chats.save(chat.id);
+  res.json(msg);
+});
+
+/** 답변 넘겨보기. body: { index } 보여 줄 장 번호(0부터) */
+app.put('/api/chats/:id/messages/:mid/swipe', (req, res) => {
+  const chat = store.chats.get(req.params.id);
+  const msg = chat?.messages.find((m) => m.id === req.params.mid);
+  if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
+  if (!msg.swipes?.length) return res.status(400).json({ error: '넘겨볼 다른 답변이 없습니다.' });
+  showSwipe(msg, req.body?.index);
   store.chats.save(chat.id);
   res.json(msg);
 });
@@ -562,45 +593,78 @@ app.delete('/api/chats/:id/messages/:mid', (req, res) => {
 
 /* ---------------- 생성 (SSE) ---------------- */
 
+/**
+ * 롤플레이 대화 하나를 보낼 준비물. 생성·요약·미리보기가 같이 씁니다.
+ * 캐릭터가 없으면 null 입니다.
+ */
+function rpContext(chat) {
+  const s = settings();
+  const character = characterOf(chat);
+  if (!character) return null;
+  const persona = store.personas.get(chat.personaId) || store.personas.get(s.activePersonaId);
+  const preset = presetOf(chat.presetId);
+  const cast = castOf(chat);
+  const system = buildSystem({
+    character,
+    persona,
+    template: preset.template,
+    cast,
+    memory: chat.memory,
+    particleFix: s.dev.particleFix
+  });
+  return { character, persona, preset, cast, system };
+}
+
+/** 함께 등장하는 인물. 목록에서 지워진 캐릭터나 주인공 자신은 빼고 돌려줍니다. */
+function castOf(chat) {
+  if (!Array.isArray(chat.castIds)) return [];
+  return chat.castIds
+    .filter((id) => id && id !== chat.characterId)
+    .map((id) => store.characters.get(id))
+    .filter(Boolean);
+}
+
+/** 엔진을 쓸 수 있는지 봅니다. 문제가 있으면 사람이 읽을 안내를, 없으면 null 을 돌려줍니다. */
+function engineProblem(config, provider) {
+  if (!config) return `설정되지 않은 엔진: ${provider}`;
+  if (!config.model) return '설정에서 모델을 먼저 선택해 주세요.';
+  const verdict = checkBaseUrl(config.baseUrl);
+  if (!verdict.ok) return verdict.reason;
+  if (!config.apiKey && !isLocalUrl(config.baseUrl)) {
+    return `${config.label} API 키가 비어 있습니다. 설정에서 입력해 주세요.`;
+  }
+  return null;
+}
+
+const adultBlocked = (preset, config) =>
+  `'${preset.name}' 모드는 로컬 엔진으로만 보낼 수 있습니다.\n` +
+  `지금 선택된 엔진은 로컬 주소가 아닙니다 (${config.label}).\n` +
+  '설정에서 엔진을 LM Studio 로 바꾸거나, 대화 상단에서 다른 모드를 선택하세요.';
+
+/**
+ * body: { regenerate?, continue?, provider? }
+ *   (기본)      마지막 턴 다음에 새 답변을 씁니다
+ *   regenerate  마지막 답변의 다른 버전을 한 장 더 씁니다. 이전 버전은 넘겨보기로 남습니다
+ *   continue    마지막 답변 끝에 이어 씁니다
+ */
 app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   const s = settings();
   const chat = store.chats.get(req.params.id);
   if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
   const assistant = chat.kind === 'assistant';
 
-  let character = null;
-  let persona = null;
-  if (!assistant) {
-    character = characterOf(chat);
-    if (!character) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
-    persona = store.personas.get(chat.personaId) || store.personas.get(s.activePersonaId);
+  const mode = req.body?.continue ? 'continue' : req.body?.regenerate ? 'regenerate' : 'new';
+  const last = chat.messages[chat.messages.length - 1];
+  // 마지막이 사용자 턴이면 재전송은 그냥 새로 쓰기(실패한 요청 다시 보내기)와 같습니다.
+  const target = mode !== 'new' && last?.role === 'assistant' ? last : null;
+  if (mode === 'continue' && !target) {
+    return res.status(400).json({ error: '이어 쓸 답변이 없습니다. 마지막 메시지가 AI 의 답변일 때만 이어 쓸 수 있습니다.' });
   }
-
-  /*
-   * 다시 생성: 마지막 assistant 응답을 빼고 보냅니다.
-   * 실제로 지우는 건 새 응답이 만들어진 뒤입니다. 검사에 걸리거나 생성이 실패해도
-   * 이전 응답이 그대로 남도록.
-   */
-  const regenerate = Boolean(req.body?.regenerate);
-  const trailingAssistants = (list) => {
-    let n = 0;
-    while (n < list.length && list[list.length - 1 - n].role === 'assistant') n += 1;
-    return n;
-  };
-  const basis = regenerate
-    ? { ...chat, messages: chat.messages.slice(0, chat.messages.length - trailingAssistants(chat.messages)) }
-    : chat;
 
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
-  if (!config) return res.status(400).json({ error: `설정되지 않은 엔진: ${provider}` });
-  if (!config.model) return res.status(400).json({ error: '설정에서 모델을 먼저 선택해 주세요.' });
-
-  const verdict = checkBaseUrl(config.baseUrl);
-  if (!verdict.ok) return res.status(400).json({ error: verdict.reason });
-  if (!config.apiKey && !isLocalUrl(config.baseUrl)) {
-    return res.status(400).json({ error: `${config.label} API 키가 비어 있습니다. 설정에서 입력해 주세요.` });
-  }
+  const problem = engineProblem(config, provider);
+  if (problem) return res.status(400).json({ error: problem });
 
   let system;
   let params = s.params;
@@ -610,7 +674,7 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
     system = s.assistant.systemPrompt;
     params = s.assistant.params;
     webSearch = Boolean(s.assistant.webSearch);
-    thinking = Boolean(s.assistant.thinking);
+    thinking = Boolean(s.assistant.thinking) && mode !== 'continue';
     system = withThinking(system, thinking);
     if (webSearch && !supportsWebSearch(provider, config)) {
       return res.status(400).json({
@@ -619,22 +683,28 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
       });
     }
   } else {
-    const preset = presetOf(chat.presetId);
-    if (preset.adult && !isLocalUrl(config.baseUrl)) {
-      return res.status(400).json({
-        error: `'${preset.name}' 모드는 로컬 엔진으로만 보낼 수 있습니다.\n` +
-          `지금 선택된 엔진은 로컬 주소가 아닙니다 (${config.label}).\n` +
-          '설정에서 엔진을 LM Studio 로 바꾸거나, 대화 상단에서 다른 모드를 선택하세요.'
-      });
+    const ctx = rpContext(chat);
+    if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
+    if (ctx.preset.adult && !isLocalUrl(config.baseUrl)) {
+      return res.status(400).json({ error: adultBlocked(ctx.preset, config) });
     }
-    system = buildSystem({
-      character,
-      persona,
-      template: preset.template,
-      particleFix: s.dev.particleFix
-    });
+    system = ctx.system;
   }
-  const history = buildHistory(basis, s.historyLimit);
+
+  // 다른 버전을 쓸 때는 지금 답변을 빼고 보냅니다. 실제로 바꾸는 건 새 버전이 생긴 뒤입니다.
+  const basis = mode === 'regenerate' && target
+    ? { ...chat, messages: chat.messages.slice(0, -1) }
+    : chat;
+  let history = buildHistory(basis, s.historyLimit);
+  if (mode === 'continue') history.push({ role: 'user', content: CONTINUE_PROMPT });
+  if (!assistant && chat.authorNote?.trim()) {
+    const ctx = rpContext(chat);
+    history = withAuthorNote(history, fillVars(chat.authorNote, {
+      char: ctx.character.name, user: ctx.persona?.name, particleFix: s.dev.particleFix
+    }));
+  }
+  // 첫 대사도 없는 캐릭터에서 인사말을 다시 뽑는 경우처럼, 보낼 턴이 하나도 없을 수 있습니다.
+  if (!history.length) history.push({ role: 'user', content: '(장면을 시작한다)' });
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -686,7 +756,8 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
       send({ delta: clean });
 
       // 같은 조각을 끝없이 되풀이하면 최대 길이를 다 채울 때까지 멈추지 않습니다.
-      if (looksRepetitive(text)) {
+      // 이어쓰기는 앞 내용까지 합쳐서 봐야 되풀이를 알아챕니다.
+      if (looksRepetitive(mode === 'continue' ? target.content + text : text)) {
         loopStopped = true;
         controller.abort();
         break;
@@ -711,21 +782,115 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
 
   finished = true;
   if (running.get(chat.id) === run) running.delete(chat.id);
-  if (text.trim()) {
-    // 새 응답이 생겼으니 이제 이전 응답을 걷어냅니다.
-    if (regenerate) chat.messages.splice(chat.messages.length - trailingAssistants(chat.messages));
-    const msg = { id: uid(), role: 'assistant', content: text.trim(), at: Date.now(), provider, model: config.model };
-    // 사고와 출처는 본문과 따로 둡니다. 다음 턴에 같이 보내지 않으므로 맥락을 잡아먹지 않습니다.
-    if (thought.trim()) msg.thought = thought.trim().slice(0, 6000);
-    if (sources.length) msg.sources = sources.slice(0, 20);
-    chat.messages.push(msg);
-    chat.updatedAt = Date.now();
-    store.chats.save(chat.id);
-    send({ done: true, message: msg });
-  } else {
+  if (!text.trim()) {
     send({ done: true, message: null });
+    return res.end();
   }
+
+  // 생성하는 동안 사용자가 그 메시지를 지웠다면 새 메시지로 붙입니다.
+  const alive = target && chat.messages.includes(target);
+  let msg;
+  if (mode === 'continue' && alive) {
+    target.content = joinContinuation(target.content, text);
+    target.continuedAt = Date.now();
+    syncSwipe(target);
+    msg = target;
+  } else {
+    const variant = { content: text.trim(), at: Date.now(), provider, model: config.model };
+    // 사고와 출처는 본문과 따로 둡니다. 다음 턴에 같이 보내지 않으므로 맥락을 잡아먹지 않습니다.
+    if (thought.trim()) variant.thought = thought.trim().slice(0, 6000);
+    if (sources.length) variant.sources = sources.slice(0, 20);
+    if (mode === 'regenerate' && alive) {
+      msg = addSwipe(target, variant);
+    } else {
+      msg = { id: uid(), role: 'assistant', ...variant };
+      chat.messages.push(msg);
+    }
+  }
+  chat.updatedAt = Date.now();
+  store.chats.save(chat.id);
+  send({ done: true, message: msg });
   res.end();
+}));
+
+/**
+ * 기억 요약. '기억할 메시지 수' 밖으로 밀려난 대화를 요약해 chat.memory 에 둡니다.
+ * body: { auto? }  auto 면 밀려난 메시지가 SUMMARY_MIN 개 이상 쌓였을 때만, 한 묶음만 요약합니다.
+ * 손으로 누르면 밀린 것을 여러 묶음까지 따라잡습니다.
+ */
+app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
+  const s = settings();
+  const chat = store.chats.get(req.params.id);
+  if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
+  if (chat.kind === 'assistant') return res.status(400).json({ error: '어시스턴트 대화는 요약하지 않습니다.' });
+  const auto = Boolean(req.body?.auto);
+
+  let pending = pendingForSummary(chat, s.historyLimit);
+  const reply = (extra = {}) => res.json({
+    memory: chat.memory || '',
+    summaryUntilAt: chat.summaryUntilAt || 0,
+    pending: pendingForSummary(chat, s.historyLimit).length,
+    ...extra
+  });
+  if (auto && (!s.memory?.autoSummarize || pending.length < SUMMARY_MIN)) return reply({ skipped: true });
+  if (!pending.length) return reply({ summarized: 0 });
+
+  const ctx = rpContext(chat);
+  if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
+  const provider = req.body?.provider || s.activeProvider;
+  const config = engineConfig(provider);
+  const problem = engineProblem(config, provider)
+    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+  if (problem) {
+    // 자동 요약은 조용히 넘어갑니다. 대화 자체는 막지 않습니다.
+    if (auto) return reply({ skipped: true, reason: problem });
+    return res.status(400).json({ error: problem });
+  }
+
+  const controller = new AbortController();
+  let finished = false;
+  res.on('close', () => { if (!finished) controller.abort(); });
+
+  // 요약은 사실 정리라 온도를 낮게, 길이는 요약 상한에 맞춰 둡니다.
+  const params = { ...s.params, temperature: Math.min(s.params.temperature ?? 1, 0.4), maxTokens: 1200 };
+  const names = {
+    char: [ctx.character.name, ...ctx.cast.map((c) => c.name)].join('·'),
+    user: ctx.persona?.name || '사용자'
+  };
+  let rounds = auto ? 1 : 4;
+  let summarized = 0;
+  try {
+    while (pending.length && rounds-- > 0) {
+      const chunk = takeChunk(pending);
+      const stripper = makeThoughtStripper({});
+      let out = '';
+      const stream = streamChat({
+        provider,
+        config,
+        system: withThinking(SUMMARY_SYSTEM, false),
+        messages: [{ role: 'user', content: buildSummaryPrompt(chat.memory, chunk, names) }],
+        params,
+        signal: controller.signal
+      });
+      for await (const piece of stream) out += stripper.feed(piece);
+      out = cleanSummary(out + stripper.flush());
+      if (!out) throw new Error('모델이 빈 요약을 보냈습니다.');
+
+      chat.memory = out;
+      chat.summaryUntilAt = chunk[chunk.length - 1].at || Date.now();
+      store.chats.save(chat.id);
+      summarized += chunk.length;
+      pending = pendingForSummary(chat, s.historyLimit);
+    }
+  } catch (e) {
+    finished = true;
+    if (controller.signal.aborted) return;
+    // 여러 묶음 중 앞쪽은 이미 저장됐으니, 어디까지 됐는지와 함께 알려 줍니다.
+    if (auto) return reply({ skipped: true, summarized, reason: e.message });
+    return res.status(502).json({ error: describeFailure(e, provider, config), summarized });
+  }
+  finished = true;
+  reply({ summarized });
 }));
 
 /** 생성 중인 대화. 대화 id → { controller } */
@@ -792,13 +957,14 @@ app.get('/api/chats/:id/system', (req, res) => {
   if (chat.kind === 'assistant') {
     return res.json({ system: s.assistant.systemPrompt, turns: buildHistory(chat, s.historyLimit).length });
   }
-  const character = characterOf(chat);
-  if (!character) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
-  const persona = store.personas.get(chat.personaId) || store.personas.get(s.activePersonaId);
-  const preset = presetOf(chat.presetId);
+  const ctx = rpContext(chat);
+  if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
   res.json({
-    system: buildSystem({ character, persona, template: preset.template, particleFix: s.dev.particleFix }),
-    turns: buildHistory(chat, s.historyLimit).length
+    system: ctx.system,
+    turns: buildHistory(chat, s.historyLimit).length,
+    authorNote: chat.authorNote?.trim()
+      ? fillVars(chat.authorNote, { char: ctx.character.name, user: ctx.persona?.name, particleFix: s.dev.particleFix })
+      : ''
   });
 });
 
@@ -868,6 +1034,10 @@ const cleanPersona = (raw) => {
   return { name: str(raw.name), description: str(raw.description) };
 };
 
+const cleanSources = (list) => list.filter(isObj)
+  .map((x) => ({ url: str(x.url), title: str(x.title) }))
+  .filter((x) => /^https?:\/\//i.test(x.url));
+
 const cleanChat = (raw) => {
   if (!Array.isArray(raw.messages)) return null;
   const messages = raw.messages.filter(isObj).map((m) => {
@@ -879,9 +1049,15 @@ const cleanChat = (raw) => {
     };
     for (const k of ['provider', 'model', 'thought']) if (typeof m[k] === 'string') msg[k] = m[k];
     if (Number.isFinite(m.editedAt)) msg.editedAt = m.editedAt;
-    if (Array.isArray(m.sources)) {
-      msg.sources = m.sources.filter(isObj).map((x) => ({ url: str(x.url), title: str(x.title) }))
-        .filter((x) => /^https?:\/\//i.test(x.url));
+    if (Array.isArray(m.sources)) msg.sources = cleanSources(m.sources);
+    if (Array.isArray(m.swipes) && m.swipes.length) {
+      msg.swipes = m.swipes.filter(isObj).slice(-20).map((v) => {
+        const out = { content: str(v.content), at: Number.isFinite(v.at) ? v.at : msg.at };
+        for (const k of ['provider', 'model', 'thought']) if (typeof v[k] === 'string') out[k] = v[k];
+        if (Array.isArray(v.sources)) out.sources = cleanSources(v.sources);
+        return out;
+      });
+      msg.swipeIndex = Math.max(0, Math.min(msg.swipes.length - 1, Number(m.swipeIndex) || 0));
     }
     return msg;
   });
@@ -894,6 +1070,10 @@ const cleanChat = (raw) => {
     messages
   };
   if (typeof raw.presetId === 'string') chat.presetId = raw.presetId;
+  if (typeof raw.memory === 'string') chat.memory = raw.memory;
+  if (typeof raw.authorNote === 'string') chat.authorNote = raw.authorNote;
+  if (Number.isFinite(raw.summaryUntilAt)) chat.summaryUntilAt = raw.summaryUntilAt;
+  if (Array.isArray(raw.castIds)) chat.castIds = raw.castIds.filter((id) => typeof id === 'string');
   if (isObj(raw.character)) {
     const c = cleanCharacter(raw.character);
     if (c) chat.character = { ...c, id: null };
@@ -919,6 +1099,7 @@ app.post('/api/import', (req, res) => {
     const chat = cleanChat(raw);
     if (chat?.characterId) chat.characterId = characterIds.get(chat.characterId) ?? chat.characterId;
     if (chat?.personaId) chat.personaId = personaIds.get(chat.personaId) ?? chat.personaId;
+    if (chat?.castIds) chat.castIds = chat.castIds.map((id) => characterIds.get(id) ?? id);
     return chat;
   });
 
@@ -949,7 +1130,7 @@ app.post('/api/import', (req, res) => {
     }
     const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
     if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
-    for (const key of ['params', 'assistant', 'dev']) {
+    for (const key of ['params', 'assistant', 'dev', 'memory']) {
       if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
     }
     result.settings = true;

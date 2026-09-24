@@ -68,6 +68,8 @@
     <div class="head-actions">
       <select id="chat-preset" class="head-select" title="이 대화에 쓸 대화 모드" hidden></select>
       <select id="chat-persona" class="head-select" title="이 대화에서 쓸 내 페르소나" hidden></select>
+      <button id="btn-cast" class="ghost-btn" hidden title="이 대화에 함께 등장할 캐릭터를 고릅니다">등장인물</button>
+      <button id="btn-memory" class="ghost-btn" hidden title="오래된 대화의 요약과, 매 턴 붙는 진행 지시를 봅니다">기억·노트</button>
       <button id="btn-save-character" class="ghost-btn" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
       <button id="btn-rename" class="ghost-btn" hidden>이름 바꾸기</button>
       <button id="btn-delete-chat" class="ghost-btn danger" hidden>대화 삭제</button>
@@ -90,7 +92,8 @@
       <textarea id="input" rows="1" placeholder="무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다."></textarea>
       <div class="composer-side">
         <button id="btn-send" class="send-btn">보내기</button>
-        <button id="btn-regen" class="ghost-btn" title="마지막 답변을 지우고 다시 생성합니다">재전송</button>
+        <button id="btn-regen" class="ghost-btn" title="마지막 답변의 다른 버전을 씁니다. 이전 답변은 ‹ › 로 넘겨볼 수 있습니다">재전송</button>
+        <button id="btn-continue" class="ghost-btn" title="마지막 답변이 잘렸을 때 끝에 이어서 씁니다">이어쓰기</button>
       </div>
     </div>
     <p class="composer-hint">
@@ -179,6 +182,61 @@
     <div class="sheet-foot">
       <span class="spacer"></span>
       <button value="close" class="send-btn" type="submit">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 기억·작가 노트 -->
+<dialog id="dlg-memory" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">기억 · 작가 노트</h2>
+    <div class="sheet-body">
+      <label class="field">
+        <span>기억 — 지금까지의 이야기</span>
+        <textarea id="m-memory" rows="9" placeholder="아직 요약된 내용이 없습니다. 직접 적어 두어도 됩니다.&#10;- 둘은 지난주 옥상에서 처음 만났다&#10;- {{char}}는 {{user}}에게 비밀을 하나 숨기고 있다"></textarea>
+      </label>
+      <div class="seed-head">
+        <span id="m-status" class="field-hint grow"></span>
+        <button id="m-summarize" class="ghost-btn" type="button">지금 요약하기</button>
+      </div>
+      <p class="field-hint">
+        '기억할 메시지 수' 를 넘어 모델에게 더는 보내지 않는 옛 대화를 요약해 둔 것입니다.
+        시스템 프롬프트 끝에 붙어 매번 함께 갑니다. 틀린 곳은 직접 고쳐도 되고, 다음 요약 때도 유지됩니다.
+      </p>
+      <label class="check-row">
+        <input id="m-auto" type="checkbox">
+        <span>밀려난 메시지가 10개 쌓이면 답변이 끝난 뒤 자동으로 요약 (모든 대화에 적용)</span>
+      </label>
+      <div class="divider"></div>
+      <label class="field">
+        <span>작가 노트 — 매 턴 끝에 붙는 진행 지시</span>
+        <textarea id="m-note" rows="3" placeholder="예) 지금은 비 오는 밤. {{char}}는 {{user}}에게 서운한 걸 숨기고 있다. 장면을 서두르지 말 것."></textarea>
+      </label>
+      <p class="field-hint">내 마지막 메시지 뒤에 몰래 덧붙여 보냅니다. 저장된 대화에는 남지 않고, 비워 두면 보내지 않습니다.</p>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button id="m-cancel" class="ghost-btn" type="button">취소</button>
+      <button value="save" class="send-btn" type="submit">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 함께 등장하는 인물 -->
+<dialog id="dlg-cast" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">등장인물</h2>
+    <div class="sheet-body">
+      <p class="field-hint">
+        고른 캐릭터들이 이 대화에 함께 나옵니다. AI 가 장면에 맞는 인물을 골라 서로 말을 주고받게 하고,
+        말하는 줄 앞에 이름을 붙입니다. 최대 8명까지 고를 수 있습니다.
+      </p>
+      <ul id="cast-list" class="persona-list"></ul>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button id="cast-cancel" class="ghost-btn" type="button">취소</button>
+      <button value="save" class="send-btn" type="submit">저장</button>
     </div>
   </form>
 </dialog>

@@ -219,6 +219,16 @@ data: {"done": true, "message": {...}}   완료
 
 ---
 
+### 대화 한 개의 규칙 — `src/chat-ops.js`
+
+저장소와 무관한 순수 함수만 둡니다.
+
+- **답변 넘겨보기** — `addSwipe` / `showSwipe` / `syncSwipe`. 메시지의 `content` 는 늘 보고 있는 장(`swipes[swipeIndex]`)과 같아서, 히스토리·미리보기 코드는 장을 몰라도 됩니다. 장은 최대 20개
+- **이어쓰기** — `CONTINUE_PROMPT` 를 사용자 턴으로 덧붙여 보내고 `joinContinuation` 으로 이어 붙입니다. 문장이 끝난 자리에서만 띄웁니다
+- **작가 노트** — `withAuthorNote` 가 보낼 히스토리 사본의 마지막 사용자 턴 끝에 붙입니다. 저장된 메시지는 건드리지 않습니다
+- **기억 요약** — `pendingForSummary` 가 기억할 메시지 수 밖으로 밀려났고 `chat.summaryUntilAt` 이후인 메시지를 고릅니다. id 가 아니라 시각으로 기억하므로 메시지를 지워도 처음부터 다시 요약하지 않습니다. 결과는 `buildSystem({ memory })` 로 시스템 프롬프트 끝에 붙습니다
+- **여러 인물** — `chat.castIds` 의 캐릭터가 `buildSystem({ cast })` 로 들어갑니다. 모델 호출은 한 번이고, 인물끼리의 대화는 줄 앞 `이름:` 으로 구분합니다
+
 ## 6. 사고 스트립과 반복 감지 — `src/sanitize.js`
 
 ### `makeThoughtStripper({ onThought })`
@@ -251,9 +261,11 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
 | GET/POST/PUT/DELETE | `/api/personas[/:id]` | 페르소나 CRUD |
-| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` |
+| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` |
 | POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제 |
-| POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate }` 바디. 재전송은 새 응답이 생겼을 때만 이전 응답을 교체 |
+| POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate, continue }` 바디. regenerate 는 마지막 답변에 새 장(`swipes`)을 얹고, continue 는 끝에 이어 붙임. 둘 다 새 내용이 생겼을 때만 바뀜 |
+| PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
+| POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
 | GET | `/api/chats/:id/system` | 진단용 — 조립된 시스템 프롬프트 미리보기 |
 | POST | `/api/chats/:id/save-character` | 1회성 캐릭터를 목록으로 승격 |
