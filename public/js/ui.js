@@ -8,6 +8,9 @@ export function setMarkup(next) {
 const esc = (s = '') =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/** 화면에 끼워 넣을 글을 HTML 로 해석되지 않게 바꿉니다. */
+export const escapeHtml = (t = '') => esc(String(t));
+
 /**
  * 롤플레이 표기를 살려서 HTML 로 바꿉니다. 켜고 끄는 것은 개발자 설정에서 정합니다.
  *   *별표* 또는 (괄호)  → 행동·장면 묘사

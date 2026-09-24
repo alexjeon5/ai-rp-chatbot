@@ -1215,6 +1215,19 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .cast-fact { grid-template-columns: 1fr; gap: 2px; }
 }
 
+/* 새 대화 창의 일반/성인 탭. 사이드바 탭과 같은 모양이되 여백만 다릅니다. */
+.nc-tabs { padding: 0; margin: 4px 0 0; }
+.nc-tabs .m-tag {
+  margin-left: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  color: var(--danger);
+  font-size: 10px;
+}
+.nc-note { margin: 0; }
+.nc-note.is-warn { color: var(--danger); }
+
 .mode-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 
 .mode-card {

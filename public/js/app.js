@@ -190,7 +190,7 @@ async function refreshChatList() {
 
 function paintMode() {
   const rp = state.mode === 'rp';
-  for (const tab of document.querySelectorAll('.mode-tab')) {
+  for (const tab of document.querySelectorAll('.mode-tab[data-mode]')) {
     tab.classList.toggle('is-on', tab.dataset.mode === state.mode);
   }
   $('character-group').hidden = !rp;
@@ -204,7 +204,7 @@ function visibleChats() {
     state.mode === 'assistant' ? c.kind === 'assistant' : c.kind !== 'assistant');
 }
 
-for (const tab of document.querySelectorAll('.mode-tab')) {
+for (const tab of document.querySelectorAll('.mode-tab[data-mode]')) {
   tab.addEventListener('click', () => {
     state.mode = tab.dataset.mode;
     localStorage.setItem('mode', state.mode);
@@ -403,18 +403,57 @@ function newRpChat(target) {
   $('nc-title').textContent = character ? `${character.name} — 어떤 모드로 시작할까요` : '어떤 모드로 시작할까요';
   paintCastCard(character);
   $('nc-remember').checked = false;
-  $('nc-list').innerHTML = s.presets
-    .map((p) => `<li><button type="button" class="mode-card${p.id === s.activePresetId ? ' is-last' : ''}" data-preset="${p.id}">
+
+  // 지난번에 고른 모드가 있는 쪽 탭으로 엽니다. 그쪽이 비어 있으면 모드가 있는 쪽으로.
+  const last = s.presets.find((p) => p.id === s.activePresetId);
+  let audience = last?.adult ? 'adult' : 'general';
+  if (!s.presets.some((p) => p.adult === (audience === 'adult'))) {
+    audience = audience === 'adult' ? 'general' : 'adult';
+  }
+  paintModeTab(audience);
+  dlgNewChat.showModal();
+}
+
+/**
+ * 새 대화 창에서 일반 / 성인 모드 중 한쪽만 보여 줍니다.
+ * 섞어 두면 성인 모드를 실수로 누르기 쉽고, 목록도 길어져 한눈에 안 들어옵니다.
+ */
+function paintModeTab(audience) {
+  const s = state.settings;
+  const adult = audience === 'adult';
+  for (const tab of $('nc-tabs').querySelectorAll('[data-audience]')) {
+    const on = tab.dataset.audience === audience;
+    tab.classList.toggle('is-on', on);
+    tab.setAttribute('aria-selected', String(on));
+  }
+
+  // 성인 모드는 로컬 엔진으로만 나갑니다. 지금 엔진이 외부면 고르기 전에 알려 줍니다.
+  const note = $('nc-audience-note');
+  const cfg = s.providers[s.activeProvider];
+  const local = isLocalUrl(cfg?.baseUrl);
+  note.hidden = !adult;
+  note.classList.toggle('is-warn', adult && !local);
+  note.textContent = !adult ? '' : local
+    ? '성인 모드는 로컬 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.'
+    : `지금 엔진(${cfg?.label || s.activeProvider})은 로컬 주소가 아니라 성인 모드로 보낼 수 없습니다. 입력창 아래에서 LM Studio 로 바꿔 주세요.`;
+
+  const list = s.presets.filter((p) => Boolean(p.adult) === adult);
+  $('nc-list').innerHTML = list.length
+    ? list.map((p) => `<li><button type="button" class="mode-card${p.id === s.activePresetId ? ' is-last' : ''}" data-preset="${p.id}">
       <span class="m-name">
-        ${p.name}
+        ${ui.escapeHtml(p.name)}
         ${p.adult ? '<span class="m-tag">19</span>' : ''}
         ${p.id === s.activePresetId ? '<span class="m-last">이전 사용</span>' : ''}
       </span>
-      <span class="m-desc">${modeNote(p)}</span>
-    </button></li>`)
-    .join('');
-  dlgNewChat.showModal();
+      <span class="m-desc">${ui.escapeHtml(modeNote(p))}</span>
+    </button></li>`).join('')
+    : `<li class="rail-empty">${adult ? '성인' : '일반'} 모드가 없습니다. 설정 → 대화 모드에서 만들 수 있습니다.</li>`;
 }
+
+$('nc-tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-audience]');
+  if (tab) paintModeTab(tab.dataset.audience);
+});
 
 /** 어떤 캐릭터인지 잊고 눌렀을 때를 대비해, 설정해 둔 특징을 함께 보여 줍니다. */
 function paintCastCard(character) {

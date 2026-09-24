@@ -288,6 +288,11 @@
     <h2 class="sheet-title" id="nc-title">어떤 모드로 시작할까요</h2>
     <div class="sheet-body">
       <div id="nc-character" class="cast-card"></div>
+      <nav id="nc-tabs" class="mode-tabs nc-tabs" role="tablist" aria-label="모드 분류">
+        <button type="button" class="mode-tab" role="tab" data-audience="general">일반</button>
+        <button type="button" class="mode-tab" role="tab" data-audience="adult">성인 <span class="m-tag">19</span></button>
+      </nav>
+      <p id="nc-audience-note" class="field-hint nc-note" hidden></p>
       <ul id="nc-list" class="mode-list"></ul>
       <p class="field-hint">대화를 시작한 뒤에도 상단 선택기에서 바꿀 수 있습니다.</p>
     </div>
