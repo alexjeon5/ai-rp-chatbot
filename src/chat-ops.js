@@ -348,3 +348,36 @@ export function cleanFacts(list) {
       };
     });
 }
+
+/* ---------------- 대신 쓰기 ---------------- */
+
+/**
+ * 내 차례 대사를 AI 가 초안으로 쓰게 하는 지시. 대화 틀에는 대개
+ * "{{user}} 의 몫은 쓰지 말 것" 이 들어 있으므로, 이번 한 번은 예외라고 분명히 적습니다.
+ * @param {object} o
+ * @param {string} [o.hint]      입력창에 미리 적어 둔 방향
+ * @param {boolean} [o.messenger] 메신저 모드면 문자 형식으로
+ */
+export function impersonatePrompt({ hint = '', messenger = false } = {}) {
+  const lines = [
+    '[진행 지시: 이번 한 번은 예외로, 당신이 {{user}}를 대신해 {{user}}의 다음 차례를 초안으로 씁니다.',
+    '- {{user}}의 시점에서 {{user}}가 할 말과 행동만 씁니다. {{char}}나 다른 인물의 대사와 반응은 쓰지 않습니다.',
+    messenger
+      ? '- {{user}}가 보낼 메신저 문자 1~2개를 한 줄에 하나씩 씁니다. 묘사는 쓰지 않습니다.'
+      : '- 지금까지 대화에서 {{user}}가 쓰던 표기법을 따르고, 1~3문장으로 짧게 씁니다.',
+    '- 이름표, 따옴표로 감싼 설명, 머리말 없이 초안 본문만 씁니다.'
+  ];
+  const direction = String(hint || '').trim();
+  if (direction) lines.push(`- 이런 방향으로 씁니다: ${direction.slice(0, 500)}`);
+  return `${lines.join('\n')}]`;
+}
+
+/** 모델이 붙이는 '이름:' 머리나 감싼 따옴표를 걷어냅니다. */
+export function cleanImpersonation(text = '', userName = '') {
+  let out = text.trim();
+  if (userName) {
+    const esc = userName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`^(\\*\\*)?${esc}(\\*\\*)?\\s*[:：]\\s*`), '');
+  }
+  return out.replace(/^\[?초안\]?\s*[:：]\s*/, '').trim();
+}

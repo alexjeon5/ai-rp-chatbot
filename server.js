@@ -11,7 +11,7 @@ import {
   addSwipe, showSwipe, syncSwipe, joinContinuation, CONTINUE_PROMPT, withAuthorNote,
   pendingForSummary, takeChunk, SUMMARY_MIN, SUMMARY_SYSTEM, buildSummaryPrompt, cleanSummary, MEMORY_MAX_CHARS,
   FACT_EVERY, factsWindow, turnsSinceFacts, FACTS_SYSTEM, buildFactsPrompt, parseFactOps, applyFactOps,
-  invalidateFacts, cleanFacts
+  invalidateFacts, cleanFacts, impersonatePrompt, cleanImpersonation
 } from './src/chat-ops.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
 import { GEN_SYSTEM, genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
@@ -958,6 +958,75 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
     if (background.get(chat.id) === controller) background.delete(chat.id);
   }
   reply({ summarized });
+}));
+
+/**
+ * 대신 쓰기. 내 다음 차례를 AI 가 초안으로 씁니다. 저장하지 않고 조각만 흘려보냅니다.
+ * body: { hint?, provider? }  hint 는 입력창에 미리 적어 둔 방향입니다.
+ */
+app.post('/api/chats/:id/impersonate', generateLimit, wrap(async (req, res) => {
+  const s = settings();
+  const chat = store.chats.get(req.params.id);
+  if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
+  if (chat.kind === 'assistant') return res.status(400).json({ error: '어시스턴트 대화에서는 쓸 수 없습니다.' });
+  const ctx = rpContext(chat);
+  if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
+
+  const provider = req.body?.provider || s.activeProvider;
+  const config = engineConfig(provider);
+  const problem = engineProblem(config, provider)
+    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+  if (problem) return res.status(400).json({ error: problem });
+
+  // 로컬 엔진이 한 번에 하나만 처리하므로, 뒤에서 돌던 기억 정리는 미룹니다.
+  background.get(chat.id)?.abort();
+
+  const userName = ctx.persona?.name || '사용자';
+  const instruction = fillVars(impersonatePrompt({
+    hint: req.body?.hint,
+    messenger: ['messenger', 'adult-messenger'].includes(ctx.preset.id)
+  }), { char: ctx.character.name, user: userName, particleFix: s.dev.particleFix });
+  const plan = planFor(chat, { provider, extra: instruction });
+  const history = [...plan.history, { role: 'user', content: instruction }];
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const controller = new AbortController();
+  let finished = false;
+  res.on('close', () => { if (!finished) controller.abort(); });
+
+  // 초안은 짧으면 충분합니다.
+  const params = { ...s.params, maxTokens: Math.min(Number(s.params.maxTokens) || 400, 400) };
+  const stripper = makeThoughtStripper({});
+  let text = '';
+  try {
+    const stream = streamChat({
+      provider,
+      config,
+      system: ctx.system,
+      messages: history,
+      params,
+      signal: controller.signal
+    });
+    for await (const chunk of stream) {
+      const clean = stripper.feed(chunk);
+      if (!clean) continue;
+      text += clean;
+      send({ delta: clean });
+      if (looksRepetitive(text)) { controller.abort(); break; }
+    }
+    text += stripper.flush();
+  } catch (e) {
+    if (!controller.signal.aborted) send({ error: describeFailure(e, provider, config) });
+  }
+  finished = true;
+  send({ done: true, draft: cleanImpersonation(text, userName) });
+  res.end();
 }));
 
 /**

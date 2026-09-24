@@ -1,4 +1,4 @@
-import { api, generate } from './api.js';
+import { api, generate, impersonate } from './api.js';
 import * as ui from './ui.js';
 import { enhanceSelects } from './select.js';
 
@@ -235,6 +235,7 @@ function closeChat() {
   $('btn-save-character').hidden = true;
   $('btn-cast').hidden = true;
   $('btn-memory').hidden = true;
+  $('btn-impersonate').hidden = true;
   $('chat-preset').hidden = true;
   $('chat-persona').hidden = true;
   $('btn-websearch').hidden = true;
@@ -309,6 +310,7 @@ async function openChat(id) {
   $('btn-save-character').hidden = !state.chat.character;
   $('btn-cast').hidden = assistant;
   $('btn-memory').hidden = assistant;
+  $('btn-impersonate').hidden = assistant;
   $('input').placeholder = assistant
     ? '무엇이든 물어보세요.'
     : '무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다.';
@@ -807,9 +809,80 @@ function setStreaming(on) {
   $('btn-send').disabled = on;
   $('btn-regen').disabled = on;
   $('btn-continue').disabled = on;
+  $('btn-impersonate').disabled = on;
+  if (!on) $('stream-label').textContent = '응답 생성 중';
   // 막대가 생기고 사라지면서 입력창 높이가 달라지므로 다시 맞춰 줍니다.
   ui.scrollToEnd();
 }
+
+/* ---------------- 대신 쓰기 ---------------- */
+
+/**
+ * 내 다음 차례를 AI 가 초안으로 씁니다. 입력창에 흘려 넣기만 하고 보내지는 않습니다.
+ * 입력창에 미리 적어 둔 글은 '이런 방향으로' 라는 힌트로 넘깁니다.
+ */
+async function draftMyTurn() {
+  const chat = state.chat;
+  if (!chat || chat.kind === 'assistant' || state.run) return;
+  const input = $('input');
+  const hint = input.value.trim();
+
+  let finish;
+  const runState = {
+    chatId: chat.id,
+    controller: new AbortController(),
+    stopped: false,
+    done: new Promise((resolve) => { finish = resolve; })
+  };
+  state.run = runState;
+  setStreaming(true);
+  $('stream-label').textContent = hint ? '적어 둔 방향으로 초안 쓰는 중' : '내 차례 초안 쓰는 중';
+  input.readOnly = true;
+
+  const grow = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+  };
+  // 모델이 앞에 붙이는 '내이름:' 은 보여 주지 않습니다. 서버도 끝에서 같은 정리를 합니다.
+  const me = personaOf(chat)?.name || '';
+  const tidy = (t) => (me
+    ? t.replace(new RegExp(`^\\s*(\\*\\*)?${me.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\*\\*)?\\s*[:：]\\s*`), '')
+    : t).trimStart();
+  let acc = '';
+  try {
+    const result = await impersonate(chat.id, {
+      hint,
+      signal: runState.controller.signal,
+      onDelta: (d) => {
+        acc += d;
+        if (state.chat === chat) { input.value = tidy(acc); grow(); }
+      }
+    });
+    if (state.chat !== chat) return;
+    if (result.draft) {
+      input.value = result.draft;
+      ui.toast('초안을 넣었습니다. 고친 뒤 보내세요');
+    } else {
+      input.value = hint;
+      if (!runState.stopped) ui.toast('초안이 비어 있습니다. 다시 눌러 보세요');
+    }
+  } catch (e) {
+    if (state.chat === chat) {
+      // 멈췄으면 쓰던 데까지 두고, 실패했으면 원래 적어 둔 글로 되돌립니다.
+      input.value = e.name === 'AbortError' && acc.trim() ? tidy(acc).trim() : hint;
+      if (e.name !== 'AbortError') ui.toast(`초안을 쓰지 못했습니다 — ${e.message}`);
+    }
+  } finally {
+    input.readOnly = false;
+    grow();
+    if (state.run === runState) state.run = null;
+    setStreaming(false);
+    finish();
+    if (state.chat === chat) input.focus();
+  }
+}
+
+$('btn-impersonate').addEventListener('click', draftMyTurn);
 
 /* ---------------- 기억 요약 ---------------- */
 

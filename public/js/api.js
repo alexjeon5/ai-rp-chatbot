@@ -60,11 +60,20 @@ export const api = {
 };
 
 /** SSE 응답을 읽으며 조각마다 onDelta 를 호출합니다. */
-export async function generate(chatId, { regenerate = false, resume = false, signal, onDelta, onThought, onSources, onContext }) {
-  const res = await fetch(`/api/chats/${chatId}/generate`, {
+export function generate(chatId, { regenerate = false, resume = false, ...handlers }) {
+  return streamPost(`/api/chats/${chatId}/generate`, { regenerate, continue: resume }, handlers);
+}
+
+/** 대신 쓰기. 내 다음 차례 초안을 받습니다. 결과는 { draft } 입니다. */
+export function impersonate(chatId, { hint = '', ...handlers }) {
+  return streamPost(`/api/chats/${chatId}/impersonate`, { hint }, handlers);
+}
+
+async function streamPost(url, body, { signal, onDelta, onThought, onSources, onContext }) {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ regenerate, continue: resume }),
+    body: JSON.stringify(body),
     signal
   });
   if (!res.ok) {
