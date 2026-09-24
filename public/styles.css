@@ -1261,6 +1261,37 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* 새 대화 창의 일반/성인 탭. 사이드바 탭과 같은 모양이되 여백만 다릅니다. */
 .nc-tabs { padding: 0; margin: 4px 0 0; }
+
+/* ---------- 기억해 둔 사실 ---------- */
+.fact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.fact-row { display: flex; gap: 6px; align-items: center; }
+.fact-row .fact-text {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.fact-row .fact-text:focus { border-color: var(--brass-soft); outline: none; }
+.fact-row.is-pinned .fact-text { border-color: var(--brass-soft); }
+.fact-tag { font-size: 11px; color: var(--muted); min-width: 26px; text-align: center; }
+.fact-row .tool[aria-pressed='true'] { color: var(--brass); }
+.fact-row .tool[aria-pressed='false'] { opacity: 0.45; }
+.fact-add { display: flex; gap: 6px; }
+.fact-add input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
 .nc-tabs .m-tag {
   margin-left: 4px;
   padding: 0 5px;

@@ -69,7 +69,7 @@ function buildCastBlock(cast = []) {
   return sheets.join('\n\n');
 }
 
-export function buildSystem({ character, persona, template, cast = [], memory = '', particleFix = true }) {
+export function buildSystem({ character, persona, template, cast = [], facts = [], memory = '', particleFix = true }) {
   const vars = { char: character.name, user: persona?.name || '사용자', particleFix };
 
   // 자리표시자가 하나도 없는 틀(직접 써 온 프롬프트 등)이면 배역 정보가 들어갈 곳이 없습니다.
@@ -115,6 +115,11 @@ export function buildSystem({ character, persona, template, cast = [], memory = 
   }
   if (character.notes?.trim()) {
     out += `\n\n# 추가 설정\n${character.notes.trim()}`;
+  }
+  // 대화 중에 모아 둔 사실 목록. 약속·호칭·취향처럼 어긋나면 티가 나는 것들입니다.
+  const factLines = (facts || []).map((f) => f?.text?.trim()).filter(Boolean);
+  if (factLines.length) {
+    out += `\n\n# 기억해 둔 사실\n이 대화에서 이미 확정된 사실입니다. 어긋나지 않게 하세요.\n${factLines.map((t) => `- ${t}`).join('\n')}`;
   }
   // 기억할 메시지 수 밖으로 밀려난 대화의 요약. 맨 뒤에 두어 가장 최근 사정으로 읽히게 합니다.
   if (memory?.trim()) {

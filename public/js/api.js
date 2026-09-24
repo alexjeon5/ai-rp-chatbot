@@ -48,6 +48,8 @@ export const api = {
   addMessage: (chatId, body) => req(`/api/chats/${chatId}/messages`, { method: 'POST', body }),
   swipe: (chatId, mid, index) =>
     req(`/api/chats/${chatId}/messages/${mid}/swipe`, { method: 'PUT', body: { index } }),
+  extractFacts: (chatId, auto = false) =>
+    req(`/api/chats/${chatId}/facts/extract`, { method: 'POST', body: { auto } }),
   summarize: (chatId, auto = false) =>
     req(`/api/chats/${chatId}/summarize`, { method: 'POST', body: { auto } }),
   editMessage: (chatId, mid, content) =>

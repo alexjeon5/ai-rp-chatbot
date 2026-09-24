@@ -463,7 +463,7 @@ const defaultSettings = () => ({
   activePresetId: 'default',
   askModeOnNewChat: true,
   // 기억할 메시지 수 밖으로 밀려난 대화를 자동으로 요약해 둘지.
-  memory: { autoSummarize: true },
+  memory: { autoSummarize: true, autoFacts: true },
   presets: BUILTIN_TEMPLATES(),
   params: { temperature: 1.0, maxTokens: 2048, topP: 0.95, topK: 64, repeatPenalty: 1.1 },
   assistant: {

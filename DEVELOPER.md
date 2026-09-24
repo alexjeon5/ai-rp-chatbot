@@ -227,6 +227,7 @@ data: {"done": true, "message": {...}}   완료
 - **이어쓰기** — `CONTINUE_PROMPT` 를 사용자 턴으로 덧붙여 보내고 `joinContinuation` 으로 이어 붙입니다. 문장이 끝난 자리에서만 띄웁니다
 - **작가 노트** — `withAuthorNote` 가 보낼 히스토리 사본의 마지막 사용자 턴 끝에 붙입니다. 저장된 메시지는 건드리지 않습니다
 - **기억 요약** — `pendingForSummary` 가 기억할 메시지 수 밖으로 밀려났고 `chat.summaryUntilAt` 이후인 메시지를 고릅니다. id 가 아니라 시각으로 기억하므로 메시지를 지워도 처음부터 다시 요약하지 않습니다. 결과는 `buildSystem({ memory })` 로 시스템 프롬프트 끝에 붙습니다
+- **자동 기억** — `factsWindow` → `buildFactsPrompt` → `parseFactOps` → `applyFactOps`. 모델에게 목록 전체를 다시 쓰게 하지 않고 add/update/remove 만 받습니다. `auto: false`(직접)·`pinned` 항목은 모델이 못 바꿉니다. 항목은 `sourceIds` 로 근거 메시지를 기억하고, 메시지가 지워지거나 다른 장으로 넘어가면 `invalidateFacts` 가 치우고 `factsUntilAt` 을 되감아 다시 읽게 합니다. 요약·기억 확인은 `background` 맵에 등록되어 새 답변 요청이 오면 멈춥니다
 - **여러 인물** — `chat.castIds` 의 캐릭터가 `buildSystem({ cast })` 로 들어갑니다. 모델 호출은 한 번이고, 인물끼리의 대화는 줄 앞 `이름:` 으로 구분합니다
 
 ## 6. 사고 스트립과 반복 감지 — `src/sanitize.js`
@@ -265,6 +266,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제 |
 | POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate, continue }` 바디. regenerate 는 마지막 답변에 새 장(`swipes`)을 얹고, continue 는 끝에 이어 붙임. 둘 다 새 내용이 생겼을 때만 바뀜 |
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
+| POST | `/api/chats/:id/facts/extract` | `{ auto }` 최근 대화에서 사실을 뽑아 `chat.facts` 에 추가·수정·삭제. auto 는 답변 4개 이상 쌓였을 때만. 새 generate 요청이 오면 멈춤 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
 | GET | `/api/chats/:id/system` | 진단용 — 조립된 시스템 프롬프트 미리보기 |

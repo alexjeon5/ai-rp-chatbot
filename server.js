@@ -8,7 +8,9 @@ import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import {
   addSwipe, showSwipe, syncSwipe, joinContinuation, CONTINUE_PROMPT, withAuthorNote,
-  pendingForSummary, takeChunk, SUMMARY_MIN, SUMMARY_SYSTEM, buildSummaryPrompt, cleanSummary, MEMORY_MAX_CHARS
+  pendingForSummary, takeChunk, SUMMARY_MIN, SUMMARY_SYSTEM, buildSummaryPrompt, cleanSummary, MEMORY_MAX_CHARS,
+  FACT_EVERY, factsWindow, turnsSinceFacts, FACTS_SYSTEM, buildFactsPrompt, parseFactOps, applyFactOps,
+  invalidateFacts, cleanFacts
 } from './src/chat-ops.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from './src/persona-seeds.js';
 import { GEN_SYSTEM, genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from './src/persona-gen.js';
@@ -166,6 +168,7 @@ app.put('/api/settings', (req, res) => {
     if (body.assistant.params) Object.assign(s.assistant.params, body.assistant.params);
   }
   if (typeof body.memory?.autoSummarize === 'boolean') s.memory.autoSummarize = body.memory.autoSummarize;
+  if (typeof body.memory?.autoFacts === 'boolean') s.memory.autoFacts = body.memory.autoFacts;
   if (body.dev) {
     if (typeof body.dev.particleFix === 'boolean') s.dev.particleFix = body.dev.particleFix;
     if (body.dev.markup) Object.assign(s.dev.markup, body.dev.markup);
@@ -524,6 +527,7 @@ app.put('/api/chats/:id', (req, res) => {
   // 기억(요약)과 작가 노트는 사람이 직접 고칠 수 있습니다.
   if (typeof body.memory === 'string') chat.memory = body.memory.slice(0, MEMORY_MAX_CHARS * 2);
   if (typeof body.authorNote === 'string') chat.authorNote = body.authorNote.slice(0, 2000);
+  if (Array.isArray(body.facts)) chat.facts = cleanFacts(body.facts);
   if (Array.isArray(body.castIds)) {
     // 함께 등장할 인물. 목록에 있는 캐릭터만, 주인공은 빼고, 겹치지 않게 받습니다.
     chat.castIds = [...new Set(body.castIds)]
@@ -563,9 +567,12 @@ app.put('/api/chats/:id/messages/:mid', (req, res) => {
   const chat = store.chats.get(req.params.id);
   const msg = chat?.messages.find((m) => m.id === req.params.mid);
   if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
+  const before = msg.content;
   msg.content = String(req.body?.content ?? msg.content);
   msg.editedAt = Date.now();
   syncSwipe(msg);
+  // 내용이 바뀌었으면 거기서 뽑은 기억을 치우고 다음 확인 때 다시 읽게 합니다.
+  if (msg.content !== before) invalidateFacts(chat, msg);
   store.chats.save(chat.id);
   res.json(msg);
 });
@@ -576,7 +583,9 @@ app.put('/api/chats/:id/messages/:mid/swipe', (req, res) => {
   const msg = chat?.messages.find((m) => m.id === req.params.mid);
   if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
   if (!msg.swipes?.length) return res.status(400).json({ error: '넘겨볼 다른 답변이 없습니다.' });
+  const before = msg.swipeIndex;
   showSwipe(msg, req.body?.index);
+  if (msg.swipeIndex !== before) invalidateFacts(chat, msg);
   store.chats.save(chat.id);
   res.json(msg);
 });
@@ -586,7 +595,8 @@ app.delete('/api/chats/:id/messages/:mid', (req, res) => {
   if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
   const i = chat.messages.findIndex((m) => m.id === req.params.mid);
   if (i < 0) return res.status(404).json({ error: '없는 메시지입니다.' });
-  chat.messages.splice(i, 1);
+  const [gone] = chat.messages.splice(i, 1);
+  invalidateFacts(chat, gone, { rewind: false });
   store.chats.save(chat.id);
   res.json({ ok: true });
 });
@@ -609,6 +619,7 @@ function rpContext(chat) {
     persona,
     template: preset.template,
     cast,
+    facts: chat.facts,
     memory: chat.memory,
     particleFix: s.dev.particleFix
   });
@@ -652,6 +663,10 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   const chat = store.chats.get(req.params.id);
   if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
   const assistant = chat.kind === 'assistant';
+
+  // 뒤에서 돌던 요약·기억 확인이 있으면 멈춥니다. 로컬 엔진은 한 번에 하나만 처리해서,
+  // 그대로 두면 답변이 그만큼 늦게 시작합니다. 멈춘 작업은 다음 기회에 다시 돕니다.
+  background.get(chat.id)?.abort();
 
   const mode = req.body?.continue ? 'continue' : req.body?.regenerate ? 'regenerate' : 'new';
   const last = chat.messages[chat.messages.length - 1];
@@ -794,6 +809,8 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
     target.content = joinContinuation(target.content, text);
     target.continuedAt = Date.now();
     syncSwipe(target);
+    // 덧붙은 부분도 다음 기억 확인 때 읽히게 되감습니다. 기존 항목은 그대로 둡니다.
+    if (Number(chat.factsUntilAt) >= target.at) chat.factsUntilAt = target.at - 1;
     msg = target;
   } else {
     const variant = { content: text.trim(), at: Date.now(), provider, model: config.model };
@@ -801,6 +818,7 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
     if (thought.trim()) variant.thought = thought.trim().slice(0, 6000);
     if (sources.length) variant.sources = sources.slice(0, 20);
     if (mode === 'regenerate' && alive) {
+      invalidateFacts(chat, target);
       msg = addSwipe(target, variant);
     } else {
       msg = { id: uid(), role: 'assistant', ...variant };
@@ -833,6 +851,7 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
     ...extra
   });
   if (auto && (!s.memory?.autoSummarize || pending.length < SUMMARY_MIN)) return reply({ skipped: true });
+  if (auto && running.has(chat.id)) return reply({ skipped: true, reason: '답변을 쓰는 중입니다.' });
   if (!pending.length) return reply({ summarized: 0 });
 
   const ctx = rpContext(chat);
@@ -847,9 +866,7 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
     return res.status(400).json({ error: problem });
   }
 
-  const controller = new AbortController();
-  let finished = false;
-  res.on('close', () => { if (!finished) controller.abort(); });
+  const controller = backgroundController(chat.id, res);
 
   // 요약은 사실 정리라 온도를 낮게, 길이는 요약 상한에 맞춰 둡니다.
   const params = { ...s.params, temperature: Math.min(s.params.temperature ?? 1, 0.4), maxTokens: 1200 };
@@ -883,14 +900,106 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
       pending = pendingForSummary(chat, s.historyLimit);
     }
   } catch (e) {
-    finished = true;
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) {
+      // 새 답변 요청 때문에 멈춘 것이면 연결은 살아 있으니 어디까지 됐는지 알려 줍니다.
+      if (!res.destroyed) reply({ skipped: true, summarized, reason: '새 답변을 먼저 쓰느라 멈췄습니다.' });
+      return;
+    }
     // 여러 묶음 중 앞쪽은 이미 저장됐으니, 어디까지 됐는지와 함께 알려 줍니다.
     if (auto) return reply({ skipped: true, summarized, reason: e.message });
     return res.status(502).json({ error: describeFailure(e, provider, config), summarized });
+  } finally {
+    if (background.get(chat.id) === controller) background.delete(chat.id);
   }
-  finished = true;
   reply({ summarized });
+}));
+
+/**
+ * 뒤에서 도는 작업(요약·기억 확인)의 컨트롤러. 대화 id → AbortController
+ * 새 답변 요청이 오면 이걸 멈춰 답변이 먼저 나가게 합니다.
+ */
+const background = new Map();
+
+function backgroundController(chatId, res) {
+  background.get(chatId)?.abort();
+  const controller = new AbortController();
+  background.set(chatId, controller);
+  res.on('close', () => {
+    if (background.get(chatId) === controller) background.delete(chatId);
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller;
+}
+
+/**
+ * 자동 기억. 최근 대화에서 오래 남겨야 할 사실을 뽑아 chat.facts 에 반영합니다.
+ * body: { auto }  auto 면 마지막 확인 뒤 답변이 FACT_EVERY 개 이상 쌓였을 때만 돕니다.
+ */
+app.post('/api/chats/:id/facts/extract', generateLimit, wrap(async (req, res) => {
+  const s = settings();
+  const chat = store.chats.get(req.params.id);
+  if (!chat) return res.status(404).json({ error: '없는 대화입니다.' });
+  if (chat.kind === 'assistant') return res.status(400).json({ error: '어시스턴트 대화는 기억을 쓰지 않습니다.' });
+  const auto = Boolean(req.body?.auto);
+  const reply = (extra = {}) => res.json({
+    facts: chat.facts || [],
+    factsUntilAt: chat.factsUntilAt || 0,
+    added: [], updated: [], removed: [],
+    ...extra
+  });
+
+  if (auto && (!s.memory?.autoFacts || turnsSinceFacts(chat) < FACT_EVERY)) return reply({ skipped: true });
+  if (auto && running.has(chat.id)) return reply({ skipped: true, reason: '답변을 쓰는 중입니다.' });
+  const window = factsWindow(chat);
+  if (!window.length) return reply({ skipped: true });
+
+  const ctx = rpContext(chat);
+  if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
+  const provider = req.body?.provider || s.activeProvider;
+  const config = engineConfig(provider);
+  const problem = engineProblem(config, provider)
+    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+  if (problem) {
+    if (auto) return reply({ skipped: true, reason: problem });
+    return res.status(400).json({ error: problem });
+  }
+
+  const controller = backgroundController(chat.id, res);
+  const params = { ...s.params, temperature: 0.2, maxTokens: 700 };
+  const names = {
+    char: [ctx.character.name, ...ctx.cast.map((c) => c.name)].join('·'),
+    user: ctx.persona?.name || '사용자'
+  };
+  let text = '';
+  try {
+    const stripper = makeThoughtStripper({});
+    const stream = streamChat({
+      provider,
+      config,
+      system: withThinking(FACTS_SYSTEM, false),
+      messages: [{ role: 'user', content: buildFactsPrompt(chat.facts, window, names) }],
+      params,
+      signal: controller.signal
+    });
+    for await (const piece of stream) text += stripper.feed(piece);
+    text += stripper.flush();
+  } catch (e) {
+    if (controller.signal.aborted) {
+      if (!res.writableEnded && !res.destroyed) reply({ skipped: true, reason: '새 답변을 먼저 쓰느라 멈췄습니다.' });
+      return;
+    }
+    if (auto) return reply({ skipped: true, reason: e.message });
+    return res.status(502).json({ error: describeFailure(e, provider, config) });
+  } finally {
+    if (background.get(chat.id) === controller) background.delete(chat.id);
+  }
+
+  // 읽는 동안 사용자가 메시지를 지웠을 수 있으니, 지금 남아 있는 것만 근거로 씁니다.
+  const alive = window.filter((m) => chat.messages.includes(m));
+  const result = applyFactOps(chat, parseFactOps(text), alive);
+  chat.factsUntilAt = window[window.length - 1].at || Date.now();
+  store.chats.save(chat.id);
+  reply(result);
 }));
 
 /** 생성 중인 대화. 대화 id → { controller } */
@@ -1073,6 +1182,8 @@ const cleanChat = (raw) => {
   if (typeof raw.memory === 'string') chat.memory = raw.memory;
   if (typeof raw.authorNote === 'string') chat.authorNote = raw.authorNote;
   if (Number.isFinite(raw.summaryUntilAt)) chat.summaryUntilAt = raw.summaryUntilAt;
+  if (Array.isArray(raw.facts)) chat.facts = cleanFacts(raw.facts);
+  if (Number.isFinite(raw.factsUntilAt)) chat.factsUntilAt = raw.factsUntilAt;
   if (Array.isArray(raw.castIds)) chat.castIds = raw.castIds.filter((id) => typeof id === 'string');
   if (isObj(raw.character)) {
     const c = cleanCharacter(raw.character);

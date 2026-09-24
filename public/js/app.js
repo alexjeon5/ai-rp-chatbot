@@ -731,7 +731,7 @@ async function run({ mode = 'new' } = {}) {
     finish();
     if (reload && isOpen()) setTimeout(() => { if (isOpen() && !state.run) openChat(chat.id); }, 300);
     else refreshChatList();
-    if (succeeded) autoSummarize(chat);
+    if (succeeded) afterReply(chat);
   }
 }
 
@@ -770,6 +770,34 @@ function pendingCount(chat) {
   return dropped.filter((m) => (m.at || 0) > since).length;
 }
 
+/** 답변이 끝난 뒤 뒤에서 기억을 정리합니다. 로컬 엔진이 한 번에 하나씩만 받으므로 차례로 돌립니다. */
+async function afterReply(chat) {
+  await autoFacts(chat);
+  await autoSummarize(chat);
+}
+
+/** 마지막 기억 확인 뒤로 쌓인 답변 수. 서버와 같은 규칙입니다. */
+function turnsSinceFacts(chat) {
+  const since = Number(chat.factsUntilAt) || 0;
+  return chat.messages.filter((m) => m.role === 'assistant' && m.content?.trim() && (m.at || 0) > since).length;
+}
+
+/** 답변 4개마다 최근 대화에서 오래 남길 사실을 뽑습니다. 새 항목이 생기면 알려 줍니다. */
+async function autoFacts(chat) {
+  if (chat.kind === 'assistant' || state.settings.memory?.autoFacts === false) return;
+  if (turnsSinceFacts(chat) < 4) return;
+  try {
+    const r = await api.extractFacts(chat.id, true);
+    if (r.skipped) return;
+    chat.facts = r.facts;
+    chat.factsUntilAt = r.factsUntilAt;
+    if (state.chat === chat && r.added.length) {
+      const more = r.added.length > 1 ? ` 외 ${r.added.length - 1}개` : '';
+      ui.toast(`기억함: ${r.added[0].text}${more}`);
+    }
+  } catch { /* 자동 기억은 실패해도 대화를 막지 않습니다 */ }
+}
+
 /** 답변이 끝난 뒤 조용히 돕니다. 밀린 메시지가 기준보다 적으면 요청도 보내지 않습니다. */
 async function autoSummarize(chat) {
   if (chat.kind === 'assistant' || !state.settings.memory?.autoSummarize) return;
@@ -793,12 +821,107 @@ function paintMemoryStatus(chat) {
   $('m-summarize').disabled = !pending;
 }
 
-$('btn-memory').addEventListener('click', () => {
+/* 창에서 고치는 동안의 사실 목록 사본. 저장을 눌러야 서버에 들어갑니다. */
+let draftFacts = [];
+
+function paintFacts() {
+  const esc = ui.escapeHtml;
+  $('f-list').innerHTML = draftFacts.length
+    ? draftFacts.map((f) => `<li class="fact-row${f.pinned ? ' is-pinned' : ''}" data-fact="${esc(f.id)}">
+        <input class="fact-text" value="${esc(f.text)}" maxlength="240" aria-label="기억 항목">
+        <span class="fact-tag" title="${f.auto ? 'AI 가 뽑은 항목' : '직접 적거나 고친 항목'}">${f.auto ? '자동' : '직접'}</span>
+        <button type="button" class="tool" data-pin aria-pressed="${f.pinned}" title="고정하면 AI 가 고치거나 지우지 않습니다">📌</button>
+        <button type="button" class="tool" data-del title="삭제">✕</button>
+      </li>`).join('')
+    : '<li class="rail-empty">아직 없습니다. 대화가 쌓이면 자동으로 채워집니다.</li>';
+}
+
+function paintFactStatus(chat) {
+  const left = Math.max(0, 4 - turnsSinceFacts(chat));
+  $('f-status').textContent = `${draftFacts.length}개 · ` +
+    (left ? `답변 ${left}개 뒤 자동 확인` : '다음 답변 뒤 자동 확인');
+}
+
+$('f-list').addEventListener('input', (e) => {
+  const row = e.target.closest('[data-fact]');
+  const fact = draftFacts.find((f) => f.id === row?.dataset.fact);
+  if (!fact) return;
+  fact.text = e.target.value;
+  // 사람이 고친 항목은 AI 가 다시 바꾸지 않도록 '직접' 으로 돌립니다.
+  if (fact.auto) {
+    fact.auto = false;
+    row.querySelector('.fact-tag').textContent = '직접';
+  }
+});
+
+$('f-list').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-fact]');
+  const fact = draftFacts.find((f) => f.id === row?.dataset.fact);
+  if (!fact) return;
+  if (e.target.closest('[data-pin]')) fact.pinned = !fact.pinned;
+  else if (e.target.closest('[data-del]')) draftFacts = draftFacts.filter((f) => f !== fact);
+  else return;
+  paintFacts();
+  paintFactStatus(state.chat);
+});
+
+function addFact() {
+  const text = $('f-new').value.trim();
+  if (!text) return;
+  draftFacts.push({ id: `u${Date.now().toString(36)}`, text, pinned: false, auto: false, sourceIds: [] });
+  $('f-new').value = '';
+  paintFacts();
+  paintFactStatus(state.chat);
+}
+$('f-add').addEventListener('click', addFact);
+$('f-new').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addFact(); }
+});
+
+const keptFacts = () => draftFacts.filter((f) => f.text.trim());
+
+$('f-extract').addEventListener('click', async () => {
+  const chat = state.chat;
+  if (!chat) return;
+  const btn = $('f-extract');
+  btn.disabled = true;
+  btn.textContent = '확인하는 중…';
+  try {
+    // 창에서 고친 목록을 먼저 저장해야 AI 가 그걸 보고 판단합니다.
+    await api.updateChat(chat.id, { facts: keptFacts() });
+    const r = await api.extractFacts(chat.id, false);
+    chat.facts = r.facts;
+    chat.factsUntilAt = r.factsUntilAt;
+    draftFacts = structuredClone(r.facts);
+    paintFacts();
+    const changes = r.added.length + r.updated.length + r.removed.length;
+    ui.toast(r.skipped ? '확인할 새 대화가 없습니다'
+      : changes ? `추가 ${r.added.length} · 수정 ${r.updated.length} · 삭제 ${r.removed.length}` : '바뀐 것이 없습니다');
+  } catch (err) {
+    ui.toast(`확인하지 못했습니다 — ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '지금 확인하기';
+    paintFactStatus(chat);
+  }
+});
+
+$('btn-memory').addEventListener('click', async () => {
   if (!state.chat) return;
-  $('m-memory').value = state.chat.memory || '';
-  $('m-note').value = state.chat.authorNote || '';
+  const chat = state.chat;
+  // 뒤에서 기억이 바뀌었거나 메시지를 지워 항목이 치워졌을 수 있어 새로 읽습니다.
+  const fresh = await api.chat(chat.id).catch(() => null);
+  if (fresh) {
+    for (const k of ['facts', 'factsUntilAt', 'memory', 'summaryUntilAt', 'authorNote']) chat[k] = fresh[k];
+  }
+  draftFacts = structuredClone(chat.facts || []);
+  paintFacts();
+  paintFactStatus(chat);
+  $('f-auto').checked = state.settings.memory?.autoFacts !== false;
+  $('m-memory').value = chat.memory || '';
+  $('m-note').value = chat.authorNote || '';
   $('m-auto').checked = state.settings.memory?.autoSummarize !== false;
-  paintMemoryStatus(state.chat);
+  paintMemoryStatus(chat);
   dlgMemory.showModal();
 });
 
@@ -830,13 +953,14 @@ $('m-summarize').addEventListener('click', async () => {
 dlgMemory.addEventListener('close', async () => {
   if (dlgMemory.returnValue !== 'save' || !state.chat) return;
   const chat = state.chat;
-  const patch = { memory: $('m-memory').value.trim(), authorNote: $('m-note').value.trim() };
-  const auto = $('m-auto').checked;
+  const patch = { memory: $('m-memory').value.trim(), authorNote: $('m-note').value.trim(), facts: keptFacts() };
+  const memory = { autoSummarize: $('m-auto').checked, autoFacts: $('f-auto').checked };
   try {
-    await api.updateChat(chat.id, patch);
-    Object.assign(chat, patch);
-    if (auto !== (state.settings.memory?.autoSummarize !== false)) {
-      state.settings = await api.saveSettings({ memory: { autoSummarize: auto } });
+    const saved = await api.updateChat(chat.id, patch);
+    Object.assign(chat, patch, { facts: saved.facts });
+    const now = state.settings.memory || {};
+    if (memory.autoSummarize !== (now.autoSummarize !== false) || memory.autoFacts !== (now.autoFacts !== false)) {
+      state.settings = await api.saveSettings({ memory });
     }
     ui.toast('기억과 작가 노트를 저장했습니다');
   } catch (e) {

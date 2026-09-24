@@ -191,9 +191,28 @@
   <form method="dialog" class="sheet-inner">
     <h2 class="sheet-title">기억 · 작가 노트</h2>
     <div class="sheet-body">
+      <div class="field"><span>기억해 둔 사실 — 대화 중에 AI 가 자동으로 모읍니다</span></div>
+      <ul id="f-list" class="fact-list"></ul>
+      <div class="fact-add">
+        <input id="f-new" placeholder="직접 추가 — 예) {{user}}는 매운 음식을 못 먹는다" maxlength="200">
+        <button id="f-add" class="ghost-btn" type="button">추가</button>
+      </div>
+      <div class="seed-head">
+        <span id="f-status" class="field-hint grow"></span>
+        <button id="f-extract" class="ghost-btn" type="button">지금 확인하기</button>
+      </div>
+      <p class="field-hint">
+        약속·호칭·취향처럼 어긋나면 티 나는 사실을 한 줄씩 모읍니다. 📌 고정하거나 직접 고친 항목은 AI 가 바꾸지 않습니다.
+        근거가 된 메시지를 지우거나 다른 답변으로 넘기면 그 메시지에서 나온 항목도 치웁니다.
+      </p>
+      <label class="check-row">
+        <input id="f-auto" type="checkbox">
+        <span>답변 4개마다 뒤에서 자동으로 확인 (모든 대화에 적용). 새 메시지를 보내면 확인은 미뤄집니다</span>
+      </label>
+      <div class="divider"></div>
       <label class="field">
         <span>기억 — 지금까지의 이야기</span>
-        <textarea id="m-memory" rows="9" placeholder="아직 요약된 내용이 없습니다. 직접 적어 두어도 됩니다.&#10;- 둘은 지난주 옥상에서 처음 만났다&#10;- {{char}}는 {{user}}에게 비밀을 하나 숨기고 있다"></textarea>
+        <textarea id="m-memory" rows="6" placeholder="아직 요약된 내용이 없습니다. 직접 적어 두어도 됩니다.&#10;- 둘은 지난주 옥상에서 처음 만났다&#10;- {{char}}는 {{user}}에게 비밀을 하나 숨기고 있다"></textarea>
       </label>
       <div class="seed-head">
         <span id="m-status" class="field-hint grow"></span>

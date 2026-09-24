@@ -157,3 +157,193 @@ export function cleanSummary(text = '') {
   if (out.length > MEMORY_MAX_CHARS) out = `${out.slice(0, MEMORY_MAX_CHARS).replace(/\n[^\n]*$/, '')}`;
   return out;
 }
+
+/* ---------------- 자동 기억(사실 목록) ---------------- */
+
+/*
+ * 기억 요약이 '밀려난 옛 대화' 를 줄글로 압축한다면, 이쪽은 대화 중에 나온
+ * 오래 남겨야 할 사실을 한 줄씩 뽑아 목록으로 둡니다. 약속·별명·취향처럼
+ * 밀려나기 전에 이미 중요한 것들입니다.
+ *
+ * 항목: { id, text, pinned, auto, sourceIds, at }
+ *   auto       모델이 뽑은 것. 직접 적은 항목(auto: false)과 고정한 항목은 모델이 고치거나 지우지 못합니다
+ *   sourceIds  근거가 된 메시지. 그 메시지를 지우거나 다른 답변으로 넘기면 항목도 치웁니다
+ */
+
+/** 이만큼 답변이 쌓이면 한 번 확인합니다. */
+export const FACT_EVERY = 4;
+/** 목록 상한. 시스템 프롬프트에 매번 들어가므로 길면 맥락을 잡아먹습니다. */
+export const FACT_LIMIT = 30;
+/** 한 번에 읽힐 최근 메시지 수와 분량. */
+export const FACT_WINDOW = 12;
+export const FACT_WINDOW_CHARS = 6000;
+const FACT_TEXT_MAX = 120;
+
+const factId = () => Math.random().toString(36).slice(2, 8);
+const normalize = (t) => String(t).replace(/\s+/g, ' ').trim();
+const sameText = (a, b) => normalize(a).replace(/[.。]$/, '') === normalize(b).replace(/[.。]$/, '');
+
+/** 마지막 확인 뒤에 쌓인 메시지. 너무 많이 밀렸으면 최근 것만 봅니다. */
+export function factsWindow(chat) {
+  const since = Number(chat.factsUntilAt) || 0;
+  const fresh = visibleOf(chat).filter((m) => (m.at || 0) > since);
+  const out = [];
+  let used = 0;
+  for (let i = fresh.length - 1; i >= 0 && out.length < FACT_WINDOW; i--) {
+    used += fresh[i].content.length;
+    if (out.length && used > FACT_WINDOW_CHARS) break;
+    out.unshift(fresh[i]);
+  }
+  return out;
+}
+
+/** 마지막 확인 뒤로 쌓인 답변 수. 자동 확인을 돌릴지 정할 때 씁니다. */
+export function turnsSinceFacts(chat) {
+  const since = Number(chat.factsUntilAt) || 0;
+  return visibleOf(chat).filter((m) => m.role === 'assistant' && (m.at || 0) > since).length;
+}
+
+export const FACTS_SYSTEM = `당신은 롤플레이의 설정 기록 담당입니다.
+최근 대화를 읽고, 앞으로 이야기를 이어 가는 데 꼭 기억해야 할 사실만 기억 목록에 반영합니다.
+
+[기억할 것]
+- 인물의 이름·별명·서로 부르는 호칭
+- 관계와 감정의 뚜렷한 변화 (고백, 다툼, 화해 등)
+- 약속·계획·비밀·복선
+- 신상과 취향 (나이, 직업, 좋아하는 것, 싫어하는 것, 알레르기 등)
+- 이야기 속에서 확정된 사건, 장소, 소지품
+
+[기억하지 않을 것]
+- 그 순간의 행동 묘사나 금방 지나가는 기분
+- 이미 목록에 있는 내용, 대화에서 확정되지 않은 추측
+
+[규칙]
+- 항목 하나는 한 문장, 60자 안팎. 누구에 대한 사실인지 이름을 넣어 씁니다.
+- 기존 항목과 어긋나는 새 사실이 나오면 update 로 고칩니다. 더는 사실이 아닌 항목만 remove 합니다.
+- 바뀔 것이 없으면 모두 빈 배열로 둡니다. 억지로 만들지 마세요.
+- add 의 from 에는 근거가 된 메시지 번호를 적습니다.
+- 반드시 아래 모양의 JSON 하나만 출력합니다. 다른 말이나 코드 블록 표시는 쓰지 않습니다.
+{"add":[{"text":"...","from":[1]}],"update":[{"id":"기존 항목 id","text":"..."}],"remove":["기존 항목 id"]}`;
+
+/** 최근 대화에 번호를 붙여 넘깁니다. 모델은 그 번호로 근거를 댑니다. */
+export function buildFactsPrompt(facts, window, { char, user }) {
+  const list = (facts || []).map((f) => `- [${f.id}] ${f.text}`).join('\n') || '(비어 있음)';
+  const lines = window.map((m, i) =>
+    `#${i + 1} ${m.role === 'user' ? user : char}: ${m.content.trim()}`);
+  return [
+    '# 지금 기억 목록',
+    list,
+    '',
+    '# 최근 대화',
+    lines.join('\n\n'),
+    '',
+    '기억 목록에 반영할 변경을 JSON 으로만 답하세요.'
+  ].join('\n');
+}
+
+/** 모델 응답에서 JSON 을 꺼냅니다. 못 읽으면 아무것도 바꾸지 않습니다. */
+export function parseFactOps(text = '') {
+  const empty = { add: [], update: [], remove: [] };
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return empty;
+  let raw;
+  try { raw = JSON.parse(text.slice(start, end + 1)); } catch { return empty; }
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const clip = (t) => normalize(t).slice(0, FACT_TEXT_MAX);
+  return {
+    add: arr(raw.add)
+      .map((a) => (typeof a === 'string' ? { text: a } : a))
+      .filter((a) => a && typeof a.text === 'string' && normalize(a.text))
+      .slice(0, 5)
+      .map((a) => ({ text: clip(a.text), from: arr(a.from).map(Number).filter(Number.isInteger) })),
+    update: arr(raw.update)
+      .filter((u) => u && typeof u.id === 'string' && typeof u.text === 'string' && normalize(u.text))
+      .map((u) => ({ id: u.id, text: clip(u.text) })),
+    remove: arr(raw.remove).filter((id) => typeof id === 'string')
+  };
+}
+
+const editable = (f) => f.auto && !f.pinned;
+
+/**
+ * 모델이 제안한 변경을 목록에 반영합니다. 직접 적은 항목과 고정한 항목은 건드리지 않습니다.
+ * 돌려주는 값은 화면 알림용입니다.
+ */
+export function applyFactOps(chat, ops, window, now = Date.now()) {
+  const facts = Array.isArray(chat.facts) ? chat.facts : (chat.facts = []);
+  const result = { added: [], updated: [], removed: [] };
+
+  for (const id of ops.remove) {
+    const i = facts.findIndex((f) => f.id === id);
+    if (i >= 0 && editable(facts[i])) result.removed.push(...facts.splice(i, 1));
+  }
+  for (const u of ops.update) {
+    const f = facts.find((x) => x.id === u.id);
+    if (!f || !editable(f) || sameText(f.text, u.text)) continue;
+    f.text = u.text;
+    f.at = now;
+    result.updated.push(f);
+  }
+  for (const a of ops.add) {
+    if (facts.some((f) => sameText(f.text, a.text))) continue;
+    const sourceIds = a.from.map((n) => window[n - 1]?.id).filter(Boolean);
+    // 번호를 못 댔으면 이번에 읽은 마지막 메시지를 근거로 둡니다.
+    if (!sourceIds.length && window.length) sourceIds.push(window[window.length - 1].id);
+    const fact = { id: factId(), text: a.text, pinned: false, auto: true, sourceIds, at: now };
+    facts.push(fact);
+    result.added.push(fact);
+  }
+
+  // 상한을 넘으면 가장 오래된 자동 항목부터 뺍니다. 뺄 게 없으면 방금 넣은 것을 물립니다.
+  while (facts.length > FACT_LIMIT) {
+    const i = facts.findIndex(editable);
+    if (i < 0) break;
+    const [gone] = facts.splice(i, 1);
+    result.added = result.added.filter((f) => f !== gone);
+  }
+  return result;
+}
+
+/**
+ * 메시지 하나가 바뀌었을 때(삭제·수정·다른 답변으로 넘김) 부릅니다.
+ * 그 메시지에서 나온 자동 항목을 치우고, 다음 확인 때 그 메시지를 다시 읽도록 되감습니다.
+ */
+export function invalidateFacts(chat, msg, { rewind = true } = {}) {
+  if (!msg) return 0;
+  let dropped = 0;
+  if (Array.isArray(chat.facts)) {
+    chat.facts = chat.facts.filter((f) => {
+      if (!f.sourceIds?.includes(msg.id)) return true;
+      f.sourceIds = f.sourceIds.filter((id) => id !== msg.id);
+      // 다른 근거가 남아 있거나, 사람이 손댄 항목이면 둡니다.
+      if (f.sourceIds.length || !editable(f)) return true;
+      dropped += 1;
+      return false;
+    });
+  }
+  if (rewind && msg.at && Number(chat.factsUntilAt) >= msg.at) chat.factsUntilAt = msg.at - 1;
+  return dropped;
+}
+
+/** 화면이나 백업에서 들어온 목록을 다듬습니다. */
+export function cleanFacts(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list
+    .filter((f) => f && typeof f.text === 'string' && normalize(f.text))
+    .slice(0, FACT_LIMIT + 20)
+    .map((f) => {
+      let id = typeof f.id === 'string' && /^[\w-]{1,16}$/.test(f.id) ? f.id : factId();
+      while (seen.has(id)) id = factId();
+      seen.add(id);
+      return {
+        id,
+        text: normalize(f.text).slice(0, FACT_TEXT_MAX * 2),
+        pinned: Boolean(f.pinned),
+        auto: f.auto !== false,
+        sourceIds: Array.isArray(f.sourceIds) ? f.sourceIds.filter((x) => typeof x === 'string').slice(0, 10) : [],
+        at: Number.isFinite(f.at) ? f.at : Date.now()
+      };
+    });
+}
