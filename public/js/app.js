@@ -10,7 +10,8 @@ const state = {
   personas: [],
   chats: [],
   chat: null,
-  abort: null,
+  // 진행 중인 생성. { chatId, controller, stopped, done }
+  run: null,
   editingCharacterId: null,
   hideAdult: localStorage.getItem('hideAdult') === '1',
   mode: localStorage.getItem('mode') === 'assistant' ? 'assistant' : 'rp'
@@ -222,7 +223,7 @@ for (const tab of document.querySelectorAll('.mode-tab')) {
 
 /** 열린 대화를 닫고 빈 화면으로 되돌립니다. */
 function closeChat() {
-  state.abort?.abort();
+  stopGeneration();
   state.chat = null;
   localStorage.removeItem('lastChat');
   $('chat-title').textContent = state.mode === 'assistant' ? '어시스턴트' : '대화를 선택해 주세요';
@@ -258,7 +259,11 @@ $('btn-toggle-adult').addEventListener('click', () => {
 /** 대화 상단의 틀 선택기를 현재 대화에 맞춰 그립니다. */
 function paintChatPreset() {
   const sel = $('chat-preset');
-  if (!state.chat) return;
+  // 어시스턴트 대화에는 대화 모드가 없습니다.
+  if (!state.chat || state.chat.kind === 'assistant') {
+    sel.hidden = true;
+    return;
+  }
   sel.innerHTML = state.settings.presets
     .map((p) => `<option value="${p.id}">${p.adult ? '🔒 ' : ''}${p.name}</option>`)
     .join('');
@@ -281,6 +286,9 @@ $('chat-preset').addEventListener('change', async (e) => {
 /* ---------------- 대화 ---------------- */
 
 async function openChat(id) {
+  // 다른 대화에서 생성 중이면 멈춥니다. 쓰던 내용은 그 대화에 저장됩니다.
+  // 그대로 두면 끝난 답변이 새로 연 대화에 붙고, 새 대화의 전송도 잠깁니다.
+  if (state.run && state.run.chatId !== id) await stopGeneration();
   state.chat = await api.chat(id);
   localStorage.setItem('lastChat', id);
   const assistant = state.chat.kind === 'assistant';
@@ -432,12 +440,20 @@ $('nc-list').addEventListener('click', async (e) => {
 async function send() {
   const input = $('input');
   const content = input.value.trim();
-  if (!content || !state.chat || state.abort) return;
+  if (!content || !state.chat || state.run) return;
 
   input.value = '';
   input.style.height = 'auto';
 
-  const msg = await api.addMessage(state.chat.id, { role: 'user', content });
+  let msg;
+  try {
+    msg = await api.addMessage(state.chat.id, { role: 'user', content });
+  } catch (e) {
+    // 보내지 못했으면 쓴 글을 되돌려 놓습니다.
+    input.value = content;
+    ui.toast(`보내지 못했습니다 — ${e.message}`);
+    return;
+  }
   state.chat.messages.push(msg);
   const assistantMode = state.chat.kind === 'assistant';
   document.getElementById('thread').appendChild(
@@ -448,25 +464,39 @@ async function send() {
       plain: assistantMode
     })
   );
-  if (assistantMode && state.chat.title === '새 채팅') refreshChatList();
+  if (assistantMode && state.chat.title === '새 채팅') {
+    // 서버와 같은 규칙으로 첫 질문을 제목으로 씁니다.
+    state.chat.title = content.slice(0, 24) || '새 채팅';
+    $('chat-title').textContent = state.chat.title;
+    refreshChatList();
+  }
   ui.scrollToEnd({ force: true });
   await run({ regenerate: false });
 }
 
 async function run({ regenerate }) {
-  if (!state.chat || state.abort) return;
+  if (!state.chat || state.run) return;
+  const chat = state.chat;
   const thread = document.getElementById('thread');
+  const isOpen = () => state.chat === chat;
 
+  /*
+   * 다시 생성: 이전 답변은 새 답변이 도착할 때까지 숨겨만 둡니다.
+   * 실패하거나 아무것도 못 받고 멈추면 되살립니다. 서버도 같은 규칙입니다.
+   */
+  const replaced = [];
   if (regenerate) {
-    while (state.chat.messages.length &&
-           state.chat.messages[state.chat.messages.length - 1].role === 'assistant') {
-      const dropped = state.chat.messages.pop();
-      thread.querySelector(`[data-mid="${dropped.id}"]`)?.remove();
+    for (let i = chat.messages.length - 1; i >= 0 && chat.messages[i].role === 'assistant'; i--) {
+      replaced.push(chat.messages[i]);
     }
   }
+  const replacedEls = replaced
+    .map((m) => thread.querySelector(`[data-mid="${m.id}"]`))
+    .filter(Boolean);
+  for (const el of replacedEls) el.hidden = true;
 
-  const assistant = state.chat.kind === 'assistant';
-  const character = characterOf(state.chat);
+  const assistant = chat.kind === 'assistant';
+  const character = characterOf(chat);
   const placeholder = ui.turnEl({
     message: { id: 'pending', content: '' },
     speaker: assistant ? '어시스턴트' : character?.name || '상대',
@@ -480,21 +510,30 @@ async function run({ regenerate }) {
   textEl.innerHTML = ui.TYPING;
   ui.scrollToEnd({ force: true });
 
-  state.abort = new AbortController();
+  let finish;
+  const run = {
+    chatId: chat.id,
+    controller: new AbortController(),
+    stopped: false,
+    done: new Promise((resolve) => { finish = resolve; })
+  };
+  state.run = run;
   setStreaming(true);
   let acc = '';
   let thought = '';
   let thoughtEl = null;
   let sourcesEl = null;
+  let restore = true;
+  let reload = false;
 
   try {
-    const result = await generate(state.chat.id, {
+    const result = await generate(chat.id, {
       regenerate,
-      signal: state.abort.signal,
+      signal: run.controller.signal,
       onDelta: (d) => {
         acc += d;
         textEl.innerHTML = ui.formatText(acc, { plain: assistant });
-        ui.scrollToEnd();
+        if (isOpen()) ui.scrollToEnd();
       },
       onThought: (t) => {
         thought += t;
@@ -503,7 +542,7 @@ async function run({ regenerate }) {
           placeholder.insertBefore(thoughtEl, textEl);
         }
         thoughtEl.querySelector('.thought-body').textContent = thought;
-        ui.scrollToEnd();
+        if (isOpen()) ui.scrollToEnd();
       },
       onSources: (list) => {
         if (!sourcesEl) {
@@ -512,21 +551,28 @@ async function run({ regenerate }) {
         } else {
           ui.fillSources(sourcesEl, list);
         }
-        ui.scrollToEnd();
+        if (isOpen()) ui.scrollToEnd();
       }
     });
     if (result.message) {
-      state.chat.messages.push(result.message);
+      restore = false;
+      chat.messages = chat.messages.filter((m) => !replaced.includes(m));
+      for (const el of replacedEls) el.remove();
+      chat.messages.push(result.message);
       placeholder.dataset.mid = result.message.id;
+      // 멈춘 답변은 서버가 정리한 본문으로 다시 그립니다.
+      textEl.innerHTML = ui.formatText(result.message.content, { plain: assistant });
       placeholder.appendChild(toolsRow());
-      ui.scrollToEnd();
+      if (isOpen()) ui.scrollToEnd();
     } else {
       placeholder.remove();
-      ui.showError('응답이 비어 있습니다. 모델과 프롬프트 설정을 확인해 주세요.');
+      if (!run.stopped && isOpen()) ui.showError('응답이 비어 있습니다. 모델과 프롬프트 설정을 확인해 주세요.');
     }
   } catch (e) {
     placeholder.remove();
-    if (e.name !== 'AbortError') {
+    // 연결을 끊어서 멈춘 경우엔 서버가 쓰던 답변을 저장했을 수 있어, 끝난 뒤 다시 읽습니다.
+    if (e.name === 'AbortError' && run.stopped) reload = true;
+    if (e.name !== 'AbortError' && isOpen()) {
       ui.showError(e.message);
       // 서버가 모델을 감췄을 수 있으니 설정을 다시 읽어 둡니다.
       if (/목록에서 감췄습니다/.test(e.message)) {
@@ -535,10 +581,29 @@ async function run({ regenerate }) {
       }
     }
   } finally {
-    state.abort = null;
+    if (restore) for (const el of replacedEls) el.hidden = false;
+    if (state.run === run) state.run = null;
     setStreaming(false);
-    refreshChatList();
+    finish();
+    if (reload && isOpen()) setTimeout(() => { if (isOpen() && !state.run) openChat(chat.id); }, 300);
+    else refreshChatList();
   }
+}
+
+/**
+ * 진행 중인 생성을 멈춥니다. 연결을 끊지 않고 서버에 멈추라고 알려서,
+ * 지금까지 쓴 답변이 저장되고 화면에도 그대로 남게 합니다.
+ * 서버에 닿지 못하거나 오래 걸리면 연결을 끊습니다.
+ */
+async function stopGeneration() {
+  const run = state.run;
+  if (!run) return;
+  run.stopped = true;
+  const stopped = await api.stopChat(run.chatId).then((r) => r?.stopped).catch(() => false);
+  if (!stopped) run.controller.abort();
+  const timeout = new Promise((resolve) => setTimeout(resolve, 5000, 'timeout'));
+  if (await Promise.race([run.done, timeout]) === 'timeout') run.controller.abort();
+  await run.done;
 }
 
 function toolsRow() {
@@ -569,8 +634,7 @@ document.getElementById('messages').addEventListener('click', async (e) => {
   if (!msg) return;
 
   if (btn.dataset.act === 'copy') {
-    await navigator.clipboard.writeText(msg.content);
-    ui.toast('복사했습니다');
+    ui.toast(await ui.copyText(msg.content) ? '복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
     return;
   }
 
@@ -643,9 +707,10 @@ $('btn-seed-characters').addEventListener('click', async () => {
 });
 
 $('btn-new-chat').addEventListener('click', () => {
-  if (!state.characters.length) return ui.toast('먼저 캐릭터를 만들어 주세요');
+  // 1회성 캐릭터는 목록에 없어도 되므로, 목록이 비었는지는 그다음에 봅니다.
   if (state.chat?.character) newRpChat({ inline: { ...state.chat.character } });
   else if (state.chat?.characterId) newRpChat({ id: state.chat.characterId });
+  else if (!state.characters.length) ui.toast('먼저 캐릭터를 만들어 주세요');
   else ui.toast('왼쪽에서 캐릭터를 골라 주세요');
 });
 
@@ -697,7 +762,7 @@ input.addEventListener('keydown', (e) => {
 });
 $('btn-send').addEventListener('click', send);
 $('btn-regen').addEventListener('click', () => run({ regenerate: true }));
-$('btn-stop').addEventListener('click', () => state.abort?.abort());
+$('btn-stop').addEventListener('click', () => stopGeneration());
 
 /* ---------------- 캐릭터 시트 ---------------- */
 
@@ -779,11 +844,9 @@ dlgChar.addEventListener('close', async () => {
   state.characters = await api.characters();
   ui.renderCharacterList(state.characters);
   await refreshChatList();
-  if (state.chat) {
-    const ch = characterOf(state.chat);
-    $('chat-sub').textContent = [ch?.description, `내 페르소나 ${personaOf(state.chat)?.name || '미설정'}`]
-      .filter(Boolean).join(' · ');
-  }
+  // 서버가 지운 캐릭터의 대화를 1회성 캐릭터로 바꿔 두었으니, 열린 대화를 다시 읽습니다.
+  // 고친 경우에도 이름·소개가 화면 곳곳에 반영되도록 같은 길로 다시 그립니다.
+  if (state.chat && !state.run && state.chat.kind !== 'assistant') await openChat(state.chat.id);
 });
 
 /* ---------------- 페르소나 시트 ---------------- */
@@ -1193,7 +1256,23 @@ dlgSettings.addEventListener('close', async () => {
   if (dlgSettings.returnValue !== 'save') return;
   stashProvider();
   stashPreset();
-  state.settings = await api.saveSettings({
+  try {
+    state.settings = await saveSettingsFromSheet();
+  } catch (e) {
+    // 저장이 거부되면 입력한 그대로 창을 다시 열어 고칠 수 있게 합니다.
+    dlgSettings.returnValue = '';
+    dlgSettings.showModal();
+    ui.toast(`저장하지 못했습니다 — ${e.message}`);
+    return;
+  }
+  paintModelBadge();
+  paintChatPreset();
+  await refreshChatList();
+  ui.toast('설정을 저장했습니다');
+});
+
+function saveSettingsFromSheet() {
+  return api.saveSettings({
     activeProvider: $('s-provider').value,
     historyLimit: Number($('s-history').value),
     askModeOnNewChat: $('s-ask-mode').checked,
@@ -1218,11 +1297,7 @@ dlgSettings.addEventListener('close', async () => {
       }
     }
   });
-  paintModelBadge();
-  paintChatPreset();
-  await refreshChatList();
-  ui.toast('설정을 저장했습니다');
-});
+}
 
 enhanceSelects();
 ui.watchScroll();
@@ -1398,8 +1473,7 @@ $('d-show-system').addEventListener('click', async () => {
 });
 
 $('sys-copy').addEventListener('click', async () => {
-  await navigator.clipboard.writeText($('sys-text').textContent);
-  ui.toast('복사했습니다');
+  ui.toast(await ui.copyText($('sys-text').textContent) ? '복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
 });
 
 $('d-cancel').addEventListener('click', () => {
@@ -1410,11 +1484,18 @@ $('d-cancel').addEventListener('click', () => {
 
 dlgDev.addEventListener('close', async () => {
   if (dlgDev.returnValue !== 'save') return;
-  state.settings = await api.saveSettings({
-    dev: readDevSheet(),
-    providers: draftDevProviders,
-    removeProviders: removedProviders
-  });
+  try {
+    state.settings = await api.saveSettings({
+      dev: readDevSheet(),
+      providers: draftDevProviders,
+      removeProviders: removedProviders
+    });
+  } catch (e) {
+    dlgDev.returnValue = '';
+    dlgDev.showModal();
+    ui.toast(`저장하지 못했습니다 — ${e.message}`);
+    return;
+  }
   applyDev(state.settings.dev);
   paintModelBadge();
   ui.toast('개발자 설정을 저장했습니다');

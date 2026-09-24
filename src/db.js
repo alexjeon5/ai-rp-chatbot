@@ -22,12 +22,38 @@ async function writeJson(file, data) {
   await rename(tmp, file);
 }
 
-/** 큐에 남은 쓰기를 모두 끝냅니다. 종료 직전이나 테스트에서 씁니다. */
-export async function flushAll() {
+/*
+ * 쓰기는 한 줄로 세워 차례대로 처리합니다. 디스크가 느려 앞 차례가 안 끝났는데
+ * 다음 차례가 시작되면, 같은 .tmp 파일을 두 곳에서 쓰다가 한쪽이 실패합니다.
+ */
+let queue = Promise.resolve();
+
+async function writePending() {
   const jobs = [...pending.entries()];
   pending.clear();
-  for (const [file, getData] of jobs) await writeJson(file, getData());
+  let firstError = null;
+  for (const [file, getData] of jobs) {
+    try {
+      await writeJson(file, getData());
+    } catch (e) {
+      // 한 파일이 실패해도 나머지는 계속 씁니다. 실패한 것은 다음 차례에 다시 시도합니다.
+      // 그 사이 새 쓰기가 들어왔다면 그쪽이 최신이므로 덮지 않습니다.
+      if (!pending.has(file)) pending.set(file, getData);
+      firstError ||= e;
+    }
+  }
+  if (firstError) throw firstError;
 }
+
+/** 큐에 남은 쓰기를 모두 끝냅니다. 종료 직전이나 테스트에서 씁니다. */
+export function flushAll() {
+  const run = queue.then(writePending);
+  queue = run.catch(() => {});
+  return run;
+}
+
+/** 진행 중인 쓰기가 끝날 때까지 기다립니다. */
+const settled = () => queue;
 
 const readJson = async (file, fallback = null) => {
   try {
@@ -144,6 +170,8 @@ export class Collection {
   async remove(id) {
     if (!this.items.delete(id)) return false;
     pending.delete(this.fileOf(id));
+    // 이미 쓰고 있던 중이면, 그 쓰기가 지운 파일을 되살리지 않도록 끝나길 기다립니다.
+    await settled();
     await unlink(this.fileOf(id)).catch(() => {});
     return true;
   }

@@ -190,7 +190,7 @@ app.delete('/api/logs', (req, res) => { clearLogs(); res.json({ ok: true }); });
 /* ---------------- 캐릭터 / 페르소나 ---------------- */
 
 /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
-function crud(name, collection, fields) {
+function crud(name, collection, fields, { beforeRemove } = {}) {
   app.get(`/api/${name}`, (req, res) => res.json(collection.all()));
 
   app.post(`/api/${name}`, (req, res) => {
@@ -209,6 +209,8 @@ function crud(name, collection, fields) {
   });
 
   app.delete(`/api/${name}/:id`, wrap(async (req, res) => {
+    const item = collection.get(req.params.id);
+    if (item) beforeRemove?.(item);
     if (!(await collection.remove(req.params.id))) {
       return res.status(404).json({ error: '없는 항목입니다.' });
     }
@@ -221,7 +223,22 @@ const CHARACTER_FIELDS = [
   'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'
 ];
 
-crud('characters', store.characters, CHARACTER_FIELDS);
+/**
+ * 캐릭터를 지워도 그 캐릭터와 나눈 대화는 계속 이어갈 수 있어야 합니다.
+ * 지우기 전에 캐릭터 정보를 대화 안에 복사해 1회성 캐릭터로 바꿔 둡니다.
+ * 마음이 바뀌면 대화 상단의 '캐릭터 저장' 으로 다시 목록에 넣을 수 있습니다.
+ */
+function detachCharacter(character) {
+  const copy = { ...CHARACTER_FIELDS.reduce((o, f) => ({ ...o, [f]: String(character[f] ?? '') }), {}), id: null };
+  for (const chat of store.chats.all()) {
+    if (chat.characterId !== character.id || chat.character) continue;
+    chat.character = { ...copy };
+    chat.characterId = null;
+    store.chats.save(chat.id);
+  }
+}
+
+crud('characters', store.characters, CHARACTER_FIELDS, { beforeRemove: detachCharacter });
 crud('personas', store.personas, ['name', 'description']);
 
 /* ---------------- 랜덤 페르소나 ---------------- */
@@ -419,7 +436,9 @@ const presetOf = (id) => {
 };
 
 app.get('/api/chats', (req, res) => {
-  res.json(store.chats.all().map(({ messages, ...rest }) => {
+  // 최근에 대화한 순서로 보여 줍니다. 오래된 대화를 이어가면 위로 올라옵니다.
+  const chats = store.chats.all().sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  res.json(chats.map(({ messages, ...rest }) => {
     const assistant = rest.kind === 'assistant';
     const preset = presetOf(rest.presetId);
     const character = assistant ? null : characterOf(rest);
@@ -554,12 +573,20 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
     persona = store.personas.get(chat.personaId) || store.personas.get(s.activePersonaId);
   }
 
-  // 다시 생성: 마지막 assistant 응답을 걷어냅니다.
-  if (req.body?.regenerate) {
-    while (chat.messages.length && chat.messages[chat.messages.length - 1].role === 'assistant') {
-      chat.messages.pop();
-    }
-  }
+  /*
+   * 다시 생성: 마지막 assistant 응답을 빼고 보냅니다.
+   * 실제로 지우는 건 새 응답이 만들어진 뒤입니다. 검사에 걸리거나 생성이 실패해도
+   * 이전 응답이 그대로 남도록.
+   */
+  const regenerate = Boolean(req.body?.regenerate);
+  const trailingAssistants = (list) => {
+    let n = 0;
+    while (n < list.length && list[list.length - 1 - n].role === 'assistant') n += 1;
+    return n;
+  };
+  const basis = regenerate
+    ? { ...chat, messages: chat.messages.slice(0, chat.messages.length - trailingAssistants(chat.messages)) }
+    : chat;
 
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
@@ -604,7 +631,7 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
       particleFix: s.dev.particleFix
     });
   }
-  const history = buildHistory(chat, s.historyLimit);
+  const history = buildHistory(basis, s.historyLimit);
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -619,6 +646,10 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   const controller = new AbortController();
   let finished = false;
   res.on('close', () => { if (!finished) controller.abort(); });
+  // '중지' 는 연결을 끊지 않고 이 컨트롤러만 멈춥니다. 그래야 쓰다 만 답변을
+  // 저장한 뒤 화면에도 돌려줄 수 있습니다.
+  const run = { controller };
+  running.set(chat.id, run);
 
   let text = '';
   let thought = '';
@@ -676,7 +707,10 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   }
 
   finished = true;
+  if (running.get(chat.id) === run) running.delete(chat.id);
   if (text.trim()) {
+    // 새 응답이 생겼으니 이제 이전 응답을 걷어냅니다.
+    if (regenerate) chat.messages.splice(chat.messages.length - trailingAssistants(chat.messages));
     const msg = { id: uid(), role: 'assistant', content: text.trim(), at: Date.now(), provider, model: config.model };
     // 사고와 출처는 본문과 따로 둡니다. 다음 턴에 같이 보내지 않으므로 맥락을 잡아먹지 않습니다.
     if (thought.trim()) msg.thought = thought.trim().slice(0, 6000);
@@ -690,6 +724,17 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   }
   res.end();
 }));
+
+/** 생성 중인 대화. 대화 id → { controller } */
+const running = new Map();
+
+/** 진행 중인 생성을 멈춥니다. 지금까지 쓴 내용은 저장되고 화면에도 남습니다. */
+app.post('/api/chats/:id/stop', (req, res) => {
+  const run = running.get(req.params.id);
+  if (!run) return res.json({ stopped: false });
+  run.controller.abort();
+  res.json({ stopped: true });
+});
 
 /**
  * 못 쓰는 모델이면 기록해 두고, 사람이 읽을 만한 안내로 바꿔 돌려줍니다.

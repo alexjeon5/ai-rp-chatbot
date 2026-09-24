@@ -1384,6 +1384,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .toast {
   position: fixed;
+  /* popover 기본 배치(inset: 0; margin: auto)를 풀어야 아래 위치가 먹습니다. */
+  inset: auto;
+  margin: 0;
+  color: var(--text);
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);

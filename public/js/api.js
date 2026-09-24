@@ -38,6 +38,7 @@ export const api = {
   chat: (id) => req(`/api/chats/${id}`),
   createChat: (body) => req('/api/chats', { method: 'POST', body }),
   systemPreview: (id) => req(`/api/chats/${id}/system`),
+  stopChat: (id) => req(`/api/chats/${id}/stop`, { method: 'POST', body: {} }),
   saveInlineCharacter: (id) => req(`/api/chats/${id}/save-character`, { method: 'POST', body: {} }),
   updateChat: (id, body) => req(`/api/chats/${id}`, { method: 'PUT', body }),
   deleteChat: (id) => req(`/api/chats/${id}`, { method: 'DELETE' }),
