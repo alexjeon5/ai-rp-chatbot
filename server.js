@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { store, uid, flushAll, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from './src/store.js';
+import { store, uid, flushAll, merge, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from './src/store.js';
 import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './src/providers.js';
 import { listLogs, clearLogs } from './src/logs.js';
 import { buildSystem, buildHistory, fillVars, withThinking } from './src/prompt.js';
@@ -28,7 +28,10 @@ const app = express();
 // 켜야 요청 제한이 프록시 IP 하나가 아니라 실제 접속자 기준으로 걸립니다.
 if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
 
-app.use(express.json({ limit: '2mb' }));
+// 백업 불러오기는 대화가 쌓이면 수십 MB 가 되므로 그 경로만 한도를 넉넉히 둡니다.
+const jsonBody = express.json({ limit: '2mb' });
+const importBody = express.json({ limit: '64mb' });
+app.use((req, res, next) => (req.path === '/api/import' ? importBody : jsonBody)(req, res, next));
 app.use('/api', sameOrigin);
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -811,6 +814,148 @@ app.get('/api/export', (req, res) => {
     personas: store.personas.all(),
     chats: store.chats.all()
   });
+});
+
+/*
+ * 백업 불러오기. 지금 데이터를 지우지 않고 합칩니다.
+ * 같은 id 가 이미 있으면 건너뛰므로, 같은 파일을 두 번 불러와도 겹치지 않습니다.
+ * id 는 그대로 파일 이름이 되므로 안전한 글자만 받고, 아니면 새로 붙입니다.
+ */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
+
+/**
+ * @param {(raw) => object|null} clean  읽을 수 있는 항목만 골라 다듬습니다.
+ * @param {(item) => string} [signature] 내용이 같은지 가리는 열쇠. 새로 설치한 앱은 기본 캐릭터를
+ *   다른 id 로 이미 갖고 있으므로, 내용이 똑같으면 같은 항목으로 보고 건너뜁니다.
+ * @param {Map} [remap] 백업의 id → 이 앱의 id. 대화가 가리키는 캐릭터·페르소나를 고칠 때 씁니다.
+ */
+function importItems(collection, list, clean, { signature, remap } = {}) {
+  let added = 0;
+  let skipped = 0;
+  const known = new Map(signature ? collection.all().map((x) => [signature(x), x.id]) : []);
+  for (const raw of Array.isArray(list) ? list : []) {
+    if (!isObj(raw)) { skipped += 1; continue; }
+    const item = clean(raw);
+    if (!item) { skipped += 1; continue; }
+    item.id = SAFE_ID.test(str(raw.id)) ? raw.id : uid();
+    if (typeof raw.id === 'string') remap?.set(raw.id, item.id);
+    if (collection.has(item.id)) { skipped += 1; continue; }
+    const same = signature && known.get(signature(item));
+    if (same) {
+      if (typeof raw.id === 'string') remap?.set(raw.id, same);
+      skipped += 1;
+      continue;
+    }
+    if (Number.isFinite(raw.createdAt)) item.createdAt = raw.createdAt;
+    collection.add(item);
+    added += 1;
+  }
+  return { added, skipped };
+}
+
+const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str(c[f])));
+const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description)]);
+
+const cleanCharacter = (raw) => {
+  if (!str(raw.name).trim()) return null;
+  return CHARACTER_FIELDS.reduce((o, f) => ({ ...o, [f]: str(raw[f]) }), {});
+};
+
+const cleanPersona = (raw) => {
+  if (!str(raw.name).trim()) return null;
+  return { name: str(raw.name), description: str(raw.description) };
+};
+
+const cleanChat = (raw) => {
+  if (!Array.isArray(raw.messages)) return null;
+  const messages = raw.messages.filter(isObj).map((m) => {
+    const msg = {
+      id: SAFE_ID.test(str(m.id)) ? m.id : uid(),
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: str(m.content),
+      at: Number.isFinite(m.at) ? m.at : Date.now()
+    };
+    for (const k of ['provider', 'model', 'thought']) if (typeof m[k] === 'string') msg[k] = m[k];
+    if (Number.isFinite(m.editedAt)) msg.editedAt = m.editedAt;
+    if (Array.isArray(m.sources)) {
+      msg.sources = m.sources.filter(isObj).map((x) => ({ url: str(x.url), title: str(x.title) }))
+        .filter((x) => /^https?:\/\//i.test(x.url));
+    }
+    return msg;
+  });
+  const chat = {
+    kind: raw.kind === 'assistant' ? 'assistant' : 'rp',
+    characterId: typeof raw.characterId === 'string' ? raw.characterId : null,
+    personaId: typeof raw.personaId === 'string' ? raw.personaId : null,
+    title: str(raw.title) || '가져온 대화',
+    updatedAt: Number.isFinite(raw.updatedAt) ? raw.updatedAt : Date.now(),
+    messages
+  };
+  if (typeof raw.presetId === 'string') chat.presetId = raw.presetId;
+  if (isObj(raw.character)) {
+    const c = cleanCharacter(raw.character);
+    if (c) chat.character = { ...c, id: null };
+  }
+  return chat;
+};
+
+app.post('/api/import', (req, res) => {
+  const body = req.body || {};
+  const data = body.data;
+  if (!isObj(data)) return res.status(400).json({ error: '백업 파일 형식이 아닙니다.' });
+  if (![data.characters, data.personas, data.chats].some(Array.isArray)) {
+    return res.status(400).json({ error: '백업 파일에 캐릭터·페르소나·대화가 하나도 없습니다.' });
+  }
+
+  const characterIds = new Map();
+  const personaIds = new Map();
+  const characters = importItems(store.characters, data.characters, cleanCharacter,
+    { signature: characterSignature, remap: characterIds });
+  const personas = importItems(store.personas, data.personas, cleanPersona,
+    { signature: personaSignature, remap: personaIds });
+  const chats = importItems(store.chats, data.chats, (raw) => {
+    const chat = cleanChat(raw);
+    if (chat?.characterId) chat.characterId = characterIds.get(chat.characterId) ?? chat.characterId;
+    if (chat?.personaId) chat.personaId = personaIds.get(chat.personaId) ?? chat.personaId;
+    return chat;
+  });
+
+  const result = {
+    characters,
+    personas,
+    chats,
+    presets: 0,
+    settings: false
+  };
+
+  const s = store.settings;
+  const saved = isObj(data.settings) ? data.settings : {};
+
+  // 가져온 대화가 쓰던 커스텀 모드가 없으면 대화가 엉뚱한 모드로 돌아가므로, 없는 모드는 늘 추가합니다.
+  for (const p of Array.isArray(saved.presets) ? saved.presets : []) {
+    if (!isObj(p) || !str(p.id) || !str(p.name) || s.presets.some((x) => x.id === p.id)) continue;
+    s.presets.push({ id: str(p.id), name: str(p.name), template: str(p.template), adult: Boolean(p.adult) });
+    result.presets += 1;
+  }
+
+  // 나머지 설정은 원할 때만 덮습니다. 엔진·API 키는 백업에 들어 있지 않고, 들어 있어도 받지 않습니다.
+  if (body.includeSettings) {
+    if (Number.isFinite(saved.historyLimit)) s.historyLimit = saved.historyLimit;
+    if (typeof saved.askModeOnNewChat === 'boolean') s.askModeOnNewChat = saved.askModeOnNewChat;
+    if (typeof saved.activePresetId === 'string' && s.presets.some((p) => p.id === saved.activePresetId)) {
+      s.activePresetId = saved.activePresetId;
+    }
+    const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
+    if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
+    for (const key of ['params', 'assistant', 'dev']) {
+      if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
+    }
+    result.settings = true;
+  }
+  store.saveSettings();
+  res.json(result);
 });
 
 // 종료 신호를 받으면 큐에 남은 쓰기를 끝내고 나갑니다.

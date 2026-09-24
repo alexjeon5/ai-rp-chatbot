@@ -251,7 +251,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
 | GET/POST/PUT/DELETE | `/api/personas[/:id]` | 페르소나 CRUD |
-| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD |
+| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` |
 | POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제 |
 | POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate }` 바디. 재전송은 새 응답이 생겼을 때만 이전 응답을 교체 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
@@ -259,6 +259,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | POST | `/api/chats/:id/save-character` | 1회성 캐릭터를 목록으로 승격 |
 | DELETE | `/api/providers/:key/unavailable` | 감춰진 모델 기록 초기화 |
 | GET | `/api/export` | API 키를 뺀 전체 백업 JSON |
+| POST | `/api/import` | `{ data, includeSettings }` 백업을 합침. 같은 id·같은 내용은 건너뛰고, 대화의 캐릭터·페르소나 id 를 맞춰 고침. 본문 한도 64MB |
 
 `GET`과 `PUT /api/settings`는 **반드시 같은 모양**(`settingsPayload()`)을 돌려줘야 합니다.
 과거에 GET에만 `builtinTemplates`를 붙였다가, 저장 직후 클라이언트가 그 필드를 잃어버려

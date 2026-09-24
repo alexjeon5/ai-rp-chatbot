@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { readFile, rename } from 'node:fs/promises';
-import { Collection, JsonDoc, uid, flushAll } from './db.js';
+import { Collection, JsonDoc, uid, flushAll, merge } from './db.js';
 
-export { uid, flushAll };
+export { uid, flushAll, merge };
 
 const DATA_DIR = process.env.DATA_DIR || path.resolve('./data');
 
