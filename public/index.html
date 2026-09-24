@@ -67,6 +67,7 @@
     </div>
     <div class="head-actions">
       <select id="chat-preset" class="head-select" title="이 대화에 쓸 대화 모드" hidden></select>
+      <select id="chat-persona" class="head-select" title="이 대화에서 쓸 내 페르소나" hidden></select>
       <button id="btn-save-character" class="ghost-btn" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
       <button id="btn-rename" class="ghost-btn" hidden>이름 바꾸기</button>
       <button id="btn-delete-chat" class="ghost-btn danger" hidden>대화 삭제</button>
@@ -271,6 +272,8 @@
     </div>
     <div class="sheet-foot">
       <a href="/api/export" download class="ghost-btn as-link">백업 내려받기</a>
+      <button id="s-import" class="ghost-btn" type="button" title="내려받은 백업 파일을 지금 데이터에 합칩니다">백업 불러오기</button>
+      <input id="s-import-file" type="file" accept=".json,application/json" hidden>
       <button id="btn-open-dev" class="ghost-btn" type="button">개발자 설정</button>
       <span class="spacer"></span>
       <button id="s-cancel" class="ghost-btn" type="button">취소</button>

@@ -233,6 +233,7 @@ function closeChat() {
   $('btn-delete-chat').hidden = true;
   $('btn-save-character').hidden = true;
   $('chat-preset').hidden = true;
+  $('chat-persona').hidden = true;
   $('btn-websearch').hidden = true;
   $('btn-thinking').hidden = true;
   setStreaming(false);
@@ -294,13 +295,7 @@ async function openChat(id) {
   const assistant = state.chat.kind === 'assistant';
   const ch = characterOf(state.chat);
   $('chat-title').textContent = state.chat.title;
-  $('chat-sub').textContent = assistant
-    ? '어시스턴트 모드 — 캐릭터 없이 대화합니다'
-    : [
-        state.chat.character ? '1회성 캐릭터' : null,
-        ch?.description,
-        `내 페르소나 ${personaOf(state.chat)?.name || '미설정'}`
-      ].filter(Boolean).join(' · ');
+  paintChatSub();
   $('composer').hidden = false;
   $('btn-rename').hidden = false;
   $('btn-delete-chat').hidden = false;
@@ -310,6 +305,7 @@ async function openChat(id) {
     : '무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다.';
   if (assistant) $('chat-preset').hidden = true;
   else paintChatPreset();
+  paintChatPersona();
   paintQuickProvider();
   paintWebSearch();
   paintThinking();
@@ -317,6 +313,54 @@ async function openChat(id) {
   ui.renderChatList(visibleChats(), id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
   closeSidebarOnNarrow();
 }
+
+/** 대화 제목 아래 한 줄. 1회성 여부 · 캐릭터 소개 · 내 페르소나 */
+function paintChatSub() {
+  if (!state.chat) return;
+  $('chat-sub').textContent = state.chat.kind === 'assistant'
+    ? '어시스턴트 모드 — 캐릭터 없이 대화합니다'
+    : [
+        state.chat.character ? '1회성 캐릭터' : null,
+        characterOf(state.chat)?.description,
+        `내 페르소나 ${personaOf(state.chat)?.name || '미설정'}`
+      ].filter(Boolean).join(' · ');
+}
+
+/**
+ * 대화 상단의 페르소나 선택기. 페르소나는 대화를 만들 때 정해지지만,
+ * 여기서 이 대화만 따로 바꿀 수 있습니다. 다른 대화와 기본값은 그대로입니다.
+ */
+function paintChatPersona() {
+  const sel = $('chat-persona');
+  if (!state.chat || state.chat.kind === 'assistant' || !state.personas.length) {
+    sel.hidden = true;
+    return;
+  }
+  const esc = (t = '') => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  sel.innerHTML = state.personas
+    .map((p) => `<option value="${p.id}">나: ${esc(p.name)}</option>`)
+    .join('');
+  sel.value = personaOf(state.chat)?.id || state.personas[0].id;
+  sel.hidden = false;
+}
+
+$('chat-persona').addEventListener('change', async (e) => {
+  if (!state.chat) return;
+  const chat = state.chat;
+  const personaId = e.target.value;
+  try {
+    await api.updateChat(chat.id, { personaId });
+  } catch (err) {
+    paintChatPersona();
+    return ui.toast(`바꾸지 못했습니다 — ${err.message}`);
+  }
+  chat.personaId = personaId;
+  if (state.chat !== chat) return;
+  paintChatSub();
+  // 내 말풍선 위의 이름도 새 페르소나로 바뀌어야 합니다. 생성 중이면 화면을 건드리지 않습니다.
+  if (!state.run) ui.renderThread(chat, characterOf(chat), personaOf(chat));
+  ui.toast(`이 대화의 페르소나를 바꿨습니다 — ${personaOf(chat)?.name}. 다음 답변부터 반영됩니다.`);
+});
 
 /** 내장 모드는 설명을 미리 적어 두고, 직접 만든 모드는 내용 첫 줄을 보여 줍니다. */
 const MODE_NOTES = {
@@ -868,6 +912,7 @@ $('p-add').addEventListener('click', async () => {
   seedNote('');
   state.personas = await api.personas();
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
+  paintChatPersona();
 });
 
 /* --- 랜덤 페르소나 --- */
@@ -943,6 +988,9 @@ $('persona-list').addEventListener('click', async (e) => {
     state.personas = await api.personas();
   } else return;
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
+  // 지운 페르소나를 쓰던 대화는 기본 페르소나로 돌아가므로 상단도 다시 그립니다.
+  paintChatPersona();
+  paintChatSub();
 });
 
 /* ---------------- 설정 시트 ---------------- */
@@ -1238,6 +1286,58 @@ $('s-fetch-models').addEventListener('click', async () => {
 });
 
 $('s-cancel').addEventListener('click', () => dlgSettings.close('cancel'));
+
+/* ---------- 백업 불러오기 ---------- */
+
+$('s-import').addEventListener('click', () => {
+  $('s-import-file').value = '';
+  $('s-import-file').click();
+});
+
+$('s-import-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    return ui.toast('JSON 파일을 읽지 못했습니다. 백업 내려받기로 받은 파일인지 확인해 주세요.');
+  }
+  const count = (k) => (Array.isArray(data?.[k]) ? data[k].length : 0);
+  const summary = `캐릭터 ${count('characters')}개, 페르소나 ${count('personas')}개, 대화 ${count('chats')}개`;
+  if (!confirm(`${file.name}\n${summary}\n\n지금 데이터에 합칩니다. 이미 있는 항목은 건너뜁니다. 계속할까요?`)) return;
+  const includeSettings = Boolean(data?.settings) && confirm(
+    '설정(샘플링 값·어시스턴트 프롬프트·테마·표기법)도 백업의 값으로 덮어쓸까요?\n' +
+    '취소를 누르면 지금 설정을 그대로 둡니다. 엔진 주소와 API 키는 어느 쪽이든 바뀌지 않습니다.'
+  );
+
+  let result;
+  try {
+    result = await api.importBackup(data, includeSettings);
+  } catch (err) {
+    return ui.toast(`불러오지 못했습니다 — ${err.message}`);
+  }
+
+  // 설정 창에 떠 있던 입력값은 옛 값이므로 저장하지 않고 닫은 뒤 전부 다시 읽습니다.
+  dlgSettings.close('cancel');
+  [state.settings, state.characters, state.personas] = await Promise.all([
+    api.settings(), api.characters(), api.personas()
+  ]);
+  applyDev(state.settings.dev);
+  ui.renderCharacterList(state.characters);
+  paintModelBadge();
+  await refreshChatList();
+  if (state.chat && !state.run) await openChat(state.chat.id);
+
+  const { characters, personas, chats } = result;
+  const skipped = characters.skipped + personas.skipped + chats.skipped;
+  ui.toast(
+    `불러왔습니다 — 캐릭터 ${characters.added}, 페르소나 ${personas.added}, 대화 ${chats.added}` +
+    (skipped ? ` (이미 있거나 읽을 수 없는 ${skipped}개 건너뜀)` : '') +
+    (result.settings ? ' · 설정 반영' : '')
+  );
+});
 
 $('s-reset-template').addEventListener('click', () => {
   const pick = (state.settings.builtinTemplates || []).find((t) => t.id === $('s-template-source').value);
