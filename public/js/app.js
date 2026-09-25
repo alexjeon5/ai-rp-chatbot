@@ -853,20 +853,63 @@ const drawingNow = new Set();
 
 const dlgTags = $('dlg-tags');
 
+// '태그 고쳐 그리기' 의 모델 목록. 한 번 받으면 기억해 두고, 창을 열 때마다 새로 받아 바꿉니다.
+let checkpointList = null;
+// 창을 빨리 닫고 다시 열었을 때 앞서 받던 목록이 새 창을 덮지 않게 합니다.
+let modelLoad = 0;
+
+/** 모델 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
+function paintModelChoice(current) {
+  const list = checkpointList || [];
+  const items = current && !list.includes(current) ? [current, ...list] : list;
+  $('tg-checkpoint').innerHTML = items
+    .map((v) => `<option value="${ui.escapeHtml(v)}">${ui.escapeHtml(v)}${checkpointList && !list.includes(v) ? ' (목록에 없음)' : ''}</option>`)
+    .join('');
+  $('tg-checkpoint').value = current || items[0] || '';
+}
+
+/** 모델 칸을 지금 값으로 보여 주고, ComfyUI 에서 체크포인트 목록을 받아 채웁니다. */
+async function loadModelChoice(current) {
+  const load = ++modelLoad;
+  const select = $('tg-checkpoint');
+  const note = $('tg-model-note');
+  const base = '고른 모델은 이번 그림에만 씁니다. 설정의 체크포인트는 그대로입니다.';
+  paintModelChoice(current);
+  // 올린 워크플로에 {{checkpoint}} 칸이 없으면 모델을 바꿔 보내도 쓰이지 않습니다.
+  const wf = state.settings.image?.workflow;
+  select.disabled = Boolean(wf) && !JSON.stringify(wf).includes('{{checkpoint}}');
+  if (select.disabled) {
+    note.textContent = '올린 워크플로에 {{checkpoint}} 칸이 없어 모델을 바꿀 수 없습니다. 워크플로 안의 모델로 그립니다.';
+    return;
+  }
+  note.textContent = checkpointList ? base : `${base} 체크포인트 목록을 받는 중…`;
+  try {
+    const { checkpoints } = await api.imageCheckpoints('');
+    if (load !== modelLoad || !dlgTags.open) return;
+    checkpointList = checkpoints;
+    // 목록을 받는 사이 고른 값은 그대로 둡니다.
+    paintModelChoice(select.value);
+    note.textContent = checkpoints.length ? base : `${base} ComfyUI 에 체크포인트가 없습니다.`;
+  } catch (e) {
+    if (load === modelLoad && dlgTags.open) note.textContent = `${base} 목록을 받지 못했습니다 — ${e.message}`;
+  }
+}
+
 /**
  * 그릴 태그와 부정 태그를 보여 주고 고치게 합니다.
- * 그리기를 누르면 { prompt, negative } 를, 취소하면 null 을 돌려줍니다.
+ * 그리기를 누르면 { prompt, negative, checkpoint? } 를, 취소하면 null 을 돌려줍니다.
  * @param {object} o
  * @param {string} o.prompt 처음 보여 줄 태그
  * @param {string} [o.negative] 처음 보여 줄 부정 태그
  * @param {boolean} [o.review] 🎨 그리기 전 검토인지 (아니면 '태그 고쳐 그리기')
  * @param {string[]} [o.removed] 필터로 빠진 태그
+ * @param {string} [o.checkpoint] 처음 고를 모델. '태그 고쳐 그리기' 에서만 모델 칸을 보여 줍니다
  */
-function askTags({ prompt, negative = '', review = false, removed = [] }) {
+function askTags({ prompt, negative = '', review = false, removed = [], checkpoint = '' }) {
   $('tg-title').textContent = review ? '그릴 태그 확인' : '태그 고쳐 그리기';
   $('tg-hint').textContent = review
     ? 'AI 가 장면을 읽고 만든 태그입니다. 빼거나 더할 태그를 고친 뒤 그리기를 누르세요.'
-    : '이 그림에 쓴 태그입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.';
+    : '이 그림에 쓴 태그와 모델입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.';
   $('tg-text').value = prompt;
   $('tg-negative').value = negative;
   $('tg-removed').hidden = !removed.length;
@@ -874,8 +917,10 @@ function askTags({ prompt, negative = '', review = false, removed = [] }) {
   // '다음부터 묻지 않기' 는 🎨 그리기의 검토에만 해당합니다.
   $('tg-skip-row').hidden = !review;
   $('tg-skip').checked = false;
+  $('tg-model-row').hidden = review;
   dlgTags.returnValue = '';
   dlgTags.showModal();
+  if (!review) loadModelChoice(checkpoint);
   $('tg-text').focus();
 
   return new Promise((resolve) => {
@@ -890,7 +935,9 @@ function askTags({ prompt, negative = '', review = false, removed = [] }) {
           ui.toast(`설정을 저장하지 못했습니다 — ${e.message}`);
         }
       }
-      resolve({ prompt: tags, negative: $('tg-negative').value.trim() });
+      const picked = { prompt: tags, negative: $('tg-negative').value.trim() };
+      if (!review && !$('tg-checkpoint').disabled && $('tg-checkpoint').value) picked.checkpoint = $('tg-checkpoint').value;
+      resolve(picked);
     }, { once: true });
   });
 }
@@ -909,10 +956,11 @@ for (const id of ['tg-text', 'tg-negative']) {
  * @param {object} [o]
  * @param {string} [o.prompt] 고친 태그 (주면 LLM 을 건너뜀)
  * @param {string} [o.negative] 고친 부정 태그
+ * @param {string} [o.checkpoint] 이번 한 장만 쓸 모델 (태그 고쳐 그리기)
  * @param {boolean} [o.random] 무작위 시드 (다시 그리기)
  * @param {boolean} [o.review] 태그까지만 만들고, 사람이 확인·수정한 뒤에 그립니다
  */
-async function drawScene(chat, msg, turn, { prompt, negative, random = false, review = false } = {}) {
+async function drawScene(chat, msg, turn, { prompt, negative, checkpoint, random = false, review = false } = {}) {
   if (!chat || drawingNow.has(msg.id)) return;
   drawingNow.add(msg.id);
   const box = turn.querySelector('.turn-images') || (() => {
@@ -934,6 +982,7 @@ async function drawScene(chat, msg, turn, { prompt, negative, random = false, re
     const result = await drawImage(chat.id, msg.id, {
       prompt,
       negative,
+      checkpoint,
       random,
       review,
       onEvent: (e) => {
@@ -1527,7 +1576,11 @@ document.getElementById('messages').addEventListener('click', async (e) => {
     }
     if (btn.dataset.act === 'img-edit') {
       const chat = state.chat;
-      const edited = await askTags({ prompt: img.prompt || '', negative: img.negative || '' });
+      const edited = await askTags({
+        prompt: img.prompt || '',
+        negative: img.negative || '',
+        checkpoint: img.checkpoint || state.settings.image?.checkpoint || ''
+      });
       if (!edited) return;
       const live = document.querySelector(`#thread [data-mid="${mid}"]`);
       drawScene(chat, msg, state.chat === chat && live ? live : turn, { ...edited, random: true });

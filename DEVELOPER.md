@@ -283,7 +283,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
 | POST | `/api/chats/:id/facts/extract` | `{ auto }` 최근 대화에서 사실을 뽑아 `chat.facts` 에 추가·수정·삭제. auto 는 답변 4개 이상 쌓였을 때만. 새 generate 요청이 오면 멈춤 |
 | POST | `/api/chats/:id/impersonate` | `{ hint }` 대신 쓰기. 내 다음 차례 초안을 SSE 로 흘려보내고 `done` 에 정리된 `draft`. 저장하지 않음 |
-| POST | `/api/chats/:id/messages/:mid/image` | `{ prompt?, random? }` 장면 그리기. SSE 로 `stage`·`prompt`·`done{image, images}`. prompt 를 주면 LLM 을 건너뜀 |
+| POST | `/api/chats/:id/messages/:mid/image` | `{ prompt?, negative?, checkpoint?, random?, review? }` 장면 그리기. SSE 로 `stage`·`prompt`·`done{image, images}`. prompt 를 주면 LLM 을 건너뜀. checkpoint 는 그 한 장에만 쓰는 모델(설정은 그대로)이고 `image.checkpoint` 에 남김 |
 | DELETE | `/api/chats/:id/messages/:mid/images/:imgId` | 그림 삭제 |
 | GET | `/api/images/:chatId/:file` | 그림 파일 |
 | GET | `/api/image/checkpoints?baseUrl=` | ComfyUI 연결 확인 + 체크포인트 목록 |

@@ -1155,9 +1155,10 @@ app.delete('/api/chats/:id/messages/:mid/images/:imgId', (req, res) => {
 
 /**
  * 메시지 하나의 장면을 그립니다. 진행 단계를 SSE 로 알려 줍니다.
- * body: { prompt?, negative?, random?, review? }
+ * body: { prompt?, negative?, checkpoint?, random?, review? }
  *   prompt  사람이 고친 태그. 주면 LLM 을 건너뛰고 이걸로 그립니다 (필터는 그대로 적용)
  *   negative 사람이 고친 부정 태그. 설정의 네거티브·고정 네거티브는 여기에 늘 더해집니다
+ *   checkpoint 이번 한 장만 쓸 체크포인트 ('태그 고쳐 그리기'). 설정의 체크포인트는 바꾸지 않습니다
  *   random  시드를 무작위로. 기본은 캐릭터마다 고정 시드
  *   review  태그까지만 만들어 { done, review: { prompt, negative, removed } } 로 돌려주고 그리지 않습니다.
  *           사람이 확인·수정한 태그를 prompt 로 다시 보내면 그때 그립니다.
@@ -1165,6 +1166,11 @@ app.delete('/api/chats/:id/messages/:mid/images/:imgId', (req, res) => {
 app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, res) => {
   const s = settings();
   const cfg = { ...IMAGE_DEFAULTS(), ...(s.image || {}) };
+  const picked = typeof req.body?.checkpoint === 'string' ? req.body.checkpoint.trim() : '';
+  if (picked) {
+    if (picked.length > 300 || /[\u0000-\u001f]/.test(picked)) return res.status(400).json({ error: '체크포인트 이름이 올바르지 않습니다.' });
+    cfg.checkpoint = picked;
+  }
   const chat = store.chats.get(req.params.id);
   const msg = chat?.messages.find((m) => m.id === req.params.mid);
   if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
@@ -1297,7 +1303,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
     const file = `${id}${Date.now().toString(36)}.${ext}`.toLowerCase();
     await mkdir(imageDir(chat.id), { recursive: true });
     await writeFile(path.join(imageDir(chat.id), file), buffer);
-    const image = { id, file, prompt: composed.prompt, negative: composed.negative, seed, at: Date.now() };
+    const image = { id, file, prompt: composed.prompt, negative: composed.negative, checkpoint: cfg.checkpoint, seed, at: Date.now() };
     msg.images = [...(msg.images || []), image];
     while (msg.images.length > IMAGES_PER_MESSAGE) removeImageFile(chat.id, msg.images.shift().file);
     store.chats.save(chat.id);

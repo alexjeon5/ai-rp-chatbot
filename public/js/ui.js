@@ -418,7 +418,7 @@ export function setDrawing(next) { drawing = { ...drawing, ...next }; }
 export function imageFigure(chatId, img) {
   const src = `/api/images/${encodeURIComponent(chatId)}/${encodeURIComponent(img.file)}`;
   return `<figure class="turn-image" data-img="${esc(img.id)}">
-    <a class="img-open" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(img.prompt || '')}"></a>
+    <a class="img-open" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(`${img.checkpoint ? `모델: ${img.checkpoint}\n` : ''}${img.prompt || ''}`)}"></a>
     <figcaption>
       <button type="button" class="tool" data-act="img-redraw" title="같은 장면을 다른 시드로">다시 그리기</button>
       <button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>

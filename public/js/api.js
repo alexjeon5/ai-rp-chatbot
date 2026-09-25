@@ -80,8 +80,8 @@ export function impersonate(chatId, { hint = '', ...handlers }) {
  * @param {string} [o.negative] 사람이 고친 부정 태그
  * @param {boolean} [o.review] 태그까지만 만들고 그리지 않습니다. 결과의 review.{prompt,negative} 로 돌려줍니다
  */
-export function drawImage(chatId, mid, { prompt, negative, random = false, review = false, ...handlers }) {
-  return streamPost(`/api/chats/${chatId}/messages/${mid}/image`, { prompt, negative, random, review }, handlers);
+export function drawImage(chatId, mid, { prompt, negative, checkpoint, random = false, review = false, ...handlers }) {
+  return streamPost(`/api/chats/${chatId}/messages/${mid}/image`, { prompt, negative, checkpoint, random, review }, handlers);
 }
 
 async function streamPost(url, body, { signal, onDelta, onThought, onSources, onContext, onEvent }) {
