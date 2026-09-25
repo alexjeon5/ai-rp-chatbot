@@ -785,15 +785,11 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   if (assistant) {
     system = s.assistant.systemPrompt;
     params = s.assistant.params;
-    webSearch = Boolean(s.assistant.webSearch);
+    // 웹 검색은 '켜 두면 되는 엔진에서만 쓴다' 는 선호입니다. 화면도 못 하는 엔진에서는 꺼진 것으로 보여 주므로,
+    // 검색을 켜 둔 채 Ollama 처럼 못 하는 엔진으로 바꿨다면 막지 않고 검색 없이 답합니다.
+    webSearch = Boolean(s.assistant.webSearch) && supportsWebSearch(provider, config);
     thinking = Boolean(s.assistant.thinking) && mode !== 'continue';
     system = withThinking(system, thinking);
-    if (webSearch && !supportsWebSearch(provider, config)) {
-      return res.status(400).json({
-        error: `웹 검색을 지원하지 않는 엔진입니다 (${config.label}).\n` +
-          '검색을 지원하는 엔진(Gemini, Anthropic, OpenAI 검색 모델)으로 바꾸거나 웹 검색을 꺼 주세요.'
-      });
-    }
   } else {
     const ctx = rpContext(chat);
     if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
