@@ -259,20 +259,21 @@ app.delete('/api/logs', (req, res) => { clearLogs(); res.json({ ok: true }); });
 /* ---------------- 캐릭터 / 페르소나 ---------------- */
 
 /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
-function crud(name, collection, fields, { beforeRemove } = {}) {
+function crud(name, collection, fields, { beforeRemove, normalize = (x) => x } = {}) {
   app.get(`/api/${name}`, (req, res) => res.json(collection.all()));
 
   app.post(`/api/${name}`, (req, res) => {
     const draft = {};
     for (const f of fields) draft[f] = req.body?.[f] ?? '';
-    if (!draft.name?.trim()) return res.status(400).json({ error: '이름을 입력해 주세요.' });
-    res.json(collection.add(draft));
+    if (!String(draft.name ?? '').trim()) return res.status(400).json({ error: '이름을 입력해 주세요.' });
+    res.json(collection.add(normalize(draft)));
   });
 
   app.put(`/api/${name}/:id`, (req, res) => {
     const patch = {};
     for (const f of fields) if (f in (req.body || {})) patch[f] = req.body[f];
-    const item = collection.update(req.params.id, patch);
+    if ('name' in patch && !String(patch.name ?? '').trim()) return res.status(400).json({ error: '이름을 입력해 주세요.' });
+    const item = collection.update(req.params.id, normalize(patch));
     if (!item) return res.status(404).json({ error: '없는 항목입니다.' });
     res.json(item);
   });
@@ -312,7 +313,23 @@ function detachCharacter(character) {
 }
 
 crud('characters', store.characters, CHARACTER_FIELDS, { beforeRemove: detachCharacter });
-crud('personas', store.personas, ['name', 'description']);
+/**
+ * 페르소나 값 정리. 성별·나이는 짧은 글, 특징은 한 줄짜리 항목 목록입니다.
+ * 들어온 칸만 고쳐서 돌려주므로 PUT 에서 일부만 보내도 됩니다.
+ */
+const PERSONA_FIELDS = ['name', 'description', 'gender', 'age', 'traits'];
+function normalizePersona(p) {
+  const out = { ...p };
+  for (const k of ['name', 'description', 'gender', 'age']) {
+    if (k in out) out[k] = String(out[k] ?? '').slice(0, k === 'description' ? 4000 : 80);
+  }
+  if ('traits' in out) {
+    const list = Array.isArray(out.traits) ? out.traits : String(out.traits || '').split('\n');
+    out.traits = list.map((t) => String(t).replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean).slice(0, 30);
+  }
+  return out;
+}
+crud('personas', store.personas, PERSONA_FIELDS, { normalize: normalizePersona });
 
 /* ---------------- 랜덤 페르소나 ---------------- */
 
@@ -1518,7 +1535,7 @@ function importItems(collection, list, clean, { signature, remap } = {}) {
 }
 
 const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str(c[f])));
-const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description)]);
+const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description), str(p.gender), str(p.age), p.traits || []]);
 
 const cleanCharacter = (raw) => {
   if (!str(raw.name).trim()) return null;
@@ -1527,7 +1544,13 @@ const cleanCharacter = (raw) => {
 
 const cleanPersona = (raw) => {
   if (!str(raw.name).trim()) return null;
-  return { name: str(raw.name), description: str(raw.description) };
+  return normalizePersona({
+    name: str(raw.name),
+    description: str(raw.description),
+    gender: str(raw.gender),
+    age: str(raw.age),
+    traits: Array.isArray(raw.traits) ? raw.traits.filter((t) => typeof t === 'string') : []
+  });
 };
 
 const cleanSources = (list) => list.filter(isObj)

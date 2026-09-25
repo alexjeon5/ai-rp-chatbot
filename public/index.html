@@ -163,9 +163,31 @@
       <p class="field-hint">대화에서 {{user}}로 불릴 나 자신입니다. 여러 개를 두고 골라 쓸 수 있습니다.</p>
       <ul id="persona-list" class="persona-list"></ul>
       <div class="divider"></div>
+      <h3 id="p-form-title" class="sheet-sub">새 페르소나</h3>
       <div class="grid-2">
         <label class="field"><span>이름</span><input id="p-name" placeholder="나"></label>
-        <label class="field"><span>소개</span><input id="p-description" placeholder="평범한 대학생. 호기심이 많다."></label>
+        <label class="field"><span>나이</span><input id="p-age" placeholder="예: 20대 중반, 27세"></label>
+      </div>
+      <div class="field"><span>성별</span>
+        <span class="model-row">
+          <select id="p-gender">
+            <option value="">정하지 않음</option>
+            <option value="여성">여성</option>
+            <option value="남성">남성</option>
+            <option value="custom">직접 입력</option>
+          </select>
+          <input id="p-gender-custom" class="grow" placeholder="예: 논바이너리" hidden>
+        </span>
+      </div>
+      <label class="field"><span>소개</span>
+        <textarea id="p-description" rows="3" placeholder="평범한 대학생. 호기심이 많다."></textarea>
+      </label>
+      <div class="field"><span>특징 <small class="field-hint">— 한 항목씩 추가합니다. 대화에 목록으로 들어갑니다</small></span>
+        <ul id="p-traits" class="trait-list"></ul>
+        <span class="model-row">
+          <input id="p-trait-input" class="grow" placeholder="예: 커피 없이는 못 산다 · 왼손잡이 · 고양이 알레르기">
+          <button id="p-trait-add" class="ghost-btn" type="button">추가</button>
+        </span>
       </div>
 
       <div class="seed-box">
@@ -184,7 +206,10 @@
         </div>
       </div>
 
-      <button id="p-add" class="ghost-btn" type="button">페르소나 추가</button>
+      <span class="model-row">
+        <button id="p-add" class="ghost-btn" type="button">페르소나 추가</button>
+        <button id="p-edit-cancel" class="ghost-btn" type="button" hidden>편집 취소</button>
+      </span>
     </div>
     <div class="sheet-foot">
       <span class="spacer"></span>

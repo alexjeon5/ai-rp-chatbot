@@ -1754,22 +1754,116 @@ dlgChar.addEventListener('close', async () => {
 
 const dlgPersona = $('dlg-persona');
 
+// 수정 중인 페르소나 id. null 이면 아래 칸은 새 페르소나를 만드는 데 씁니다.
+let editingPersonaId = null;
+// 칸에 올라와 있는 특징 목록.
+let draftTraits = [];
+
+const GENDER_PRESETS = ['', '여성', '남성'];
+
+function setGender(value = '') {
+  const preset = GENDER_PRESETS.includes(value);
+  $('p-gender').value = preset ? value : 'custom';
+  $('p-gender-custom').value = preset ? '' : value;
+  $('p-gender-custom').hidden = preset;
+}
+
+const readGender = () =>
+  $('p-gender').value === 'custom' ? $('p-gender-custom').value.trim() : $('p-gender').value;
+
+$('p-gender').addEventListener('change', () => {
+  const custom = $('p-gender').value === 'custom';
+  $('p-gender-custom').hidden = !custom;
+  if (custom) $('p-gender-custom').focus();
+});
+
+function paintTraits() {
+  $('p-traits').innerHTML = draftTraits
+    .map((t, i) => `<li class="trait-item"><span>${ui.escapeHtml(t)}</span>` +
+      `<button type="button" data-trait="${i}" aria-label="${ui.escapeHtml(t)} 빼기">✕</button></li>`)
+    .join('');
+}
+
+/** 입력칸의 글을 특징으로 더합니다. 쉼표·줄바꿈으로 여러 개를 한 번에 넣어도 나눠서 들어갑니다. */
+function addTraits() {
+  const input = $('p-trait-input');
+  const items = input.value.split(/[,\n]/).map((t) => t.trim()).filter(Boolean);
+  for (const t of items) if (!draftTraits.includes(t)) draftTraits.push(t);
+  input.value = '';
+  paintTraits();
+}
+
+$('p-trait-add').addEventListener('click', addTraits);
+$('p-trait-input').addEventListener('keydown', (e) => {
+  // 한글 조합 중 Enter 는 글자 확정이므로 넘깁니다.
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  addTraits();
+});
+$('p-traits').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-trait]');
+  if (!btn) return;
+  draftTraits.splice(Number(btn.dataset.trait), 1);
+  paintTraits();
+});
+
+/** 아래 입력칸을 페르소나 하나로 채웁니다. 비우면 새 페르소나를 만드는 상태로 돌아갑니다. */
+function fillPersonaForm(p = null) {
+  editingPersonaId = p?.id || null;
+  $('p-name').value = p?.name || '';
+  $('p-age').value = p?.age || '';
+  setGender(p?.gender || '');
+  $('p-description').value = p?.description || '';
+  $('p-trait-input').value = '';
+  draftTraits = [...(p?.traits || [])];
+  paintTraits();
+  $('p-form-title').textContent = p ? `'${p.name}' 수정` : '새 페르소나';
+  $('p-add').textContent = p ? '저장' : '페르소나 추가';
+  $('p-add').classList.toggle('send-btn', Boolean(p));
+  $('p-add').classList.toggle('ghost-btn', !p);
+  $('p-edit-cancel').hidden = !p;
+  showSeeds(null);
+  seedNote('');
+}
+
 $('btn-personas').addEventListener('click', () => {
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
+  fillPersonaForm(null);
   dlgPersona.showModal();
 });
+
+$('p-edit-cancel').addEventListener('click', () => fillPersonaForm(null));
 
 $('p-add').addEventListener('click', async () => {
   const name = $('p-name').value.trim();
   if (!name) return ui.toast('이름을 입력해 주세요');
-  await api.createPersona({ name, description: $('p-description').value.trim() });
-  $('p-name').value = '';
-  $('p-description').value = '';
-  showSeeds(null);
-  seedNote('');
+  // 입력칸에 적어 두고 추가를 안 누른 특징도 함께 넣습니다.
+  if ($('p-trait-input').value.trim()) addTraits();
+  const body = {
+    name,
+    gender: readGender(),
+    age: $('p-age').value.trim(),
+    description: $('p-description').value.trim(),
+    traits: draftTraits
+  };
+  const editing = editingPersonaId;
+  try {
+    if (editing) await api.updatePersona(editing, body);
+    else await api.createPersona(body);
+  } catch (e) {
+    return ui.toast(`저장하지 못했습니다 — ${e.message}`);
+  }
   state.personas = await api.personas();
+  fillPersonaForm(null);
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
   paintChatPersona();
+  paintChatSub();
+  if (editing) {
+    // 이 페르소나를 쓰는 대화라면 다음 답변부터 바뀐 내용이 들어갑니다.
+    if (state.chat && !state.run) paintThread();
+    refreshContext();
+    ui.toast(`'${name}' 을(를) 고쳤습니다 — 다음 답변부터 반영됩니다`);
+  }
 });
 
 /* --- 랜덤 페르소나 --- */
@@ -1784,6 +1878,9 @@ function showSeeds(seeds, fields) {
   ui.renderSeedChips(seedDraft, seedFields);
   $('p-seed-actions').hidden = !seedDraft;
   if (seedDraft?.name) $('p-name').value = seedDraft.name;
+  // 성별·나이대는 따로 칸이 있으니 굴린 값을 바로 옮겨 둡니다.
+  if (seedDraft?.gender) setGender(seedDraft.gender);
+  if (seedDraft?.age) $('p-age').value = seedDraft.age;
 }
 
 const seedNote = (text = '') => { $('p-seed-note').textContent = text; };
@@ -1836,12 +1933,22 @@ $('p-write').addEventListener('click', async () => {
 $('persona-list').addEventListener('click', async (e) => {
   const use = e.target.closest('[data-use]');
   const del = e.target.closest('[data-del]');
+  const edit = e.target.closest('[data-edit]');
+  if (edit) {
+    const p = state.personas.find((x) => x.id === edit.dataset.edit);
+    if (!p) return;
+    fillPersonaForm(p);
+    $('p-name').focus();
+    $('p-form-title').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
   if (use) {
     state.settings = await api.saveSettings({ activePersonaId: use.dataset.use });
     ui.toast('사용할 페르소나를 바꿨습니다');
   } else if (del) {
     if (!confirm('이 페르소나를 삭제할까요?')) return;
     await api.deletePersona(del.dataset.del);
+    if (editingPersonaId === del.dataset.del) fillPersonaForm(null);
     state.personas = await api.personas();
   } else return;
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);

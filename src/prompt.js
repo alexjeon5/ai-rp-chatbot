@@ -69,6 +69,22 @@ function buildCastBlock(cast = []) {
   return sheets.join('\n\n');
 }
 
+/**
+ * 페르소나를 {{persona}} 자리에 들어갈 글로 만듭니다. 소개 문단 뒤에 성별·나이·특징 목록을 붙입니다.
+ * 비어 있는 항목은 줄째로 빠지고, 전부 비어 있으면 빈 문자열입니다.
+ */
+export function personaBlock(persona) {
+  if (!persona) return '';
+  const lines = [];
+  if (persona.description?.trim()) lines.push(persona.description.trim());
+  if (persona.gender?.trim()) lines.push(`성별: ${persona.gender.trim()}`);
+  if (persona.age?.trim()) lines.push(`나이: ${persona.age.trim()}`);
+  const traits = (Array.isArray(persona.traits) ? persona.traits : [])
+    .map((t) => String(t).trim()).filter(Boolean);
+  if (traits.length) lines.push(`특징:\n${traits.map((t) => `- ${t}`).join('\n')}`);
+  return lines.join('\n');
+}
+
 export function buildSystem({ character, persona, template, cast = [], facts = [], memory = '', particleFix = true }) {
   const vars = { char: character.name, user: persona?.name || '사용자', particleFix };
 
@@ -85,7 +101,7 @@ export function buildSystem({ character, persona, template, cast = [], facts = [
     '{{personality}}': character.personality,
     '{{speech}}': character.speech,
     '{{scenario}}': character.scenario,
-    '{{persona}}': persona?.description
+    '{{persona}}': personaBlock(persona)
   };
 
   // 비어 있는 항목은 라벨까지 통째로 지워, 빈 줄이 남지 않게 합니다.

@@ -542,16 +542,21 @@ export function renderPersonaList(personas, activeId) {
   }
   ul.innerHTML = personas
     .map(
-      (p) => `<li class="persona-row ${p.id === activeId ? 'active' : ''}">
+      (p) => {
+        const meta = [p.gender, p.age, ...(p.traits || [])].map((x) => String(x || '').trim()).filter(Boolean);
+        return `<li class="persona-row ${p.id === activeId ? 'active' : ''}">
         <span class="grow">
           <div class="p-name">${esc(p.name)}</div>
           <div class="p-desc">${esc(p.description || '소개 없음')}</div>
+          ${meta.length ? `<div class="p-meta">${meta.map(esc).join(' · ')}</div>` : ''}
         </span>
         <button type="button" class="ghost-btn" data-use="${p.id}" ${p.id === activeId ? 'disabled' : ''}>
           ${p.id === activeId ? '사용 중' : '사용'}
         </button>
+        <button type="button" class="ghost-btn" data-edit="${p.id}">수정</button>
         <button type="button" class="ghost-btn danger" data-del="${p.id}">삭제</button>
-      </li>`
+      </li>`;
+      }
     )
     .join('');
 }

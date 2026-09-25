@@ -1554,6 +1554,31 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .persona-row .grow { flex: 1; min-width: 0; }
 .persona-row .p-name { font-family: var(--serif); }
 .persona-row .p-desc { font-size: 12.5px; color: var(--muted); }
+.persona-row .p-meta { margin-top: 2px; font-size: 12px; color: var(--brass); }
+
+/* 페르소나 특징 목록. 항목마다 ✕ 로 뺍니다. */
+.trait-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.trait-list:empty { display: none; }
+.trait-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 13px;
+}
+.trait-item button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.trait-item button:hover { color: var(--danger); }
 
 /* 랜덤 페르소나 씨앗 태그 */
 .seed-box {
