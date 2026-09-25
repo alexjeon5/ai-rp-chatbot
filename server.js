@@ -9,7 +9,8 @@ import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { planContext, contextLimitOf, estimateTokens, nextRatio } from './src/context.js';
 import {
   IMAGE_DEFAULTS, DEFAULT_WORKFLOW, looksLikeWorkflow, fillWorkflow, composePrompt, splitTags,
-  IMAGE_PROMPT_SYSTEM, buildImagePrompt, parseSceneTags, seedOf, listCheckpoints, renderImage,
+  IMAGE_PROMPT_SYSTEM, IMAGE_RETRY_PROMPT, buildImageMessages, parseSceneTags, previewOutput, seedOf,
+  listCheckpoints, renderImage,
   freeMemory, CORE_BLOCK_TERMS, CORE_NEGATIVE
 } from './src/image.js';
 import { mkdir, writeFile, unlink, rm } from 'node:fs/promises';
@@ -1187,19 +1188,39 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
         .map((m) => `${m.role === 'user' ? (ctx.persona?.name || '사용자') : ctx.character.name}: ${m.content.trim().slice(-1800)}`)
         .join('\n\n');
       const cast = [ctx.character, ...ctx.cast];
-      const stripper = makeThoughtStripper({});
-      let out = '';
-      const stream = streamChat({
-        provider,
-        config,
-        system: withThinking(fillVars(IMAGE_PROMPT_SYSTEM, { char: ctx.character.name, user: ctx.persona?.name, particleFix: false }), false),
-        messages: [{ role: 'user', content: buildImagePrompt({ cast, scene, userName: ctx.persona?.name || '사용자' }) }],
-        params: { ...s.params, temperature: 0.4, maxTokens: 400 },
-        signal: controller.signal
-      });
-      for await (const piece of stream) out += stripper.feed(piece);
-      sceneTags = parseSceneTags(out + stripper.flush());
-      if (!sceneTags.length) return fail('모델이 태그를 쓰지 못했습니다. 다시 시도하거나 🎨 옆 "태그 고쳐 그리기" 로 직접 적어 주세요.');
+      const ask = async (messages, temperature) => {
+        const stripper = makeThoughtStripper({});
+        let out = '';
+        const stream = streamChat({
+          provider,
+          config,
+          system: withThinking(IMAGE_PROMPT_SYSTEM, false),
+          messages,
+          // 생각 블록을 먼저 쓰는 모델도 태그까지 쓸 수 있게 길이를 넉넉히 둡니다.
+          params: { ...s.params, temperature, maxTokens: 700 },
+          signal: controller.signal
+        });
+        for await (const piece of stream) out += stripper.feed(piece);
+        return out + stripper.flush();
+      };
+      const messages = buildImageMessages({ cast, scene, userName: ctx.persona?.name || '사용자' });
+      let raw = await ask(messages, 0.4);
+      sceneTags = parseSceneTags(raw);
+      if (!sceneTags.length) {
+        // 태그 대신 문장을 썼으면 그 답을 보여 주며 한 번 더 요청합니다.
+        stage('prompt', '태그 형식이 아니라 한 번 더 요청하는 중');
+        console.log(`[그림] 태그를 읽지 못함, 다시 요청: ${previewOutput(raw)}`);
+        raw = await ask([
+          ...messages,
+          { role: 'assistant', content: raw.trim() || '(no answer)' },
+          { role: 'user', content: IMAGE_RETRY_PROMPT }
+        ], 0.2);
+        sceneTags = parseSceneTags(raw);
+      }
+      if (!sceneTags.length) {
+        return fail('모델이 태그를 쓰지 못했습니다. 다시 누르거나, 그림이 하나라도 있으면 "태그 고쳐 그리기" 로 직접 적어 주세요.\n' +
+          `모델 응답 앞부분: ${previewOutput(raw)}`);
+      }
     }
 
     // 2) 조립·필터. 등장인물이 한 명이면 외형 태그를 앞에 확실히 박아 둡니다.

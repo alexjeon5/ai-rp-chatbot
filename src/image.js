@@ -165,47 +165,80 @@ export function composePrompt({ cfg, sceneTags, appearance = [], adult = false }
 
 /* ---------------- 장면 → 태그 (LLM) ---------------- */
 
-export const IMAGE_PROMPT_SYSTEM = `당신은 롤플레이 장면을 이미지 생성 모델(SDXL 애니메 계열)용 Danbooru 태그로 바꾸는 담당입니다.
+/*
+ * 지시문을 영어로 씁니다. 한국어로 지시하면 로컬 모델이 태그 대신 한국어 문장을 쓰거나
+ * 롤플레이를 이어 써 버리는 일이 잦습니다. 예시 한 쌍을 앞에 두면 형식을 훨씬 잘 지킵니다.
+ */
+export const IMAGE_PROMPT_SYSTEM = `You convert a role-play scene into Danbooru tags for an anime SDXL image model (Illustrious / NoobAI).
 
-[출력]
-- 영어 Danbooru 태그만, 쉼표로 구분해 한 줄로 씁니다. 20~40개.
-- 문장, 설명, 번호, 따옴표, 머리말을 쓰지 않습니다. 한국어를 쓰지 않습니다.
+Output rules:
+- Output ONLY English Danbooru tags separated by commas, on one line. 15 to 35 tags.
+- No sentences, no explanations, no numbering, no quotes, no Korean.
+- Do not continue the story and do not reply to the characters.
 
-[순서]
-인원(1girl, 1boy, 2girls 등) → 인물 외형 → 표정 → 자세와 행동 → 옷차림 → 장소와 배경 → 시간과 조명 → 구도(upper body, cowboy shot, from side 등)
+Tag order: number of people (1girl, 1boy, 2girls ...) -> each character's appearance -> expression -> pose and action -> clothing -> place and background -> time and lighting -> framing (upper body, cowboy shot, close-up, from side ...)
 
-[규칙]
-- 인물 이름은 쓰지 않습니다. 주어진 외형 태그를 그대로 옮겨 누구인지 나타냅니다.
-- {{user}}는 화면에 넣지 않습니다. 인물이 {{user}}를 보고 있으면 pov, looking at viewer 로 나타냅니다.
-- 장면에 실제로 나온 것만 씁니다. 추측해서 덧붙이지 않습니다.
-- 품질 태그(masterpiece, best quality 등)는 쓰지 않습니다. 앱이 따로 붙입니다.`;
+Rules:
+- Never write character names. Copy the given appearance tags to show who is who.
+- The viewer is never drawn. If a character looks at or talks to the viewer, use "pov, looking at viewer".
+- Only draw what actually happens in the scene. Do not add quality tags such as masterpiece.`;
 
-/** 장면 설명 요청. 캐릭터 외형과 최근 대화 한두 턴을 넘깁니다. */
-export function buildImagePrompt({ cast, scene, userName }) {
+const EXAMPLE_REQUEST = `Characters:
+- Mina: 1girl, adult, short silver hair, blue eyes, white blouse
+
+Scene (Korean role-play; the viewer is "Jun"):
+Jun: 비 오는데 우산 같이 쓸래?
+Mina: *우산을 받아 들며 웃는다.* "고마워. 사실 좀 추웠거든."
+
+Tags:`;
+
+const EXAMPLE_ANSWER = '1girl, adult, short silver hair, blue eyes, white blouse, smile, holding umbrella, standing, rain, wet hair, city street, night, streetlight, pov, looking at viewer, upper body';
+
+/** 태그를 못 받았을 때 한 번 더 보내는 말. */
+export const IMAGE_RETRY_PROMPT =
+  'That was not a tag list. Reply again with ONLY comma-separated English Danbooru tags for the same scene. Nothing else.';
+
+/** 장면 요청. 예시 한 쌍 뒤에 실제 장면을 같은 모양으로 붙입니다. */
+export function buildImageMessages({ cast, scene, userName }) {
   const people = cast.map((c) =>
-    `- ${c.name}: ${c.appearance?.trim() || '(외형 태그 없음 — 소개와 장면에서 짐작)'}${c.description ? ` / ${c.description}` : ''}`);
-  return [
-    '# 등장인물 외형',
+    `- ${c.name}: ${c.appearance?.trim() || '(no appearance tags; guess from the scene)'}`);
+  const request = [
+    'Characters:',
     people.join('\n'),
     '',
-    `# 장면 ({{user}} = ${userName})`,
+    `Scene (Korean role-play; the viewer is "${userName}"):`,
     scene,
     '',
-    '이 장면을 Danbooru 태그 한 줄로 바꾸세요.'
+    'Tags:'
   ].join('\n');
+  return [
+    { role: 'user', content: EXAMPLE_REQUEST },
+    { role: 'assistant', content: EXAMPLE_ANSWER },
+    { role: 'user', content: request }
+  ];
 }
 
-/** 모델 출력에서 태그만 추립니다. 한글이 섞인 조각이나 너무 긴 조각은 버립니다. */
+/**
+ * 모델 출력에서 태그만 추립니다.
+ * 'Tags:' 머리, 코드 블록, 목록 표시를 걷어내고, 한글이 섞인 조각이나 문장처럼 긴 조각은 버립니다.
+ */
 export function parseSceneTags(text = '') {
-  const body = text
-    .replace(/```\w*\n?/g, '')
-    .replace(/^(tags?|prompt|태그)\s*[:：]\s*/im, '')
-    .trim();
+  let body = text.replace(/```\w*\n?/g, '').trim();
+  // 설명을 먼저 쓰고 'Tags:' 뒤에 태그를 적는 모델이 있습니다. 그 뒤만 봅니다.
+  const marker = /(?:^|\n)\s*(?:tags?|prompt|태그)\s*[:：]\s*/i.exec(body);
+  if (marker) body = body.slice(marker.index + marker[0].length);
   return splitTags(body)
     // 목록 표시(- , 1. , 2) )만 걷어냅니다. 1girl 의 1 은 태그의 일부입니다.
-    .map((t) => t.replace(/^(?:[-*•]\s*|\d+[.)]\s+)/, '').replace(/["'`]/g, '').trim())
-    .filter((t) => t && t.length <= 60 && !/[가-힣]/.test(t) && t.split(' ').length <= 6)
+    .map((t) => t.replace(/^(?:[-*•]\s*|\d+[.)]\s+)/, '').replace(/["'`]/g, '').replace(/\.$/, '').trim())
+    .filter((t) => t && t.length <= 80 && !/[가-힣]/.test(t) && t.split(' ').length <= 8)
     .slice(0, 50);
+}
+
+/** 오류 안내에 붙일 모델 응답 앞부분. 무엇이 문제였는지 보이게 합니다. */
+export function previewOutput(text = '') {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean) return '(빈 응답 — 모델이 아무것도 쓰지 않았거나, 생각 블록만 쓰고 끝났습니다)';
+  return `"${clean.slice(0, 160)}${clean.length > 160 ? '…' : ''}"`;
 }
 
 /** 캐릭터마다 늘 같은 시드. 첫 그림이 비슷한 얼굴로 나오게 합니다. */
