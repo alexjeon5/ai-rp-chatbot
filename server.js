@@ -145,6 +145,20 @@ function applyImageSettings(s, body) {
 app.put('/api/settings', (req, res) => {
   const s = store.settings;
   const body = req.body || {};
+
+  // 설정 창은 모든 탭을 한 번에 보냅니다. 거부할 값이 하나라도 있으면 아무것도 바꾸지 않도록 먼저 검사합니다.
+  for (const [key, cfg] of Object.entries(body.providers || {})) {
+    if (cfg?.baseUrl === undefined) continue;
+    const verdict = checkBaseUrl(String(cfg.baseUrl));
+    if (!verdict.ok) {
+      return res.status(400).json({ error: `'${key}' 엔진 주소를 쓸 수 없습니다.\n${verdict.reason}` });
+    }
+  }
+  if (body.image && typeof body.image === 'object') {
+    const problem = applyImageSettings(s, body.image);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+
   Object.assign(s, {
     activeProvider: body.activeProvider ?? s.activeProvider,
     activePersonaId: body.activePersonaId ?? s.activePersonaId,
@@ -167,15 +181,6 @@ app.put('/api/settings', (req, res) => {
   }
   if (body.params) Object.assign(s.params, body.params);
   if (body.providers) {
-    // 주소를 먼저 전부 검사합니다. 하나라도 걸리면 아무것도 저장하지 않습니다.
-    for (const [key, cfg] of Object.entries(body.providers)) {
-      if (cfg?.baseUrl === undefined) continue;
-      const verdict = checkBaseUrl(String(cfg.baseUrl));
-      if (!verdict.ok) {
-        return res.status(400).json({ error: `'${key}' 엔진 주소를 쓸 수 없습니다.\n${verdict.reason}` });
-      }
-    }
-
     for (const [key, cfg] of Object.entries(body.providers)) {
       if (s.providers[key]) {
         // 이 기록은 서버가 실제 오류를 보고 쌓는 것이라, 클라이언트 사본으로 덮지 않습니다.
@@ -221,10 +226,6 @@ app.put('/api/settings', (req, res) => {
   }
   if (typeof body.memory?.autoSummarize === 'boolean') s.memory.autoSummarize = body.memory.autoSummarize;
   if (typeof body.memory?.autoFacts === 'boolean') s.memory.autoFacts = body.memory.autoFacts;
-  if (body.image && typeof body.image === 'object') {
-    const problem = applyImageSettings(s, body.image);
-    if (problem) return res.status(400).json({ error: problem });
-  }
   if (body.dev) {
     if (typeof body.dev.particleFix === 'boolean') s.dev.particleFix = body.dev.particleFix;
     if (typeof body.dev.adultCloud === 'boolean') s.dev.adultCloud = body.dev.adultCloud;

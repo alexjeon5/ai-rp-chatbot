@@ -198,7 +198,7 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 
 1. `assistant` 모드인지에 따라 시스템 프롬프트·파라미터·사고/검색 설정을 분기 (`s.assistant.*` vs 프리셋).
 2. 성인 틀이면 `adultAllowed(config)` 확인 — 로컬 주소도 아니고 `dev.adultCloud` 도 꺼져 있으면 400.
-   `dev.adultCloud` 는 개발자 설정의 경고 창을 거쳐야 켜지고, 백업 불러오기로는 옮겨 오지 않습니다.
+   `dev.adultCloud` 는 설정 창 개발자 탭의 경고 창을 거쳐야 켜지고, 백업 불러오기로는 옮겨 오지 않습니다.
 3. `makeThoughtStripper({ onThought })` 생성. 생각을 껐으면 `onThought`를 안 넘겨서 사고 조각이
    버려지게 합니다 (일부 엔진은 꺼도 사고를 보내므로 서버에서 한 번 더 막음).
 4. `streamChat()`으로 어댑터 실행. 청크마다:
@@ -272,7 +272,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET/PUT | `/api/settings` | 설정 조회/저장. 응답에 `builtinTemplates`, `webSearchCapable` 등 읽기 전용 필드 포함 |
+| GET/PUT | `/api/settings` | 설정 조회/저장. 응답에 `builtinTemplates`, `webSearchCapable` 등 읽기 전용 필드 포함. 설정 창은 모든 탭(엔진·이미지·dev 포함)을 PUT 한 번으로 보내므로, 엔진·ComfyUI 주소 검사를 먼저 끝내고 하나라도 거부되면 아무것도 바꾸지 않습니다 |
 | GET | `/api/models?provider=` | 모델 목록 (엔진별 필터·페이지네이션 적용됨) |
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
@@ -427,7 +427,7 @@ docker compose up -d
 4. `src/store.js`의 `defaultSettings().providers`에 기본 항목 추가 (`label`, `type`, `baseUrl`, `model`, `unavailableModels: []`).
 5. 성인 틀·웹 검색을 지원한다면 `supportsWebSearch()`, `isLocalUrl()` 판정에 반영.
 
-이미 OpenAI/Anthropic/Gemini 형식 중 하나를 따르는 서비스라면, 개발자 설정의 **엔진 추가**로
+이미 OpenAI/Anthropic/Gemini 형식 중 하나를 따르는 서비스라면, 설정 창 엔진 탭의 **엔진 추가**로
 코드 수정 없이 붙일 수 있습니다 (`type` 필드로 세 형식 중 하나를 고르는 방식).
 
 ## 12. 새 대화 모드 추가하기

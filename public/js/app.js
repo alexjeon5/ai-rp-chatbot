@@ -200,7 +200,7 @@ $('quick-provider').addEventListener('change', async (e) => {
   }
 });
 
-$('active-model').addEventListener('click', () => $('btn-settings').click());
+$('active-model').addEventListener('click', () => openSettings('engine'));
 
 async function refreshChatList() {
   state.chats = await api.chats();
@@ -897,9 +897,8 @@ async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
   }
 }
 
-/* --- 이미지 설정 창 --- */
+/* --- 이미지 설정 (설정 창의 이미지 탭) --- */
 
-const dlgImage = $('dlg-image');
 // undefined: 건드리지 않음, null: 기본으로 되돌림, object: 새로 올린 것
 let draftWorkflow;
 
@@ -910,7 +909,7 @@ function paintWorkflowStatus() {
     : '기본 SDXL 워크플로 사용 중 — 체크포인트만 고르면 됩니다';
 }
 
-$('btn-open-image').addEventListener('click', () => {
+function fillImageSheet() {
   const img = state.settings.image || {};
   draftWorkflow = undefined;
   $('i-enabled').checked = Boolean(img.enabled);
@@ -932,10 +931,7 @@ $('btn-open-image').addEventListener('click', () => {
   $('i-core-terms').textContent = `차단: ${(state.settings.imageCore?.blockTerms || []).join(', ')} · 17세 이하 나이 표기`;
   $('i-core-neg').textContent = `늘 붙는 네거티브: ${state.settings.imageCore?.negative || ''}`;
   paintWorkflowStatus();
-  dlgImage.showModal();
-});
-
-$('i-cancel').addEventListener('click', () => dlgImage.close('cancel'));
+}
 
 $('i-check').addEventListener('click', async () => {
   const baseUrl = $('i-baseurl').value.trim();
@@ -982,8 +978,7 @@ $('i-workflow-reset').addEventListener('click', () => {
   paintWorkflowStatus();
 });
 
-dlgImage.addEventListener('close', async () => {
-  if (dlgImage.returnValue !== 'save') return;
+function readImageSheet() {
   const [width, height] = $('i-size').value.split('x').map(Number);
   const image = {
     enabled: $('i-enabled').checked,
@@ -1004,17 +999,8 @@ dlgImage.addEventListener('close', async () => {
     }
   };
   if (draftWorkflow !== undefined) image.workflow = draftWorkflow;
-  try {
-    state.settings = await api.saveSettings({ image });
-  } catch (e) {
-    dlgImage.returnValue = '';
-    dlgImage.showModal();
-    return ui.toast(`저장하지 못했습니다 — ${e.message}`);
-  }
-  // 🎨 버튼이 생기거나 사라지도록 다시 그립니다.
-  if (!state.run) paintThread();
-  ui.toast(image.enabled ? '이미지 설정을 저장했습니다 — 답변 아래 🎨 그리기로 그려 보세요' : '이미지 설정을 저장했습니다');
-});
+  return image;
+}
 
 /* ---------------- 대신 쓰기 ---------------- */
 
@@ -1971,7 +1957,55 @@ $('s-preset-delete').addEventListener('click', () => {
   showPreset(draftPresets[0].id);
 });
 
-$('btn-settings').addEventListener('click', async () => {
+/* ---------- 설정 탭 ---------- */
+
+const SETTINGS_TABS = [...$('s-tabs').querySelectorAll('[data-tab]')].map((t) => t.dataset.tab);
+
+/** 마지막으로 본 탭. 다시 열 때 그 탭으로 엽니다. 브라우저에 저장 못 해도 동작에는 지장 없습니다. */
+function lastSettingsTab() {
+  try {
+    const tab = localStorage.getItem('settingsTab');
+    return SETTINGS_TABS.includes(tab) ? tab : SETTINGS_TABS[0];
+  } catch {
+    return SETTINGS_TABS[0];
+  }
+}
+
+function showSettingsTab(tab) {
+  if (!SETTINGS_TABS.includes(tab)) tab = SETTINGS_TABS[0];
+  for (const btn of $('s-tabs').querySelectorAll('[data-tab]')) {
+    const on = btn.dataset.tab === tab;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-selected', String(on));
+    btn.tabIndex = on ? 0 : -1;
+    // 좁은 화면에서는 탭이 가로로 흐르므로, 고른 탭이 가려져 있으면 보이는 곳으로 당깁니다.
+    if (on) btn.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+  for (const pane of dlgSettings.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== tab;
+  closeCombo();
+  try { localStorage.setItem('settingsTab', tab); } catch { /* 저장 못 해도 괜찮습니다 */ }
+}
+
+$('s-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-tab]');
+  if (btn) showSettingsTab(btn.dataset.tab);
+});
+
+// 탭 목록 안에서는 화살표로 옮겨 다닙니다.
+$('s-tabs').addEventListener('keydown', (e) => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const now = SETTINGS_TABS.indexOf($('s-tabs').querySelector('.is-on')?.dataset.tab);
+  const next = SETTINGS_TABS[(now + step + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+  showSettingsTab(next);
+  $('s-tabs').querySelector(`[data-tab="${next}"]`).focus();
+});
+
+$('btn-settings').addEventListener('click', () => openSettings());
+
+/** 설정 창을 엽니다. 모든 탭의 입력칸을 지금 설정으로 채운 뒤 tab 을 보여 줍니다. */
+async function openSettings(tab = lastSettingsTab()) {
   // 내장 틀 원본이 비어 있으면 설정을 다시 읽어 둡니다. 없으면 '가져오기' 가 헛돕니다.
   if (!state.settings.builtinTemplates?.length) {
     state.settings = await api.settings().catch(() => state.settings);
@@ -1996,8 +2030,16 @@ $('btn-settings').addEventListener('click', async () => {
   $('s-atopk').value = s.assistant.params.topK ?? 0;
   $('s-arepeat').value = s.assistant.params.repeatPenalty ?? 1;
   $('s-amaxtokens').value = s.assistant.params.maxTokens;
+  fillImageSheet();
+  fillDevSheet();
+  showSettingsTab(tab);
   dlgSettings.showModal();
-});
+  // 창이 뜨기 전에는 스크롤이 먹지 않으므로, 연 뒤에 고른 탭을 한 번 더 보이게 합니다.
+  // 좁은 화면에서는 가로로 스크롤되는 탭 줄 자체가 첫 포커스를 받아 테두리가 생기므로, 고른 탭에 포커스를 둡니다.
+  const current = $('s-tabs').querySelector('.is-on');
+  current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  current?.focus({ preventScroll: true });
+}
 
 $('s-provider').addEventListener('change', (e) => {
   stashProvider();
@@ -2097,28 +2139,51 @@ $('s-reset-template').addEventListener('click', () => {
   ui.toast(`기본 내용을 가져왔습니다 — ${pick.name}`);
 });
 
+/** 서버가 거부한 이유를 보고, 고칠 칸이 있는 탭을 짐작합니다. */
+const tabForError = (message = '') =>
+  /ComfyUI|워크플로/.test(message) ? 'image' : /엔진 주소/.test(message) ? 'engine' : null;
+
 dlgSettings.addEventListener('close', async () => {
-  if (dlgSettings.returnValue !== 'save') return;
+  if (dlgSettings.returnValue !== 'save') {
+    // 테마·표기법은 고르는 즉시 미리 보여 주므로, 저장하지 않고 닫으면 원래대로 돌립니다.
+    applyDev(state.settings.dev);
+    if (!state.run) paintThread();
+    return;
+  }
   stashProvider();
   stashPreset();
+  const wasImageOn = Boolean(state.settings.image?.enabled);
+  let imageOn;
   try {
-    state.settings = await saveSettingsFromSheet();
+    const body = settingsFromSheet();
+    imageOn = body.image.enabled;
+    state.settings = await api.saveSettings(body);
   } catch (e) {
     // 저장이 거부되면 입력한 그대로 창을 다시 열어 고칠 수 있게 합니다.
     dlgSettings.returnValue = '';
     dlgSettings.showModal();
+    const tab = tabForError(e.message);
+    if (tab) showSettingsTab(tab);
     ui.toast(`저장하지 못했습니다 — ${e.message}`);
     return;
   }
+  removedProviders = [];
+  applyDev(state.settings.dev);
+  paintAdultRules();
   paintModelBadge();
   paintChatPreset();
   await refreshChatList();
   refreshContext();
-  ui.toast('설정을 저장했습니다');
+  // 🎨 버튼과 표기법이 바뀌었을 수 있어 다시 그립니다.
+  if (!state.run) paintThread();
+  ui.toast(imageOn && !wasImageOn
+    ? '설정을 저장했습니다 — 답변 아래 🎨 그리기로 장면을 그려 보세요'
+    : '설정을 저장했습니다');
 });
 
-function saveSettingsFromSheet() {
-  return api.saveSettings({
+/** 모든 탭의 입력을 한 번에 저장할 요청 본문으로 모읍니다. */
+function settingsFromSheet() {
+  return {
     activeProvider: $('s-provider').value,
     historyLimit: Number($('s-history').value),
     askModeOnNewChat: $('s-ask-mode').checked,
@@ -2141,19 +2206,21 @@ function saveSettingsFromSheet() {
         topK: Number($('s-atopk').value),
         repeatPenalty: Number($('s-arepeat').value)
       }
-    }
-  });
+    },
+    removeProviders: removedProviders,
+    image: readImageSheet(),
+    dev: readDevSheet()
+  };
 }
 
 enhanceSelects();
 ui.watchScroll();
 boot().catch((e) => ui.showError(`앱을 시작하지 못했습니다 — ${e.message}`));
 
-/* ---------------- 개발자 설정 ---------------- */
+/* ---------------- 화면·개발자 탭, 엔진 추가 ---------------- */
 
-const dlgDev = $('dlg-dev');
 let draftDev = null;
-let draftDevProviders = null;
+// 엔진 추가·삭제는 엔진 탭의 draftProviders 에 바로 반영하고, 지운 것은 저장할 때 서버에 알립니다.
 let removedProviders = [];
 
 const THEME_FIELDS = {
@@ -2166,7 +2233,7 @@ const MARKUP_FIELDS = {
 };
 
 function paintDevProviders() {
-  const list = Object.entries(draftDevProviders);
+  const list = Object.entries(draftProviders);
   $('d-provider-list').innerHTML = list
     .map(([key, cfg]) => `<li class="persona-row">
       <span class="grow">
@@ -2207,7 +2274,6 @@ $('d-hidden-models').addEventListener('click', async (e) => {
 
 function fillDevSheet() {
   draftDev = structuredClone(state.settings.dev);
-  draftDevProviders = structuredClone(state.settings.providers);
   removedProviders = [];
 
   for (const [id, key] of Object.entries(MARKUP_FIELDS)) $(id).checked = Boolean(draftDev.markup[key]);
@@ -2259,12 +2325,7 @@ dlgAdultCloud.addEventListener('close', () => {
   if (dlgAdultCloud.returnValue !== 'unlock' || !$('ac-agree').checked) return;
   $('d-adult-cloud').checked = true;
   paintAdultCloudRow(true);
-  ui.toast('개발자 설정에서 저장을 눌러야 반영됩니다');
-});
-
-$('btn-open-dev').addEventListener('click', () => {
-  fillDevSheet();
-  dlgDev.showModal();
+  ui.toast('설정 창에서 저장을 눌러야 반영됩니다');
 });
 
 // 색을 고르는 즉시 화면에 반영해 결과를 바로 볼 수 있게 합니다.
@@ -2298,7 +2359,7 @@ $('d-p-add').addEventListener('click', () => {
   const baseUrl = $('d-p-baseurl').value.trim();
   if (!label || !baseUrl) return ui.toast('이름과 주소를 입력해 주세요');
   const key = `custom_${Date.now().toString(36)}`;
-  draftDevProviders[key] = {
+  draftProviders[key] = {
     label,
     type: $('d-p-type').value,
     builtin: false,
@@ -2310,17 +2371,25 @@ $('d-p-add').addEventListener('click', () => {
   $('d-p-baseurl').value = '';
   $('d-p-apikey').value = '';
   paintDevProviders();
-  ui.toast('저장을 눌러야 반영됩니다');
+  paintProviderOptions();
+  ui.toast('추가했습니다 — 위의 사용할 엔진에서 고를 수 있고, 저장을 눌러야 반영됩니다');
 });
 
 $('d-provider-list').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-del-provider]');
   if (!btn) return;
   const key = btn.dataset.delProvider;
-  if (!confirm(`'${draftDevProviders[key].label}' 엔진을 삭제할까요?`)) return;
-  delete draftDevProviders[key];
+  if (!confirm(`'${draftProviders[key].label}' 엔진을 삭제할까요?`)) return;
+  delete draftProviders[key];
   removedProviders.push(key);
   paintDevProviders();
+  // 지운 엔진을 보고 있었다면 남은 엔진으로 옮깁니다. 입력 중이던 값은 버립니다.
+  if (shownProvider === key) {
+    const next = draftProviders[state.settings.activeProvider] ? state.settings.activeProvider : 'lmstudio';
+    fillProviderBox(next);
+  } else {
+    paintProviderOptions();
+  }
 });
 
 const dlgSystem = $('dlg-system');
@@ -2353,31 +2422,6 @@ $('sys-copy').addEventListener('click', async () => {
   ui.toast(await ui.copyText($('sys-text').textContent) ? '복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
 });
 
-$('d-cancel').addEventListener('click', () => {
-  applyDev(state.settings.dev);
-  paintThread();
-  dlgDev.close('cancel');
-});
-
-dlgDev.addEventListener('close', async () => {
-  if (dlgDev.returnValue !== 'save') return;
-  try {
-    state.settings = await api.saveSettings({
-      dev: readDevSheet(),
-      providers: draftDevProviders,
-      removeProviders: removedProviders
-    });
-  } catch (e) {
-    dlgDev.returnValue = '';
-    dlgDev.showModal();
-    ui.toast(`저장하지 못했습니다 — ${e.message}`);
-    return;
-  }
-  applyDev(state.settings.dev);
-  paintAdultRules();
-  paintModelBadge();
-  ui.toast('개발자 설정을 저장했습니다');
-});
 
 /* ---------------- 통신 로그 ---------------- */
 

@@ -975,6 +975,68 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .sheet-title, .sheet-foot { flex: none; }
 
+/* 설정 창: 왼쪽 탭 목록 + 오른쪽 내용. 탭마다 길이가 달라도 창 크기가 흔들리지 않게 높이를 고정합니다. */
+.sheet-settings {
+  width: min(940px, 96vw);
+  height: min(780px, 90vh);
+  max-height: 90vh;
+}
+
+.sheet-settings .sheet-inner { height: 100%; max-height: none; }
+
+.settings-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 150px;
+  padding: 14px 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+
+.settings-tab {
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 13.5px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-tab:hover { color: var(--text); background: var(--panel-2); }
+
+.settings-tab.is-on {
+  border-color: var(--brass-soft);
+  background: var(--panel-2);
+  color: var(--brass);
+}
+
+.settings-pane { flex: 1; align-content: start; }
+
+@media (max-width: 640px) {
+  .settings-layout { flex-direction: column; }
+  .settings-nav {
+    flex-direction: row;
+    width: auto;
+    padding: 8px 12px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .settings-tab { flex: none; }
+  #s-foot-note { display: none; }
+}
+
 .sheet-foot {
   display: flex;
   gap: 8px;
