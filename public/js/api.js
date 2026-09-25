@@ -77,10 +77,11 @@ export function impersonate(chatId, { hint = '', ...handlers }) {
  * @param {object} o
  * @param {string} [o.prompt] 사람이 고친 태그. 주면 LLM 을 건너뜁니다
  * @param {boolean} [o.random] 무작위 시드
- * @param {boolean} [o.review] 태그까지만 만들고 그리지 않습니다. 결과의 review.prompt 로 돌려줍니다
+ * @param {string} [o.negative] 사람이 고친 부정 태그
+ * @param {boolean} [o.review] 태그까지만 만들고 그리지 않습니다. 결과의 review.{prompt,negative} 로 돌려줍니다
  */
-export function drawImage(chatId, mid, { prompt, random = false, review = false, ...handlers }) {
-  return streamPost(`/api/chats/${chatId}/messages/${mid}/image`, { prompt, random, review }, handlers);
+export function drawImage(chatId, mid, { prompt, negative, random = false, review = false, ...handlers }) {
+  return streamPost(`/api/chats/${chatId}/messages/${mid}/image`, { prompt, negative, random, review }, handlers);
 }
 
 async function streamPost(url, body, { signal, onDelta, onThought, onSources, onContext, onEvent }) {

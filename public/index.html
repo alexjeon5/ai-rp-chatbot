@@ -444,8 +444,10 @@
           </label>
           <label class="field"><span>스텝</span><input id="i-steps" type="number" min="1" max="150"></label>
           <label class="field"><span>CFG</span><input id="i-cfg" type="number" min="0" max="30" step="0.5"></label>
-          <label class="field"><span>샘플러</span><input id="i-sampler" spellcheck="false" placeholder="euler_ancestral"></label>
+          <label class="field"><span>샘플러</span><select id="i-sampler"></select></label>
+          <label class="field"><span>스케줄러</span><select id="i-scheduler"></select></label>
         </div>
+        <p id="i-lists-note" class="field-hint">샘플러·스케줄러는 흔히 쓰는 목록입니다. 연결 확인을 누르면 ComfyUI 가 실제로 지원하는 목록으로 바뀝니다.</p>
 
         <label class="field"><span>앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small></span>
           <textarea id="i-prefix" rows="2" spellcheck="false"></textarea></label>
@@ -663,11 +665,14 @@
     <h2 class="sheet-title" id="tg-title">그릴 태그 확인</h2>
     <div class="sheet-body">
       <p id="tg-hint" class="field-hint"></p>
-      <label class="field"><span>태그 <small class="field-hint">— 쉼표로 구분합니다</small></span>
-        <textarea id="tg-text" rows="7" spellcheck="false"></textarea>
+      <label class="field"><span>태그 <small class="field-hint">— 그릴 것. 쉼표로 구분합니다</small></span>
+        <textarea id="tg-text" rows="6" spellcheck="false"></textarea>
       </label>
       <p id="tg-removed" class="field-hint is-warn" hidden></p>
-      <p class="field-hint">앞에 붙일 품질 태그와 필터(고정 차단 목록 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.</p>
+      <label class="field"><span>부정 태그 <small class="field-hint">— 그림에 나오면 안 되는 것</small></span>
+        <textarea id="tg-negative" rows="4" spellcheck="false"></textarea>
+      </label>
+      <p class="field-hint">앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.</p>
     </div>
     <div class="sheet-foot">
       <label id="tg-skip-row" class="check-row">

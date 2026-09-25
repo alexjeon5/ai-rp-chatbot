@@ -9,7 +9,8 @@ import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { planContext, contextLimitOf, estimateTokens, nextRatio } from './src/context.js';
 import {
   IMAGE_DEFAULTS, DEFAULT_WORKFLOW, looksLikeWorkflow, fillWorkflow, composePrompt, splitTags,
-  IMAGE_PROMPT_SYSTEM, IMAGE_RETRY_PROMPT, buildImageMessages, parseSceneTags, previewOutput, seedOf,
+  IMAGE_PROMPT_SYSTEM, IMAGE_RETRY_PROMPT, buildImageMessages, parseSceneOutput, previewOutput, seedOf,
+  listSamplers, COMMON_SAMPLERS, COMMON_SCHEDULERS,
   listCheckpoints, renderImage,
   freeMemory, CORE_BLOCK_TERMS, CORE_NEGATIVE
 } from './src/image.js';
@@ -102,7 +103,9 @@ function settingsPayload() {
     // 내장 틀의 원본 내용. 설정에서 '기본 내용 가져오기' 로 되돌릴 때 씁니다.
     builtinTemplates: BUILTIN_TEMPLATES(),
     // 그림 필터 중 고칠 수 없는 부분(모든 대화에 적용). 이미지 설정 창에 읽기 전용으로 보여 줍니다.
-    imageCore: { blockTerms: CORE_BLOCK_TERMS, negative: CORE_NEGATIVE }
+    imageCore: { blockTerms: CORE_BLOCK_TERMS, negative: CORE_NEGATIVE },
+    // ComfyUI 에 연결하기 전 이미지 탭의 샘플러·스케줄러 목록. 연결 확인을 누르면 실제 목록으로 바뀝니다.
+    imageLists: { samplers: COMMON_SAMPLERS, schedulers: COMMON_SCHEDULERS }
   };
 }
 
@@ -1122,7 +1125,12 @@ app.get('/api/image/checkpoints', modelsLimit, wrap(async (req, res) => {
   const baseUrl = String(req.query.baseUrl || settings().image?.baseUrl || '').trim();
   const verdict = checkBaseUrl(baseUrl);
   if (!baseUrl || !verdict.ok) return res.status(400).json({ error: verdict.reason || 'ComfyUI 주소를 입력해 주세요.' });
-  res.json({ checkpoints: await listCheckpoints(baseUrl) });
+  // 샘플러 목록은 덤입니다. 못 받아도 체크포인트 확인은 성공으로 칩니다.
+  const [checkpoints, lists] = await Promise.all([
+    listCheckpoints(baseUrl),
+    listSamplers(baseUrl).catch(() => ({ samplers: [], schedulers: [] }))
+  ]);
+  res.json({ checkpoints, ...lists });
 }));
 
 /** 그린 그림 파일. 대화 id 와 파일 이름을 엄격히 검사해 data/images 밖으로 못 나가게 합니다. */
@@ -1147,10 +1155,11 @@ app.delete('/api/chats/:id/messages/:mid/images/:imgId', (req, res) => {
 
 /**
  * 메시지 하나의 장면을 그립니다. 진행 단계를 SSE 로 알려 줍니다.
- * body: { prompt?, random?, review? }
+ * body: { prompt?, negative?, random?, review? }
  *   prompt  사람이 고친 태그. 주면 LLM 을 건너뛰고 이걸로 그립니다 (필터는 그대로 적용)
+ *   negative 사람이 고친 부정 태그. 설정의 네거티브·고정 네거티브는 여기에 늘 더해집니다
  *   random  시드를 무작위로. 기본은 캐릭터마다 고정 시드
- *   review  태그까지만 만들어 { done, review: { prompt, removed } } 로 돌려주고 그리지 않습니다.
+ *   review  태그까지만 만들어 { done, review: { prompt, negative, removed } } 로 돌려주고 그리지 않습니다.
  *           사람이 확인·수정한 태그를 prompt 로 다시 보내면 그때 그립니다.
  */
 app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, res) => {
@@ -1203,6 +1212,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
   try {
     // 1) 장면 → 태그
     let sceneTags;
+    let sceneNegative = typeof req.body?.negative === 'string' ? splitTags(req.body.negative) : [];
     if (typed) {
       sceneTags = splitTags(typed);
     } else {
@@ -1230,7 +1240,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
       };
       const messages = buildImageMessages({ cast, scene, userName: ctx.persona?.name || '사용자' });
       let raw = await ask(messages, 0.4);
-      sceneTags = parseSceneTags(raw);
+      ({ tags: sceneTags, negative: sceneNegative } = parseSceneOutput(raw));
       if (!sceneTags.length) {
         // 태그 대신 문장을 썼으면 그 답을 보여 주며 한 번 더 요청합니다.
         stage('prompt', '태그 형식이 아니라 한 번 더 요청하는 중');
@@ -1240,7 +1250,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
           { role: 'assistant', content: raw.trim() || '(no answer)' },
           { role: 'user', content: IMAGE_RETRY_PROMPT }
         ], 0.2);
-        sceneTags = parseSceneTags(raw);
+        ({ tags: sceneTags, negative: sceneNegative } = parseSceneOutput(raw));
       }
       if (!sceneTags.length) {
         return fail('모델이 태그를 쓰지 못했습니다. 다시 누르거나, 그림이 하나라도 있으면 "태그 고쳐 그리기" 로 직접 적어 주세요.\n' +
@@ -1250,7 +1260,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
 
     // 2) 조립·필터. 등장인물이 한 명이면 외형 태그를 앞에 확실히 박아 둡니다.
     const appearance = ctx.cast.length ? [] : splitTags(ctx.character.appearance || '');
-    const composed = composePrompt({ cfg, sceneTags, appearance, adult });
+    const composed = composePrompt({ cfg, sceneTags, sceneNegative, appearance, adult });
     if (composed.blocked) {
       return fail(`미성년으로 읽힐 수 있는 표현이 있어 그리지 않았습니다: ${composed.blocked.join(', ')}\n` +
         '이 차단은 설정에서 끌 수 없습니다. 캐릭터 외형 태그나 장면을 확인해 주세요.');
@@ -1258,7 +1268,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
     send({ prompt: composed.prompt, removed: composed.removed });
     if (req.body?.review) {
       finished = true;
-      send({ done: true, review: { prompt: composed.prompt, removed: composed.removed } });
+      send({ done: true, review: { prompt: composed.prompt, negative: composed.negative, removed: composed.removed } });
       return res.end();
     }
 
@@ -1287,7 +1297,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
     const file = `${id}${Date.now().toString(36)}.${ext}`.toLowerCase();
     await mkdir(imageDir(chat.id), { recursive: true });
     await writeFile(path.join(imageDir(chat.id), file), buffer);
-    const image = { id, file, prompt: composed.prompt, seed, at: Date.now() };
+    const image = { id, file, prompt: composed.prompt, negative: composed.negative, seed, at: Date.now() };
     msg.images = [...(msg.images || []), image];
     while (msg.images.length > IMAGES_PER_MESSAGE) removeImageFile(chat.id, msg.images.shift().file);
     store.chats.save(chat.id);

@@ -854,18 +854,21 @@ const drawingNow = new Set();
 const dlgTags = $('dlg-tags');
 
 /**
- * 그릴 태그를 보여 주고 고치게 합니다. 그리기를 누르면 고친 태그를, 취소하면 null 을 돌려줍니다.
+ * 그릴 태그와 부정 태그를 보여 주고 고치게 합니다.
+ * 그리기를 누르면 { prompt, negative } 를, 취소하면 null 을 돌려줍니다.
  * @param {object} o
  * @param {string} o.prompt 처음 보여 줄 태그
+ * @param {string} [o.negative] 처음 보여 줄 부정 태그
  * @param {boolean} [o.review] 🎨 그리기 전 검토인지 (아니면 '태그 고쳐 그리기')
  * @param {string[]} [o.removed] 필터로 빠진 태그
  */
-function askTags({ prompt, review = false, removed = [] }) {
+function askTags({ prompt, negative = '', review = false, removed = [] }) {
   $('tg-title').textContent = review ? '그릴 태그 확인' : '태그 고쳐 그리기';
   $('tg-hint').textContent = review
     ? 'AI 가 장면을 읽고 만든 태그입니다. 빼거나 더할 태그를 고친 뒤 그리기를 누르세요.'
     : '이 그림에 쓴 태그입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.';
   $('tg-text').value = prompt;
+  $('tg-negative').value = negative;
   $('tg-removed').hidden = !removed.length;
   $('tg-removed').textContent = removed.length ? `필터로 뺀 태그: ${removed.join(', ')}` : '';
   // '다음부터 묻지 않기' 는 🎨 그리기의 검토에만 해당합니다.
@@ -887,26 +890,29 @@ function askTags({ prompt, review = false, removed = [] }) {
           ui.toast(`설정을 저장하지 못했습니다 — ${e.message}`);
         }
       }
-      resolve(tags);
+      resolve({ prompt: tags, negative: $('tg-negative').value.trim() });
     }, { once: true });
   });
 }
 
-$('tg-text').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    dlgTags.close('draw');
-  }
-});
+for (const id of ['tg-text', 'tg-negative']) {
+  $(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      dlgTags.close('draw');
+    }
+  });
+}
 
 /**
  * 메시지 하나의 장면을 ComfyUI 로 그립니다. 답변 아래에 자리를 잡고 진행 단계를 보여 줍니다.
  * @param {object} [o]
  * @param {string} [o.prompt] 고친 태그 (주면 LLM 을 건너뜀)
+ * @param {string} [o.negative] 고친 부정 태그
  * @param {boolean} [o.random] 무작위 시드 (다시 그리기)
  * @param {boolean} [o.review] 태그까지만 만들고, 사람이 확인·수정한 뒤에 그립니다
  */
-async function drawScene(chat, msg, turn, { prompt, random = false, review = false } = {}) {
+async function drawScene(chat, msg, turn, { prompt, negative, random = false, review = false } = {}) {
   if (!chat || drawingNow.has(msg.id)) return;
   drawingNow.add(msg.id);
   const box = turn.querySelector('.turn-images') || (() => {
@@ -927,6 +933,7 @@ async function drawScene(chat, msg, turn, { prompt, random = false, review = fal
   try {
     const result = await drawImage(chat.id, msg.id, {
       prompt,
+      negative,
       random,
       review,
       onEvent: (e) => {
@@ -958,15 +965,36 @@ async function drawScene(chat, msg, turn, { prompt, random = false, review = fal
 }
 
 /** 검토 창을 띄우고, 그리기를 누르면 고친 태그로 그립니다. */
-async function reviewAndDraw(chat, msg, turn, { prompt, removed }, random) {
-  const tags = await askTags({ prompt, review: true, removed });
-  if (!tags) return;
+async function reviewAndDraw(chat, msg, turn, { prompt, negative, removed }, random) {
+  const picked = await askTags({ prompt, negative, review: true, removed });
+  if (!picked) return;
   // 창이 떠 있는 동안 화면이 다시 그려졌을 수 있으니 지금 보이는 답변을 찾습니다.
   const live = document.querySelector(`#thread [data-mid="${msg.id}"]`);
-  drawScene(chat, msg, state.chat === chat && live ? live : turn, { prompt: tags, random });
+  drawScene(chat, msg, state.chat === chat && live ? live : turn, { ...picked, random });
 }
 
 /* --- 이미지 설정 (설정 창의 이미지 탭) --- */
+
+// 연결 확인으로 받아 온 ComfyUI 의 실제 샘플러·스케줄러 목록. 없으면 서버가 준 흔한 목록을 씁니다.
+let comfyLists = null;
+
+/** 목록으로 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
+function fillChoice(id, list, current) {
+  const items = current && !list.includes(current) ? [current, ...list] : list;
+  $(id).innerHTML = items
+    .map((v) => `<option value="${ui.escapeHtml(v)}">${ui.escapeHtml(v)}${list.includes(v) ? '' : ' (목록에 없음)'}</option>`)
+    .join('');
+  $(id).value = current || items[0] || '';
+}
+
+function paintSamplerChoices(sampler, scheduler) {
+  const lists = comfyLists || state.settings.imageLists || { samplers: [], schedulers: [] };
+  fillChoice('i-sampler', lists.samplers || [], sampler);
+  fillChoice('i-scheduler', lists.schedulers || [], scheduler);
+  $('i-lists-note').textContent = comfyLists
+    ? `ComfyUI 에서 받은 목록입니다 — 샘플러 ${lists.samplers.length}개, 스케줄러 ${lists.schedulers.length}개.`
+    : '샘플러·스케줄러는 흔히 쓰는 목록입니다. 연결 확인을 누르면 ComfyUI 가 실제로 지원하는 목록으로 바뀝니다.';
+}
 
 // undefined: 건드리지 않음, null: 기본으로 되돌림, object: 새로 올린 것
 let draftWorkflow;
@@ -990,7 +1018,7 @@ function fillImageSheet() {
   sel.value = size;
   $('i-steps').value = img.steps;
   $('i-cfg').value = img.cfg;
-  $('i-sampler').value = img.sampler || '';
+  paintSamplerChoices(img.sampler || 'euler_ancestral', img.scheduler || 'normal');
   $('i-prefix').value = img.prefix || '';
   $('i-negative').value = img.negative || '';
   $('i-free').checked = img.freeAfter !== false;
@@ -1007,7 +1035,16 @@ $('i-check').addEventListener('click', async () => {
   const baseUrl = $('i-baseurl').value.trim();
   $('i-status').textContent = '연결하는 중…';
   try {
-    const { checkpoints } = await api.imageCheckpoints(baseUrl);
+    const { checkpoints, samplers = [], schedulers = [] } = await api.imageCheckpoints(baseUrl);
+    // 받은 목록이 있으면 드롭다운을 실제 목록으로 바꿉니다. 고르던 값은 그대로 둡니다.
+    if (samplers.length || schedulers.length) {
+      const fallback = state.settings.imageLists || {};
+      comfyLists = {
+        samplers: samplers.length ? samplers : fallback.samplers || [],
+        schedulers: schedulers.length ? schedulers : fallback.schedulers || []
+      };
+      paintSamplerChoices($('i-sampler').value, $('i-scheduler').value);
+    }
     $('i-ckpts').innerHTML = checkpoints.map((c) => `<option value="${ui.escapeHtml(c)}">`).join('');
     if (!$('i-checkpoint').value && checkpoints.length) $('i-checkpoint').value = checkpoints[0];
     $('i-status').textContent = checkpoints.length
@@ -1058,7 +1095,8 @@ function readImageSheet() {
     height,
     steps: Number($('i-steps').value),
     cfg: Number($('i-cfg').value),
-    sampler: $('i-sampler').value.trim() || 'euler_ancestral',
+    sampler: $('i-sampler').value || 'euler_ancestral',
+    scheduler: $('i-scheduler').value || 'normal',
     prefix: $('i-prefix').value.trim(),
     negative: $('i-negative').value.trim(),
     freeAfter: $('i-free').checked,
@@ -1484,13 +1522,15 @@ document.getElementById('messages').addEventListener('click', async (e) => {
     const imgId = btn.closest('[data-img]')?.dataset.img;
     const img = msg.images?.find((x) => x.id === imgId);
     if (!img) return;
-    if (btn.dataset.act === 'img-redraw') return drawScene(state.chat, msg, turn, { prompt: img.prompt, random: true });
+    if (btn.dataset.act === 'img-redraw') {
+      return drawScene(state.chat, msg, turn, { prompt: img.prompt, negative: img.negative, random: true });
+    }
     if (btn.dataset.act === 'img-edit') {
       const chat = state.chat;
-      const edited = await askTags({ prompt: img.prompt || '' });
+      const edited = await askTags({ prompt: img.prompt || '', negative: img.negative || '' });
       if (!edited) return;
       const live = document.querySelector(`#thread [data-mid="${mid}"]`);
-      drawScene(chat, msg, state.chat === chat && live ? live : turn, { prompt: edited, random: true });
+      drawScene(chat, msg, state.chat === chat && live ? live : turn, { ...edited, random: true });
       return;
     }
     if (btn.dataset.act === 'img-del') {
