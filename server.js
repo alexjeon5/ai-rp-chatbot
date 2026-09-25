@@ -125,7 +125,7 @@ function applyImageSettings(s, body) {
   for (const k of ['checkpoint', 'sampler', 'scheduler', 'prefix', 'negative']) {
     if (typeof body[k] === 'string') next[k] = body[k].slice(0, 4000);
   }
-  for (const k of ['enabled', 'freeAfter']) if (typeof body[k] === 'boolean') next[k] = body[k];
+  for (const k of ['enabled', 'freeAfter', 'reviewTags']) if (typeof body[k] === 'boolean') next[k] = body[k];
   if (body.workflow === null) next.workflow = null;
   else if (body.workflow !== undefined) {
     if (!looksLikeWorkflow(body.workflow)) {
@@ -1130,9 +1130,11 @@ app.delete('/api/chats/:id/messages/:mid/images/:imgId', (req, res) => {
 
 /**
  * 메시지 하나의 장면을 그립니다. 진행 단계를 SSE 로 알려 줍니다.
- * body: { prompt?, random? }
+ * body: { prompt?, random?, review? }
  *   prompt  사람이 고친 태그. 주면 LLM 을 건너뛰고 이걸로 그립니다 (필터는 그대로 적용)
  *   random  시드를 무작위로. 기본은 캐릭터마다 고정 시드
+ *   review  태그까지만 만들어 { done, review: { prompt, removed } } 로 돌려주고 그리지 않습니다.
+ *           사람이 확인·수정한 태그를 prompt 로 다시 보내면 그때 그립니다.
  */
 app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, res) => {
   const s = settings();
@@ -1237,6 +1239,11 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
         '이 차단은 설정에서 끌 수 없습니다. 캐릭터 외형 태그나 장면을 확인해 주세요.');
     }
     send({ prompt: composed.prompt, removed: composed.removed });
+    if (req.body?.review) {
+      finished = true;
+      send({ done: true, review: { prompt: composed.prompt, removed: composed.removed } });
+      return res.end();
+    }
 
     // 3) ComfyUI
     const seed = req.body?.random

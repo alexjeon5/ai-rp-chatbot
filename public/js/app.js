@@ -849,13 +849,64 @@ function setStreaming(on) {
 // 지금 그리는 중인 메시지. 같은 메시지를 두 번 겹쳐 그리지 않게 합니다.
 const drawingNow = new Set();
 
+/* --- 태그 검토·고치기 창 --- */
+
+const dlgTags = $('dlg-tags');
+
+/**
+ * 그릴 태그를 보여 주고 고치게 합니다. 그리기를 누르면 고친 태그를, 취소하면 null 을 돌려줍니다.
+ * @param {object} o
+ * @param {string} o.prompt 처음 보여 줄 태그
+ * @param {boolean} [o.review] 🎨 그리기 전 검토인지 (아니면 '태그 고쳐 그리기')
+ * @param {string[]} [o.removed] 필터로 빠진 태그
+ */
+function askTags({ prompt, review = false, removed = [] }) {
+  $('tg-title').textContent = review ? '그릴 태그 확인' : '태그 고쳐 그리기';
+  $('tg-hint').textContent = review
+    ? 'AI 가 장면을 읽고 만든 태그입니다. 빼거나 더할 태그를 고친 뒤 그리기를 누르세요.'
+    : '이 그림에 쓴 태그입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.';
+  $('tg-text').value = prompt;
+  $('tg-removed').hidden = !removed.length;
+  $('tg-removed').textContent = removed.length ? `필터로 뺀 태그: ${removed.join(', ')}` : '';
+  // '다음부터 묻지 않기' 는 🎨 그리기의 검토에만 해당합니다.
+  $('tg-skip-row').hidden = !review;
+  $('tg-skip').checked = false;
+  dlgTags.returnValue = '';
+  dlgTags.showModal();
+  $('tg-text').focus();
+
+  return new Promise((resolve) => {
+    dlgTags.addEventListener('close', async () => {
+      const tags = $('tg-text').value.trim();
+      if (dlgTags.returnValue !== 'draw' || !tags) return resolve(null);
+      if (review && $('tg-skip').checked) {
+        try {
+          state.settings = await api.saveSettings({ image: { reviewTags: false } });
+          ui.toast('다음부터 검토 없이 바로 그립니다 — 설정 → 이미지 탭에서 다시 켤 수 있습니다');
+        } catch (e) {
+          ui.toast(`설정을 저장하지 못했습니다 — ${e.message}`);
+        }
+      }
+      resolve(tags);
+    }, { once: true });
+  });
+}
+
+$('tg-text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    dlgTags.close('draw');
+  }
+});
+
 /**
  * 메시지 하나의 장면을 ComfyUI 로 그립니다. 답변 아래에 자리를 잡고 진행 단계를 보여 줍니다.
  * @param {object} [o]
  * @param {string} [o.prompt] 고친 태그 (주면 LLM 을 건너뜀)
  * @param {boolean} [o.random] 무작위 시드 (다시 그리기)
+ * @param {boolean} [o.review] 태그까지만 만들고, 사람이 확인·수정한 뒤에 그립니다
  */
-async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
+async function drawScene(chat, msg, turn, { prompt, random = false, review = false } = {}) {
   if (!chat || drawingNow.has(msg.id)) return;
   drawingNow.add(msg.id);
   const box = turn.querySelector('.turn-images') || (() => {
@@ -872,16 +923,24 @@ async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
   let label = slot.textContent;
   const tick = setInterval(() => { slot.textContent = `${label} · ${Math.round((Date.now() - started) / 1000)}초`; }, 1000);
 
+  let reviewed = null;
   try {
     const result = await drawImage(chat.id, msg.id, {
       prompt,
       random,
+      review,
       onEvent: (e) => {
         if (e.stage) { label = e.text; slot.textContent = e.text; }
         if (e.prompt) slot.title = e.prompt;
-        if (e.removed?.length) ui.toast(`필터로 뺀 태그: ${e.removed.join(', ')}`);
+        // 검토 창에서 따로 보여 주므로 토스트는 그릴 때만 띄웁니다.
+        if (e.removed?.length && !review) ui.toast(`필터로 뺀 태그: ${e.removed.join(', ')}`);
       }
     });
+    if (review && result.review) {
+      reviewed = result.review;
+      slot.remove();
+      return;
+    }
     if (!result.images) throw new Error('그림을 받지 못했습니다.');
     msg.images = result.images;
     // 그리는 동안 다른 대화로 옮겼다면 화면은 건드리지 않습니다.
@@ -894,7 +953,17 @@ async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
   } finally {
     clearInterval(tick);
     drawingNow.delete(msg.id);
+    if (reviewed) reviewAndDraw(chat, msg, turn, reviewed, random);
   }
+}
+
+/** 검토 창을 띄우고, 그리기를 누르면 고친 태그로 그립니다. */
+async function reviewAndDraw(chat, msg, turn, { prompt, removed }, random) {
+  const tags = await askTags({ prompt, review: true, removed });
+  if (!tags) return;
+  // 창이 떠 있는 동안 화면이 다시 그려졌을 수 있으니 지금 보이는 답변을 찾습니다.
+  const live = document.querySelector(`#thread [data-mid="${msg.id}"]`);
+  drawScene(chat, msg, state.chat === chat && live ? live : turn, { prompt: tags, random });
 }
 
 /* --- 이미지 설정 (설정 창의 이미지 탭) --- */
@@ -925,6 +994,7 @@ function fillImageSheet() {
   $('i-prefix').value = img.prefix || '';
   $('i-negative').value = img.negative || '';
   $('i-free').checked = img.freeAfter !== false;
+  $('i-review').checked = img.reviewTags !== false;
   $('i-force').value = img.adult?.forceTags || '';
   $('i-block').value = img.adult?.blockTags || '';
   $('i-extra-neg').value = img.adult?.extraNegative || '';
@@ -992,6 +1062,7 @@ function readImageSheet() {
     prefix: $('i-prefix').value.trim(),
     negative: $('i-negative').value.trim(),
     freeAfter: $('i-free').checked,
+    reviewTags: $('i-review').checked,
     adult: {
       forceTags: $('i-force').value.trim(),
       blockTags: $('i-block').value.trim(),
@@ -1406,15 +1477,20 @@ document.getElementById('messages').addEventListener('click', async (e) => {
   const msg = state.chat.messages.find((m) => m.id === mid);
   if (!msg) return;
 
-  if (btn.dataset.act === 'draw') return drawScene(state.chat, msg, turn);
+  if (btn.dataset.act === 'draw') {
+    return drawScene(state.chat, msg, turn, { review: state.settings.image?.reviewTags !== false });
+  }
   if (btn.dataset.act.startsWith('img-')) {
     const imgId = btn.closest('[data-img]')?.dataset.img;
     const img = msg.images?.find((x) => x.id === imgId);
     if (!img) return;
     if (btn.dataset.act === 'img-redraw') return drawScene(state.chat, msg, turn, { prompt: img.prompt, random: true });
     if (btn.dataset.act === 'img-edit') {
-      const edited = window.prompt('그림 태그 (쉼표로 구분). 품질 태그·필터는 저장 시 다시 적용됩니다.', img.prompt);
-      if (edited?.trim()) drawScene(state.chat, msg, turn, { prompt: edited.trim(), random: true });
+      const chat = state.chat;
+      const edited = await askTags({ prompt: img.prompt || '' });
+      if (!edited) return;
+      const live = document.querySelector(`#thread [data-mid="${mid}"]`);
+      drawScene(chat, msg, state.chat === chat && live ? live : turn, { prompt: edited, random: true });
       return;
     }
     if (btn.dataset.act === 'img-del') {

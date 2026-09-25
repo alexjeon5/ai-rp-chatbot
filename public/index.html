@@ -443,6 +443,10 @@
           <input id="i-free" type="checkbox">
           <span>그린 뒤 ComfyUI 메모리 비우기 — LLM 과 같은 GPU 를 쓸 때 켜 두세요. 다음 그림은 모델을 다시 올리느라 조금 늦게 시작합니다</span>
         </label>
+        <label class="check-row">
+          <input id="i-review" type="checkbox">
+          <span>그리기 전에 태그 검토하기 — 🎨 그리기를 누르면 AI 가 만든 태그를 먼저 보여 주고, 확인·수정한 뒤에 그립니다</span>
+        </label>
 
         <div class="divider"></div>
         <h3 class="sheet-sub">성인 대화 필터</h3>
@@ -624,6 +628,30 @@
     <div class="sheet-foot">
       <span class="spacer"></span>
       <button value="close" class="send-btn" type="submit">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 그림 태그 검토·고치기 -->
+<dialog id="dlg-tags" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title" id="tg-title">그릴 태그 확인</h2>
+    <div class="sheet-body">
+      <p id="tg-hint" class="field-hint"></p>
+      <label class="field"><span>태그 <small class="field-hint">— 쉼표로 구분합니다</small></span>
+        <textarea id="tg-text" rows="7" spellcheck="false"></textarea>
+      </label>
+      <p id="tg-removed" class="field-hint is-warn" hidden></p>
+      <p class="field-hint">앞에 붙일 품질 태그와 필터(고정 차단 목록 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.</p>
+    </div>
+    <div class="sheet-foot">
+      <label id="tg-skip-row" class="check-row">
+        <input id="tg-skip" type="checkbox">
+        <span>다음부터 검토하지 않고 바로 그리기</span>
+      </label>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost-btn" type="submit">취소</button>
+      <button id="tg-ok" value="draw" class="send-btn" type="submit">그리기</button>
     </div>
   </form>
 </dialog>

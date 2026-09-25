@@ -30,6 +30,8 @@ export const IMAGE_DEFAULTS = () => ({
   workflow: null,
   // 그린 뒤 ComfyUI 가 잡고 있는 VRAM 을 풀어 LLM 이 쓰게 합니다. 같은 PC 에서 돌릴 때 켭니다.
   freeAfter: true,
+  // 🎨 그리기 때 LLM 이 만든 태그를 먼저 보여 주고, 확인(수정)한 뒤에 ComfyUI 로 보냅니다.
+  reviewTags: true,
   // 성인 대화에만 적용되는, 사용자가 고칠 수 있는 필터.
   adult: {
     forceTags: 'adult',
