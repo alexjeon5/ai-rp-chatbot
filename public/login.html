@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>로그인 — AI 롤플레이 &amp; 어시스턴트</title>
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%2315111a%22%2F%3E%3Cpath%20d%3D%22M7%205.5h18a4.5%204.5%200%200%201%204.5%204.5v8a4.5%204.5%200%200%201-4.5%204.5H14.5L8%2028v-5.5H7A4.5%204.5%200%200%201%202.5%2018v-8A4.5%204.5%200%200%201%207%205.5z%22%20fill%3D%22%23d9b168%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3Ccircle%20cx%3D%2222%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3C%2Fsvg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  /* 앱 화면은 사이드바 + 본문 격자라, 이 페이지만 가운데 한 칸으로 되돌립니다. */
+  body.login-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    min-height: 100%;
+    padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  }
+
+  .login {
+    width: min(360px, 100%);
+    display: grid;
+    gap: 22px;
+  }
+
+  .login .brand-mark { gap: 4px; margin: 0; font-weight: 400; }
+  .login .brand-line { font-size: 26px; }
+  .login .brand-sub { font-size: 15px; }
+
+  .login-form {
+    display: grid;
+    gap: 14px;
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+  }
+
+  .login-form .field input { font-size: 16px; } /* iOS 가 입력칸을 확대하지 않는 최소 크기 */
+  .login-form .send-btn { width: 100%; padding: 11px 18px; }
+
+  #login-error { min-height: 1.5em; white-space: pre-line; }
+</style>
+</head>
+<body class="login-page">
+
+<main class="login">
+  <h1 class="brand-mark">
+    <span class="brand-line">AI 롤플레이</span>
+    <span class="brand-line brand-sub">&amp; 어시스턴트</span>
+  </h1>
+
+  <form id="login-form" class="login-form" novalidate>
+    <label class="field"><span>아이디</span>
+      <input id="login-name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    </label>
+    <label class="field"><span>비밀번호</span>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <p id="login-error" class="field-hint is-warn" role="alert"></p>
+    <button id="login-submit" class="send-btn" type="submit">로그인</button>
+  </form>
+</main>
+
+<script type="module">
+  const form = document.getElementById('login-form');
+  const name = document.getElementById('login-name');
+  const password = document.getElementById('login-password');
+  const error = document.getElementById('login-error');
+  const submit = document.getElementById('login-submit');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!name.value.trim() || !password.value) {
+      error.textContent = '아이디와 비밀번호를 입력해 주세요.';
+      (name.value.trim() ? password : name).focus();
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = '확인하는 중…';
+    error.textContent = '';
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.value.trim(), password: password.value })
+      });
+      if (res.ok) return location.replace('/');
+      const data = await res.json().catch(() => ({}));
+      error.textContent = data.error || `로그인하지 못했습니다 (${res.status})`;
+      password.value = '';
+      password.focus();
+    } catch {
+      error.textContent = '서버에 연결하지 못했습니다. 주소와 네트워크를 확인해 주세요.';
+    } finally {
+      submit.disabled = false;
+      submit.textContent = '로그인';
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,9 +1,20 @@
+/**
+ * 로그인이 풀렸으면(만료, 다른 곳에서 로그아웃, 비밀번호 변경) 로그인 페이지로 보냅니다.
+ * 돌아올 곳은 늘 첫 화면이라 따로 적지 않습니다. 마지막으로 연 대화는 localStorage 가 기억합니다.
+ */
+function toLogin(res) {
+  if (res.status !== 401) return false;
+  location.replace('/login.html');
+  return true;
+}
+
 async function req(url, options = {}) {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
+  if (toLogin(res)) throw new Error('로그인이 필요합니다.');
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `요청 실패 (${res.status})`);
@@ -12,6 +23,9 @@ async function req(url, options = {}) {
 }
 
 export const api = {
+  me: () => req('/api/me'),
+  logout: () => req('/api/logout', { method: 'POST', body: {} }),
+
   settings: () => req('/api/settings'),
   saveSettings: (body) => req('/api/settings', { method: 'PUT', body }),
   models: (provider) => req(`/api/models?provider=${encodeURIComponent(provider)}`),
@@ -91,6 +105,7 @@ async function streamPost(url, body, { signal, onDelta, onThought, onSources, on
     body: JSON.stringify(body),
     signal
   });
+  if (toLogin(res)) throw new Error('로그인이 필요합니다.');
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `생성 실패 (${res.status})`);

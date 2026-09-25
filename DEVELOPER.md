@@ -19,7 +19,12 @@ src/
   persona-seeds.js         랜덤 페르소나 씨앗 표 (POOLS, CONFLICTS) 와 굴리기
   persona-gen.js           씨앗 → 소개 문단 프롬프트, 후처리, 모델 없이 쓰는 대체 문장
   character-gen.js         줄글 → 캐릭터 시트 프롬프트, 라벨 파서
+  auth.js                  로그인 — 비밀번호 해시, 세션, requireAuth / requireOwner
+  security.js              SSRF 허용 목록, 키 마스킹, 요청 제한, 같은 출처 확인
+scripts/
+  user.js                  계정 만들기·지우기·비밀번호 바꾸기 (npm run user)
 public/
+  login.html               로그인 페이지. 앱 스크립트를 읽지 않는 독립 페이지
   index.html               전체 마크업 (사이드바, 대화창, 다이얼로그 다섯 개)
   styles.css               전체 스타일. CSS 변수로 테마 관리
   js/
@@ -389,9 +394,13 @@ http.createServer((req, res) => {
 
 그다음 서버를 띄우고 `curl`로 실제 API처럼 호출합니다.
 
+로그인이 켜져 있으면 `curl` 이 전부 401 을 받습니다. 테스트할 때는 `AUTH_DISABLED=1` 로 끄세요.
+`HOST` 가 기본값(`127.0.0.1`)일 때만 먹습니다. 로그인 자체를 시험할 때는 끄지 말고 쿠키를 씁니다
+(`curl -c jar -d '{"name":..,"password":..}' .../api/login` 뒤로 `-b jar`).
+
 ```bash
 node mock-something.mjs &
-PORT=5199 node server.js &
+AUTH_DISABLED=1 PORT=5199 node server.js &
 sleep 2
 curl -s -X PUT http://127.0.0.1:5199/api/settings -d '{"providers":{"lmstudio":{"baseUrl":"http://localhost:1234/v1", ...}}}'
 curl -s -N -X POST http://127.0.0.1:5199/api/chats/$ID/generate -d '{}'

@@ -30,37 +30,87 @@ import {
 import {
   isLocalUrl, checkBaseUrl, resolveApiKey, maskProviders, rateLimit, sameOrigin
 } from './src/security.js';
+import { createAuth } from './src/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5173;
 const HOST = process.env.HOST || '127.0.0.1';
 
 await store.load();
+const auth = await createAuth({ host: HOST });
 
 const app = express();
 
 // 리버스 프록시(Nginx Proxy Manager) 뒤에 있으면 켭니다.
 // 켜야 요청 제한이 프록시 IP 하나가 아니라 실제 접속자 기준으로 걸립니다.
-if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+//
+// 환경변수는 늘 문자열이라, "1" 을 그대로 넘기면 Express 는 이를 홉 수가 아니라 주소 "1" 로 읽고
+// 아무도 믿지 않습니다. 숫자만 있으면 숫자로 바꿔 넘깁니다. 주소(예: "192.168.0.20")는 그대로 둡니다.
+const trustProxy = (process.env.TRUST_PROXY || '').trim();
+if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
 // 백업 불러오기는 대화가 쌓이면 수십 MB 가 되므로 그 경로만 한도를 넉넉히 둡니다.
 const jsonBody = express.json({ limit: '2mb' });
 const importBody = express.json({ limit: '64mb' });
 app.use((req, res, next) => (req.path === '/api/import' ? importBody : jsonBody)(req, res, next));
+
+/* ---------------- 로그인 ---------------- */
+
+// 쿠키를 보고 req.user 를 채웁니다. 이 줄 아래의 모든 곳에서 누가 보낸 요청인지 알 수 있습니다.
+app.use(auth.attachUser);
+// 로그인하지 않았으면 첫 화면 대신 로그인 페이지로 보냅니다.
+app.use(auth.pageGate);
 app.use('/api', sameOrigin);
+
+// 로그인 시도는 IP 기준으로 셉니다. IP 를 속이는 경우는 auth.js 의 전체 실패 상한이 막습니다.
+const loginLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  message: '로그인 시도가 너무 잦습니다. 15분 뒤에 다시 시도해 주세요.'
+});
+app.post('/api/login', loginLimit, (req, res) => auth.login(req, res).catch((e) => {
+  console.error(e);
+  if (!res.headersSent) res.status(500).json({ error: '로그인을 처리하지 못했습니다.' });
+}));
+app.post('/api/logout', auth.logout);
+
+// 여기부터 /api 는 전부 로그인해야 쓸 수 있습니다. 위 두 경로만 예외입니다.
+app.use('/api', auth.requireAuth);
+app.get('/api/me', auth.me);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 밖으로 요청을 내보내는 경로만 제한합니다. 화면 조작은 막지 않습니다.
+// 로그인한 뒤라 사용자 기준으로 셉니다. 헤더를 속여 IP 를 바꿔도 제한을 피할 수 없습니다.
+const byUser = (req) => req.user && `user:${req.user.id}`;
 const generateLimit = rateLimit({
   windowMs: 60_000,
   max: 30,
-  message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.'
+  message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.',
+  keyOf: byUser
 });
 const modelsLimit = rateLimit({
   windowMs: 60_000,
   max: 20,
-  message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.'
+  message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.',
+  keyOf: byUser
 });
+
+/**
+ * 주인만 바꿀 수 있는 설정 항목을 멤버의 요청에서 걸러 냅니다.
+ * 설정 창은 모든 탭을 한 번에 보내므로, 거절하지 않고 조용히 빼야 멤버도 나머지 설정을 저장할 수 있습니다.
+ *   providers / removeProviders : 엔진 주소와 API 키
+ *   image                       : ComfyUI 주소
+ *   dev.adultCloud              : 성인 대화를 클라우드 엔진으로 보내는 허용 (막히는 건 주인의 API 키)
+ */
+function ownerFieldsOnly(req, res, next) {
+  if (req.user?.role === 'owner' || !req.body) return next();
+  delete req.body.providers;
+  delete req.body.removeProviders;
+  delete req.body.image;
+  if (req.body.dev) delete req.body.dev.adultCloud;
+  next();
+}
 
 /** 엔진 설정을 쓸 때는 항상 이걸 거칩니다. 환경변수 키가 우선 적용됩니다. */
 function engineConfig(providerKey) {
@@ -145,7 +195,7 @@ function applyImageSettings(s, body) {
   return null;
 }
 
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', ownerFieldsOnly, (req, res) => {
   const s = store.settings;
   const body = req.body || {};
 
@@ -256,8 +306,8 @@ app.get('/api/models', modelsLimit, wrap(async (req, res) => {
 /* ---------------- 통신 로그 ---------------- */
 
 /** 대화 내용은 담지 않습니다 — 요청 대상 주소·상태 코드·걸린 시간·오류 메시지뿐입니다. */
-app.get('/api/logs', (req, res) => res.json({ logs: listLogs() }));
-app.delete('/api/logs', (req, res) => { clearLogs(); res.json({ ok: true }); });
+app.get('/api/logs', auth.requireOwner, (req, res) => res.json({ logs: listLogs() }));
+app.delete('/api/logs', auth.requireOwner, (req, res) => { clearLogs(); res.json({ ok: true }); });
 
 /* ---------------- 캐릭터 / 페르소나 ---------------- */
 
@@ -1121,7 +1171,7 @@ function removeImageFile(chatId, file) {
 }
 
 /** ComfyUI 에 연결해 체크포인트 목록을 받아 봅니다. 설정 창의 '연결 확인'. query: baseUrl */
-app.get('/api/image/checkpoints', modelsLimit, wrap(async (req, res) => {
+app.get('/api/image/checkpoints', auth.requireOwner, modelsLimit, wrap(async (req, res) => {
   const baseUrl = String(req.query.baseUrl || settings().image?.baseUrl || '').trim();
   const verdict = checkBaseUrl(baseUrl);
   if (!baseUrl || !verdict.ok) return res.status(400).json({ error: verdict.reason || 'ComfyUI 주소를 입력해 주세요.' });
@@ -1453,7 +1503,7 @@ app.post('/api/chats/:id/save-character', (req, res) => {
 });
 
 /** 감춰 둔 모델 기록을 지웁니다. 계정 상태가 바뀌었을 때 씁니다. */
-app.delete('/api/providers/:key/unavailable', (req, res) => {
+app.delete('/api/providers/:key/unavailable', auth.requireOwner, (req, res) => {
   const cfg = settings().providers[req.params.key];
   if (!cfg) return res.status(404).json({ error: '없는 엔진입니다.' });
   const count = (cfg.unavailableModels || []).length;
@@ -1618,7 +1668,8 @@ const cleanChat = (raw) => {
   return chat;
 };
 
-app.post('/api/import', (req, res) => {
+// 지금은 데이터를 모두가 같이 쓰므로, 설정까지 덮을 수 있는 불러오기는 주인만 합니다.
+app.post('/api/import', auth.requireOwner, (req, res) => {
   const body = req.body || {};
   const data = body.data;
   if (!isObj(data)) return res.status(400).json({ error: '백업 파일 형식이 아닙니다.' });

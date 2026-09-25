@@ -6,7 +6,8 @@
   "description": "개인용 롤플레잉 AI 채팅 (API + LM Studio)",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "user": "node scripts/user.js"
   },
   "engines": {
     "node": ">=20"

@@ -29,6 +29,7 @@ async function boot() {
     api.settings(), api.characters(), api.personas(), api.chats()
   ]);
   applyDev(state.settings.dev);
+  paintAccount();
   paintAdultRules();
   ui.renderCharacterList(state.characters);
   paintMode();
@@ -41,6 +42,25 @@ async function boot() {
   else if (candidates.length) await openChat(candidates[0].id);
   else closeChat();
 }
+
+/* ---------------- 계정 ---------------- */
+
+/** 로그아웃 버튼에 누구로 들어와 있는지 적어 둡니다. 로그인을 끈 개발 모드면 버튼을 숨깁니다. */
+async function paintAccount() {
+  try {
+    const { user, authDisabled } = await api.me();
+    $('btn-logout').hidden = Boolean(authDisabled);
+    $('btn-logout').title = `${user.name} 로그아웃`;
+  } catch {
+    // 계정 표시는 부가 정보라, 실패해도 앱은 그대로 씁니다.
+  }
+}
+
+$('btn-logout').addEventListener('click', async () => {
+  if (state.run && !confirm('답변을 쓰는 중입니다. 로그아웃하면 여기서 멈춥니다. 계속할까요?')) return;
+  await api.logout().catch(() => {});
+  location.replace('/login.html');
+});
 
 /** 개발자 설정(테마·표기법)을 화면에 적용합니다. */
 function applyDev(dev) {

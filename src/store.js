@@ -1,11 +1,9 @@
 import path from 'node:path';
 import { readFile, rename } from 'node:fs/promises';
-import { Collection, JsonDoc, uid, flushAll, merge } from './db.js';
+import { Collection, JsonDoc, uid, flushAll, merge, DATA_DIR } from './db.js';
 import { IMAGE_DEFAULTS } from './image.js';
 
-export { uid, flushAll, merge };
-
-const DATA_DIR = process.env.DATA_DIR || path.resolve('./data');
+export { uid, flushAll, merge, DATA_DIR };
 
 /* ---------------- 프롬프트 틀 ---------------- */
 

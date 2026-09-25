@@ -1,8 +1,8 @@
 /**
  * 외부에 노출된 환경에서 쓰기 위한 방어 장치들.
  *
- * 앞단(Cloudflare Access, Nginx Proxy Manager)의 인증이 1차 방어입니다.
- * 이 파일은 그것이 뚫렸거나, 같은 LAN 에서 5173 으로 직접 들어왔을 때를 위한 2차 방어입니다.
+ * 로그인은 src/auth.js 가 맡습니다. 앞단(Cloudflare Access, Nginx Proxy Manager)의 인증은
+ * 밖에서 들어올 때 한 겹 더 두는 것이고, 이 파일은 로그인을 통과한 요청에도 걸리는 제한들입니다.
  */
 
 /* ---------------- 주소 판별 ---------------- */
@@ -153,12 +153,13 @@ export function maskProviders(providers = {}) {
  * 창 단위로 세는 간단한 제한기. 의존성을 늘리지 않으려고 직접 만들었습니다.
  * 1인용 앱이라 이 정도로 충분합니다.
  */
-export function rateLimit({ windowMs, max, message }) {
+export function rateLimit({ windowMs, max, message, keyOf }) {
   const hits = new Map();
 
   return (req, res, next) => {
     const now = Date.now();
-    const key = req.ip || 'unknown';
+    // 기본은 접속 IP. 로그인한 뒤의 요청은 사용자 기준으로 세는 게 정확합니다 (keyOf).
+    const key = (keyOf && keyOf(req)) || req.ip || 'unknown';
     const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
 
     if (list.length >= max) {
@@ -189,7 +190,7 @@ export function sameOrigin(req, res, next) {
   if (req.method === 'GET' || req.method === 'HEAD') return next();
 
   const origin = req.get('origin');
-  if (!origin) return next(); // 브라우저가 아닌 요청(curl 등). 인증은 앞단이 맡습니다.
+  if (!origin) return next(); // 브라우저가 아닌 요청(curl 등). 로그인 쿠키가 없으니 requireAuth 에서 걸립니다.
 
   const host = hostOf(origin);
   const expected = (req.get('x-forwarded-host') || req.get('host') || '').split(':')[0].toLowerCase();
