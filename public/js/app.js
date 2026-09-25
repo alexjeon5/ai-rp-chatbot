@@ -1338,6 +1338,64 @@ dlgCast.addEventListener('close', async () => {
   ui.toast(names.length ? `함께 등장: ${names.join(', ')}` : '함께 등장하는 인물을 모두 뺐습니다');
 });
 
+/* ---------------- 그림 크게 보기 ---------------- */
+
+const dlgLightbox = $('dlg-lightbox');
+let lightbox = { links: [], at: 0 };
+
+function paintLightbox() {
+  const { links, at } = lightbox;
+  const link = links[at];
+  if (!link) return;
+  const img = link.querySelector('img');
+  $('lb-img').src = link.href;
+  $('lb-prompt').textContent = img?.title || '';
+  $('lb-prompt').title = img?.title || '';
+  $('lb-original').href = link.href;
+  $('lb-count').textContent = links.length > 1 ? `${at + 1} / ${links.length}` : '';
+  $('lb-prev').hidden = links.length < 2;
+  $('lb-next').hidden = links.length < 2;
+}
+
+function stepLightbox(step) {
+  const n = lightbox.links.length;
+  if (n < 2) return;
+  lightbox.at = (lightbox.at + step + n) % n;
+  paintLightbox();
+}
+
+/** 대화에 있는 그림을 화면 순서대로 모아, 누른 그림부터 넘겨 볼 수 있게 엽니다. */
+function openLightbox(link) {
+  const links = [...document.querySelectorAll('#messages a.img-open')];
+  lightbox = { links, at: Math.max(0, links.indexOf(link)) };
+  paintLightbox();
+  dlgLightbox.showModal();
+}
+
+document.getElementById('messages').addEventListener('click', (e) => {
+  const link = e.target.closest('a.img-open');
+  // Ctrl·Shift·가운데 클릭은 브라우저 기본 동작(새 탭·새 창)을 그대로 둡니다.
+  if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  openLightbox(link);
+});
+
+$('lb-close').addEventListener('click', () => dlgLightbox.close());
+$('lb-prev').addEventListener('click', () => stepLightbox(-1));
+$('lb-next').addEventListener('click', () => stepLightbox(1));
+// 그림 바깥(어두운 배경)을 누르면 닫습니다.
+dlgLightbox.addEventListener('click', (e) => {
+  if (e.target === dlgLightbox || e.target.classList.contains('lb-figure')) dlgLightbox.close();
+});
+dlgLightbox.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); stepLightbox(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1); }
+});
+dlgLightbox.addEventListener('close', () => {
+  lightbox = { links: [], at: 0 };
+  $('lb-img').removeAttribute('src');
+});
+
 /* ---------------- 메시지 편집 ---------------- */
 
 document.getElementById('messages').addEventListener('click', async (e) => {

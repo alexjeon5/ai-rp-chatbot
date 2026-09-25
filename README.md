@@ -192,6 +192,7 @@ Heretic 으로 거부 응답을 걷어낸 버전입니다. 제작자 측정으�
 1. 지금 LLM 이 장면을 영어 Danbooru 태그로 옮깁니다 (성인 대화는 로컬 엔진으로만)
 2. 앞에 붙일 품질 태그 + 캐릭터의 **외형 태그** + 장면 태그를 합쳐 ComfyUI 에 보냅니다
 3. 다 그리면 `data/images/<대화 id>/` 에 저장하고 답변 아래에 보여 줍니다. 그림마다 *다시 그리기*(다른 시드), *태그 고쳐 그리기*, *삭제*
+4. 그림을 누르면 대화 창 위에 크게 띄웁니다. ←/→ 로 대화 속 다른 그림을 넘겨 보고, 바깥을 누르거나 Esc 로 닫습니다 (Ctrl·가운데 클릭은 새 탭)
 
 - **권장 모델**: SDXL 애니메 계열(Illustrious XL, NoobAI-XL 파생). 태그로 외형을 고정하기 쉽고 LLM 과 GPU 를 나눠 쓸 만한 크기입니다. Pony 계열이면 앞에 붙일 태그를 `score_9, score_8_up, …` 로 바꾸세요
 - **워크플로**: 기본 SDXL txt2img 가 들어 있어 체크포인트만 고르면 됩니다. 직접 짠 워크플로는 ComfyUI 의 *Save (API Format)* JSON 을 올리고, 값 칸에 `{{prompt}}` `{{negative}}` `{{seed}}` `{{width}}` `{{height}}` `{{steps}}` `{{cfg}}` `{{sampler}}` `{{scheduler}}` `{{checkpoint}}` 를 적어 두면 채워 넣습니다

@@ -414,11 +414,11 @@ function hostOf(url = '') {
 let drawing = { enabled: false, chatId: '' };
 export function setDrawing(next) { drawing = { ...drawing, ...next }; }
 
-/** 그림 한 장. 누르면 새 탭에서 원본을 엽니다. */
+/** 그림 한 장. 누르면 대화 창 안의 보기 창으로 크게 엽니다 (Ctrl·가운데 클릭은 새 탭). */
 export function imageFigure(chatId, img) {
   const src = `/api/images/${encodeURIComponent(chatId)}/${encodeURIComponent(img.file)}`;
   return `<figure class="turn-image" data-img="${esc(img.id)}">
-    <a href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(img.prompt || '')}"></a>
+    <a class="img-open" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(img.prompt || '')}"></a>
     <figcaption>
       <button type="button" class="tool" data-act="img-redraw" title="같은 장면을 다른 시드로">다시 그리기</button>
       <button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>

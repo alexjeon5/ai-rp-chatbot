@@ -628,6 +628,21 @@
   </form>
 </dialog>
 
+<!-- 그림 크게 보기 -->
+<dialog id="dlg-lightbox" class="lightbox" aria-label="그림 크게 보기">
+  <button id="lb-close" class="lb-btn lb-close" type="button" aria-label="닫기">✕</button>
+  <button id="lb-prev" class="lb-btn lb-nav lb-prev" type="button" aria-label="이전 그림">‹</button>
+  <button id="lb-next" class="lb-btn lb-nav lb-next" type="button" aria-label="다음 그림">›</button>
+  <figure class="lb-figure">
+    <img id="lb-img" alt="장면 그림">
+    <figcaption class="lb-caption">
+      <span id="lb-count" class="lb-count"></span>
+      <span id="lb-prompt" class="lb-prompt"></span>
+      <a id="lb-original" class="lb-link" target="_blank" rel="noopener">원본 새 탭에서 열기</a>
+    </figcaption>
+  </figure>
+</dialog>
+
 <div id="toast" class="toast" popover="manual" role="status" hidden></div>
 
 <script type="module" src="/js/app.js"></script>

@@ -1422,6 +1422,69 @@ button, input, textarea, select { font: inherit; color: inherit; }
   white-space: pre-wrap;
   cursor: pointer;
 }
+.turn-image .img-open { display: block; cursor: zoom-in; }
+
+/* 그림 크게 보기: 대화 창 위에 겹쳐 띄웁니다. 바깥을 누르거나 Esc 로 닫습니다. */
+.lightbox {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+.lightbox::backdrop { background: rgba(8, 5, 12, 0.88); }
+.lightbox[open] { display: grid; place-items: center; }
+.lb-figure {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  margin: 0;
+  max-width: calc(100vw - 120px);
+}
+.lb-figure img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--panel);
+}
+.lb-caption {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  max-width: min(900px, 100%);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.lb-count { flex: none; }
+.lb-prompt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lb-link { flex: none; color: var(--brass); }
+.lb-btn {
+  position: fixed;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+.lb-btn:hover { border-color: var(--brass-soft); color: var(--brass); }
+.lb-close { top: 16px; right: 16px; width: 40px; height: 40px; font-size: 16px; }
+.lb-nav { top: 50%; width: 44px; height: 44px; font-size: 26px; line-height: 1; transform: translateY(-50%); }
+.lb-prev { left: 16px; }
+.lb-next { right: 16px; }
+@media (max-width: 640px) {
+  .lb-figure { max-width: calc(100vw - 24px); }
+  .lb-nav { top: auto; bottom: 16px; transform: none; }
+  .lb-caption { flex-wrap: wrap; }
+}
+
 .core-block summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .core-terms { font-size: 12px; color: var(--muted); line-height: 1.7; word-break: keep-all; }
 .nc-note.is-warn { color: var(--danger); }
