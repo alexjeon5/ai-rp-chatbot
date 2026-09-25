@@ -29,6 +29,7 @@ async function boot() {
     api.settings(), api.characters(), api.personas(), api.chats()
   ]);
   applyDev(state.settings.dev);
+  paintAdultRules();
   ui.renderCharacterList(state.characters);
   paintMode();
   paintAdultToggle();
@@ -94,6 +95,23 @@ function shade(hex, delta) {
 const isLocalUrl = (url = '') =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url);
 
+/** 개발자 설정에서 경고를 확인하고 성인 모드의 클라우드 허용을 켰는지. */
+const adultCloudOn = () => state.settings?.dev?.adultCloud === true;
+
+/** 성인 대화를 이 엔진으로 보낼 수 있는지. (서버의 adultAllowed 와 같은 규칙) */
+const adultAllowed = (cfg) => isLocalUrl(cfg?.baseUrl) || adultCloudOn();
+
+/** 설정·페르소나 창의 성인 안내 문구를 지금 규칙에 맞춥니다. */
+function paintAdultRules() {
+  const cloud = adultCloudOn();
+  $('s-preset-adult-rule').textContent = cloud
+    ? '클라우드 허용이 켜져 있어, 선택한 외부 API 엔진으로도 보냅니다.'
+    : '로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.';
+  $('p-adult-rule').textContent = cloud
+    ? '문장 만들기는 선택한 엔진으로 보냅니다 (클라우드 허용 켜짐).'
+    : '문장 만들기는 로컬(LM Studio) 엔진으로만 보냅니다.';
+}
+
 function paintModelBadge() {
   const s = state.settings;
   const cfg = s.providers[s.activeProvider];
@@ -104,7 +122,7 @@ function paintModelBadge() {
   paintQuickProvider();
 }
 
-/** 입력창 아래의 엔진 선택기. 지금 대화가 성인 모드가면 외부 엔진은 고를 수 없습니다. */
+/** 입력창 아래의 엔진 선택기. 지금 대화가 성인 모드면 (클라우드 허용을 켜지 않은 한) 외부 엔진은 고를 수 없습니다. */
 function paintQuickProvider() {
   const sel = $('quick-provider');
   const s = state.settings;
@@ -113,7 +131,7 @@ function paintQuickProvider() {
 
   sel.innerHTML = Object.entries(s.providers)
     .map(([key, cfg]) => {
-      const blocked = adultChat && !isLocalUrl(cfg.baseUrl);
+      const blocked = adultChat && !adultAllowed(cfg);
       return `<option value="${key}"${blocked ? ' disabled' : ''}>${cfg.label}${blocked ? ' (성인 틀 불가)' : ''}</option>`;
     })
     .join('');
@@ -442,15 +460,19 @@ function paintModeTab(audience) {
     tab.setAttribute('aria-selected', String(on));
   }
 
-  // 성인 모드는 로컬 엔진으로만 나갑니다. 지금 엔진이 외부면 고르기 전에 알려 줍니다.
+  // 성인 모드는 기본적으로 로컬 엔진으로만 나갑니다. 지금 엔진이 외부면 고르기 전에 알려 줍니다.
   const note = $('nc-audience-note');
   const cfg = s.providers[s.activeProvider];
+  const label = cfg?.label || s.activeProvider;
   const local = isLocalUrl(cfg?.baseUrl);
+  const cloud = adultCloudOn();
   note.hidden = !adult;
   note.classList.toggle('is-warn', adult && !local);
-  note.textContent = !adult ? '' : local
-    ? '성인 모드는 로컬 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.'
-    : `지금 엔진(${cfg?.label || s.activeProvider})은 로컬 주소가 아니라 성인 모드로 보낼 수 없습니다. 입력창 아래에서 LM Studio 로 바꿔 주세요.`;
+  note.textContent = !adult ? ''
+    : local && cloud ? '지금 엔진은 로컬 주소입니다. 대화 내용이 이 PC 밖으로 나가지 않습니다.'
+    : local ? '성인 모드는 로컬 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.'
+    : cloud ? `지금 엔진(${label})은 클라우드입니다. 대화 내용이 그 회사 서버로 전송되고, 이용 약관에 따라 거부되거나 계정이 제한될 수 있습니다.`
+    : `지금 엔진(${label})은 로컬 주소가 아니라 성인 모드로 보낼 수 없습니다. 입력창 아래에서 LM Studio 로 바꿔 주세요.`;
 
   const list = s.presets.filter((p) => Boolean(p.adult) === adult);
   $('nc-list').innerHTML = list.length
@@ -2047,6 +2069,7 @@ $('s-import-file').addEventListener('change', async (e) => {
     api.settings(), api.characters(), api.personas()
   ]);
   applyDev(state.settings.dev);
+  paintAdultRules();
   ui.renderCharacterList(state.characters);
   paintModelBadge();
   await refreshChatList();
@@ -2189,6 +2212,8 @@ function fillDevSheet() {
 
   for (const [id, key] of Object.entries(MARKUP_FIELDS)) $(id).checked = Boolean(draftDev.markup[key]);
   $('d-particle').checked = Boolean(draftDev.particleFix);
+  $('d-adult-cloud').checked = draftDev.adultCloud === true;
+  paintAdultCloudRow(draftDev.adultCloud === true);
   for (const [id, key] of Object.entries(THEME_FIELDS)) $(id).value = draftDev.theme[key];
   $('d-fontsize').value = draftDev.theme.fontSize;
   $('d-fontsans').value = draftDev.theme.fontSans;
@@ -2205,8 +2230,37 @@ function readDevSheet() {
   theme.fontSize = Number($('d-fontsize').value);
   theme.fontSans = $('d-fontsans').value.trim();
   theme.fontSerif = $('d-fontserif').value.trim();
-  return { particleFix: $('d-particle').checked, markup, theme };
+  return { particleFix: $('d-particle').checked, adultCloud: $('d-adult-cloud').checked, markup, theme };
 }
+
+/**
+ * 성인 모드 클라우드 허용 칸은 평소에 숨겨 둡니다. 켜져 있거나 경고를 확인했을 때만 보입니다.
+ * 끄고 저장하면 다음에 열 때 다시 숨겨집니다.
+ */
+function paintAdultCloudRow(shown) {
+  $('d-adult-cloud-row').hidden = !shown;
+  $('d-adult-cloud-unlock').hidden = shown;
+}
+
+const dlgAdultCloud = $('dlg-adult-cloud');
+
+$('d-adult-cloud-unlock').addEventListener('click', () => {
+  $('ac-agree').checked = false;
+  $('ac-confirm').disabled = true;
+  dlgAdultCloud.returnValue = '';
+  dlgAdultCloud.showModal();
+});
+
+$('ac-agree').addEventListener('change', () => {
+  $('ac-confirm').disabled = !$('ac-agree').checked;
+});
+
+dlgAdultCloud.addEventListener('close', () => {
+  if (dlgAdultCloud.returnValue !== 'unlock' || !$('ac-agree').checked) return;
+  $('d-adult-cloud').checked = true;
+  paintAdultCloudRow(true);
+  ui.toast('개발자 설정에서 저장을 눌러야 반영됩니다');
+});
 
 $('btn-open-dev').addEventListener('click', () => {
   fillDevSheet();
@@ -2320,6 +2374,7 @@ dlgDev.addEventListener('close', async () => {
     return;
   }
   applyDev(state.settings.dev);
+  paintAdultRules();
   paintModelBadge();
   ui.toast('개발자 설정을 저장했습니다');
 });

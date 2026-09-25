@@ -1364,6 +1364,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .core-terms { font-size: 12px; color: var(--muted); line-height: 1.7; word-break: keep-all; }
 .nc-note.is-warn { color: var(--danger); }
 
+/* 성인 모드 클라우드 허용 경고 창 */
+.field-hint.is-warn { color: var(--danger); }
+.warn-list { margin: 0 0 14px; padding-left: 18px; display: grid; gap: 8px; line-height: 1.55; }
+.warn-list b { color: var(--text); }
+
 .mode-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 
 .mode-card {

@@ -69,6 +69,14 @@ function engineConfig(providerKey) {
 }
 
 const settings = () => store.settings;
+
+/**
+ * 성인 대화를 이 엔진으로 보내도 되는지. 기본은 로컬 엔진만 허용합니다.
+ * 개발자 설정에서 경고를 확인하고 클라우드 허용을 켜 두면 외부 API 로도 보냅니다.
+ */
+const adultAllowed = (config) =>
+  isLocalUrl(config?.baseUrl || '') || settings().dev?.adultCloud === true;
+
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
   console.error(e);
   if (!res.headersSent) res.status(500).json({ error: e.message });
@@ -219,6 +227,7 @@ app.put('/api/settings', (req, res) => {
   }
   if (body.dev) {
     if (typeof body.dev.particleFix === 'boolean') s.dev.particleFix = body.dev.particleFix;
+    if (typeof body.dev.adultCloud === 'boolean') s.dev.adultCloud = body.dev.adultCloud;
     if (body.dev.markup) Object.assign(s.dev.markup, body.dev.markup);
     if (body.dev.theme) Object.assign(s.dev.theme, body.dev.theme);
   }
@@ -322,7 +331,7 @@ app.post('/api/personas/roll', (req, res) => {
 /**
  * 2단계 — 씨앗 태그를 모델에 넘겨 소개 문단을 받습니다.
  * 엔진이 없거나 실패하면 태그만으로 만든 문장을 대신 돌려줍니다 (fallback: true).
- * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 로컬 엔진으로만 나갑니다.
+ * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 기본은 로컬 엔진으로만 나갑니다.
  */
 app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
   const s = settings();
@@ -343,8 +352,8 @@ app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
   const verdict = checkBaseUrl(config.baseUrl);
   if (!verdict.ok) return bail(verdict.reason);
   if (!config.apiKey && !isLocalUrl(config.baseUrl)) return bail(`${config.label} API 키가 비어 있습니다.`);
-  // 대화의 성인 프리셋과 같은 규칙: 외부 API 로는 성인 태그를 내보내지 않습니다.
-  if (adult && !isLocalUrl(config.baseUrl)) {
+  // 대화의 성인 프리셋과 같은 규칙: 클라우드 허용을 켜지 않았다면 외부 API 로는 성인 태그를 내보내지 않습니다.
+  if (adult && !adultAllowed(config)) {
     return bail(`성인 페르소나 생성은 로컬 엔진으로만 가능합니다. 지금 선택된 엔진은 로컬 주소가 아닙니다 (${config.label}).`);
   }
 
@@ -787,7 +796,7 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   } else {
     const ctx = rpContext(chat);
     if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
-    if (ctx.preset.adult && !isLocalUrl(config.baseUrl)) {
+    if (ctx.preset.adult && !adultAllowed(config)) {
       return res.status(400).json({ error: adultBlocked(ctx.preset, config) });
     }
     system = ctx.system;
@@ -957,7 +966,7 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
   const problem = engineProblem(config, provider)
-    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    || (ctx.preset.adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
   if (problem) {
     // 자동 요약은 조용히 넘어갑니다. 대화 자체는 막지 않습니다.
     if (auto) return reply({ skipped: true, reason: problem });
@@ -1027,7 +1036,7 @@ app.post('/api/chats/:id/impersonate', generateLimit, wrap(async (req, res) => {
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
   const problem = engineProblem(config, provider)
-    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    || (ctx.preset.adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
   if (problem) return res.status(400).json({ error: problem });
 
   // 로컬 엔진이 한 번에 하나만 처리하므로, 뒤에서 돌던 기억 정리는 미룹니다.
@@ -1146,12 +1155,12 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
   const adult = Boolean(ctx.preset.adult);
   const typed = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
 
-  // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 로컬 엔진으로만.
+  // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 기본적으로 로컬 엔진으로만.
   const provider = s.activeProvider;
   const config = engineConfig(provider);
   if (!typed) {
     const problem = engineProblem(config, provider)
-      || (adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+      || (adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
     if (problem) return res.status(400).json({ error: problem });
   }
 
@@ -1317,7 +1326,7 @@ app.post('/api/chats/:id/facts/extract', generateLimit, wrap(async (req, res) =>
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
   const problem = engineProblem(config, provider)
-    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    || (ctx.preset.adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
   if (problem) {
     if (auto) return reply({ skipped: true, reason: problem });
     return res.status(400).json({ error: problem });
@@ -1615,9 +1624,12 @@ app.post('/api/import', (req, res) => {
     }
     const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
     if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
+    // 성인 모드 클라우드 허용은 경고를 직접 보고 켜야 하므로 백업에서 옮겨 오지 않습니다.
+    const adultCloud = s.dev.adultCloud;
     for (const key of ['params', 'assistant', 'dev', 'memory']) {
       if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
     }
+    s.dev.adultCloud = adultCloud;
     result.settings = true;
   }
   store.saveSettings();

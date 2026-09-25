@@ -168,7 +168,7 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 | Gemini | 모델 목록 페이지네이션 (`pageToken`) | 최대 5쪽까지 수집, `supportedGenerationMethods`가 없어도 통과(문서 예제 기준) |
 | Gemini | `google_search` 도구는 Gemma 모델에서 거부됨 | 지원 여부는 `supportsWebSearch()`가 판단, 실패 시 `geminiError()`가 원인을 풀어서 안내 |
 | LM Studio 등 로컬 | `repeat_penalty`, `top_k`를 안 보내면 반복 루프가 잘 남 | `lmstudio()` 래퍼가 항상 포함 (OpenAI 본사에는 안 보냄) |
-| 공통 | 성인 틀은 로컬 엔진에서만 허용 | `isLocalUrl()` (서버: `server.js`, 클라이언트: `app.js`에 각각 구현 — 판정 규칙이 동일해야 함) |
+| 공통 | 성인 틀은 기본적으로 로컬 엔진에서만 허용 | `adultAllowed()` = `isLocalUrl()` 또는 `settings.dev.adultCloud` (서버: `server.js`, 클라이언트: `app.js`에 각각 구현 — 판정 규칙이 동일해야 함) |
 
 ### `isOpenAiHost()` 버그 이력
 
@@ -197,7 +197,8 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 요청 하나가 처리되는 순서:
 
 1. `assistant` 모드인지에 따라 시스템 프롬프트·파라미터·사고/검색 설정을 분기 (`s.assistant.*` vs 프리셋).
-2. 성인 틀이면 `isLocalUrl(config.baseUrl)` 확인 — 아니면 400.
+2. 성인 틀이면 `adultAllowed(config)` 확인 — 로컬 주소도 아니고 `dev.adultCloud` 도 꺼져 있으면 400.
+   `dev.adultCloud` 는 개발자 설정의 경고 창을 거쳐야 켜지고, 백업 불러오기로는 옮겨 오지 않습니다.
 3. `makeThoughtStripper({ onThought })` 생성. 생각을 껐으면 `onThought`를 안 넘겨서 사고 조각이
    버려지게 합니다 (일부 엔진은 꺼도 사고를 보내므로 서버에서 한 번 더 막음).
 4. `streamChat()`으로 어댑터 실행. 청크마다:
@@ -462,8 +463,8 @@ docker compose up -d
 `POST /api/personas/generate` 는 엔진 미설정·주소 거부·키 없음·모델 오류·빈 응답을 전부
 `fallbackDescription()` 으로 흡수해 **200 으로** 돌려줍니다 (`fallback: true`, `reason` 포함).
 페르소나를 만드는 중에 오류 창을 띄우는 것보다, 밋밋하더라도 문장이 들어가는 쪽이 낫기 때문입니다.
-`adult: true` 로 호출하면 대화의 성인 프리셋과 같은 규칙(`isLocalUrl`)을 한 번 더 검사합니다 —
-로컬이 아니면 모델을 부르지 않고 바로 `fallback: true` 로 빠집니다. 씨앗을 굴리기만 하는
+`adult: true` 로 호출하면 대화의 성인 프리셋과 같은 규칙(`adultAllowed`)을 한 번 더 검사합니다 —
+허용되지 않은 엔진이면 모델을 부르지 않고 바로 `fallback: true` 로 빠집니다. 씨앗을 굴리기만 하는
 `/api/personas/roll` 은 모델을 안 부르므로 이 검사가 필요 없습니다.
 
 `maxTokens` 는 설정값과 무관하게 700 으로 잘라 둡니다 — 한 문단이면 충분한데 4096 을 주면

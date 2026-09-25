@@ -485,6 +485,8 @@ const defaultSettings = () => ({
   },
   dev: {
     particleFix: true,
+    // 성인 모드를 클라우드(외부 API) 엔진에도 보낼지. 개발자 설정에서 경고를 확인해야 켜집니다.
+    adultCloud: false,
     markup: { asterisk: true, paren: true, speaker: true, quote: true },
     theme: {
       bg: '#15111a',

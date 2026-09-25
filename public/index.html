@@ -175,7 +175,7 @@
         </div>
         <label class="check-row">
           <input id="p-adult" type="checkbox">
-          <span>성인 페르소나 — 태그가 별도 풀에서 나오고, 문장 만들기는 로컬(LM Studio) 엔진으로만 보냅니다.</span>
+          <span>성인 페르소나 — 태그가 별도 풀에서 나오고, <span id="p-adult-rule">문장 만들기는 로컬(LM Studio) 엔진으로만 보냅니다.</span></span>
         </label>
         <ul id="p-seeds" class="seed-chips" hidden></ul>
         <div id="p-seed-actions" class="seed-actions" hidden>
@@ -334,7 +334,7 @@
       </label>
       <label class="check-row">
         <input id="s-preset-adult" type="checkbox">
-        <span>성인 전용 모드 — 로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.</span>
+        <span>성인 전용 모드 — <span id="s-preset-adult-rule">로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.</span></span>
       </label>
       <label class="field"><span>시스템 프롬프트</span>
         <textarea id="s-template" rows="14" spellcheck="false"></textarea>
@@ -541,6 +541,16 @@
 
       <div class="divider"></div>
 
+      <h3 class="sheet-sub">성인 모드 엔진 제한</h3>
+      <p class="field-hint">성인 모드 대화와 성인 페르소나 생성은 기본적으로 로컬 주소의 엔진(LM Studio 등)으로만 보냅니다.</p>
+      <button id="d-adult-cloud-unlock" class="ghost-btn danger" type="button">클라우드 엔진 제한 풀기…</button>
+      <label id="d-adult-cloud-row" class="check-row" hidden>
+        <input id="d-adult-cloud" type="checkbox">
+        <span>클라우드(외부 API) 엔진에서도 성인 모드 사용 — 끄고 저장하면 다시 잠기고, 이 항목도 숨겨집니다</span>
+      </label>
+
+      <div class="divider"></div>
+
       <h3 class="sheet-sub">진단</h3>
       <p class="field-hint">이 대화에서 실제로 모델에 보내는 시스템 프롬프트 전문을 봅니다. 캐릭터 설정이 제대로 들어갔는지, 비어 있는 항목이 어떻게 빠졌는지 확인할 수 있습니다.</p>
       <button id="d-show-system" class="ghost-btn" type="button">시스템 프롬프트 열기</button>
@@ -558,6 +568,36 @@
       <span class="spacer"></span>
       <button id="d-cancel" class="ghost-btn" type="button">취소</button>
       <button value="save" class="send-btn" type="submit">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 성인 모드 클라우드 허용 경고 -->
+<dialog id="dlg-adult-cloud" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">클라우드 엔진에서 성인 모드를 쓰기 전에</h2>
+    <div class="sheet-body">
+      <p class="field-hint is-warn">이 제한은 사고를 막으려고 걸어 둔 것입니다. 아래 내용을 읽고 직접 판단해 주세요.</p>
+      <ul class="warn-list">
+        <li><b>대화 전체가 외부 회사 서버로 전송됩니다.</b> 시스템 프롬프트, 캐릭터·페르소나 설정, 주고받은 메시지가
+          OpenAI · Anthropic · Google · Ollama 등 선택한 엔진의 회사로 넘어갑니다. 회사 정책에 따라 일정 기간 저장되고,
+          정책 위반 여부를 가리기 위해 사람이 검토할 수 있습니다.</li>
+        <li><b>대부분의 클라우드 서비스는 이용 약관으로 성적인 콘텐츠 생성을 제한합니다.</b> 요청이 거부될 수 있고,
+          반복되면 API 키나 계정이 정지될 수 있습니다. 쓰는 서비스의 약관을 직접 확인하고, 그 책임은 사용하는 사람이 집니다.</li>
+        <li><b>거부된 요청에도 요금이 나갈 수 있습니다.</b></li>
+        <li>켜면 성인 대화의 답변뿐 아니라 요약·기억 정리, 대신 쓰기, 장면 그리기의 태그 변환, 성인 페르소나 문장 만들기도
+          선택한 클라우드 엔진으로 나갑니다.</li>
+        <li>성인 모드의 절대 규칙(등장인물은 모두 성인, 실존 인물 금지)과 그림의 고정 차단 목록은 그대로 적용됩니다.</li>
+      </ul>
+      <label class="check-row">
+        <input id="ac-agree" type="checkbox">
+        <span>위 내용을 이해했고, 내가 쓰는 서비스의 이용 약관을 직접 확인하겠습니다.</span>
+      </label>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost-btn" type="submit">취소</button>
+      <button id="ac-confirm" value="unlock" class="send-btn" type="submit" disabled>제한 풀기</button>
     </div>
   </form>
 </dialog>
