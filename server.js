@@ -8,6 +8,12 @@ import { buildSystem, fillVars, withThinking } from './src/prompt.js';
 import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { planContext, contextLimitOf, estimateTokens, nextRatio } from './src/context.js';
 import {
+  IMAGE_DEFAULTS, DEFAULT_WORKFLOW, looksLikeWorkflow, fillWorkflow, composePrompt, splitTags,
+  IMAGE_PROMPT_SYSTEM, buildImagePrompt, parseSceneTags, seedOf, listCheckpoints, renderImage,
+  freeMemory, CORE_BLOCK_TERMS, CORE_NEGATIVE
+} from './src/image.js';
+import { mkdir, writeFile, unlink, rm } from 'node:fs/promises';
+import {
   addSwipe, showSwipe, syncSwipe, joinContinuation, CONTINUE_PROMPT, withAuthorNote,
   pendingForSummary, takeChunk, SUMMARY_MIN, SUMMARY_SYSTEM, buildSummaryPrompt, cleanSummary, MEMORY_MAX_CHARS,
   FACT_EVERY, factsWindow, turnsSinceFacts, FACTS_SYSTEM, buildFactsPrompt, parseFactOps, applyFactOps,
@@ -85,11 +91,47 @@ function settingsPayload() {
     webSearchCapable,
     defaultTemplate: DEFAULT_SYSTEM_TEMPLATE,
     // 내장 틀의 원본 내용. 설정에서 '기본 내용 가져오기' 로 되돌릴 때 씁니다.
-    builtinTemplates: BUILTIN_TEMPLATES()
+    builtinTemplates: BUILTIN_TEMPLATES(),
+    // 그림 필터 중 고칠 수 없는 부분(모든 대화에 적용). 이미지 설정 창에 읽기 전용으로 보여 줍니다.
+    imageCore: { blockTerms: CORE_BLOCK_TERMS, negative: CORE_NEGATIVE }
   };
 }
 
 app.get('/api/settings', (req, res) => res.json(settingsPayload()));
+
+/** 이미지 설정을 검사해 반영합니다. 문제가 있으면 안내 문구를 돌려주고 아무것도 바꾸지 않습니다. */
+function applyImageSettings(s, body) {
+  const img = { ...IMAGE_DEFAULTS(), ...(s.image || {}) };
+  const next = { ...img, adult: { ...img.adult } };
+  if (typeof body.baseUrl === 'string') {
+    const verdict = checkBaseUrl(body.baseUrl.trim());
+    if (!verdict.ok) return `ComfyUI 주소를 쓸 수 없습니다.\n${verdict.reason}`;
+    next.baseUrl = body.baseUrl.trim();
+  }
+  const num = (v, lo, hi) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : undefined);
+  for (const [k, lo, hi] of [['width', 256, 2048], ['height', 256, 2048], ['steps', 1, 150], ['cfg', 0, 30]]) {
+    const v = num(body[k], lo, hi);
+    if (v !== undefined) next[k] = k === 'cfg' ? v : Math.round(v / (k === 'steps' ? 1 : 8)) * (k === 'steps' ? 1 : 8);
+  }
+  for (const k of ['checkpoint', 'sampler', 'scheduler', 'prefix', 'negative']) {
+    if (typeof body[k] === 'string') next[k] = body[k].slice(0, 4000);
+  }
+  for (const k of ['enabled', 'freeAfter']) if (typeof body[k] === 'boolean') next[k] = body[k];
+  if (body.workflow === null) next.workflow = null;
+  else if (body.workflow !== undefined) {
+    if (!looksLikeWorkflow(body.workflow)) {
+      return '워크플로 형식이 아닙니다. ComfyUI 에서 "Save (API Format)" 으로 내보낸 JSON 을 올려 주세요.';
+    }
+    next.workflow = body.workflow;
+  }
+  if (body.adult && typeof body.adult === 'object') {
+    for (const k of ['forceTags', 'blockTags', 'extraNegative']) {
+      if (typeof body.adult[k] === 'string') next.adult[k] = body.adult[k].slice(0, 4000);
+    }
+  }
+  s.image = next;
+  return null;
+}
 
 app.put('/api/settings', (req, res) => {
   const s = store.settings;
@@ -170,6 +212,10 @@ app.put('/api/settings', (req, res) => {
   }
   if (typeof body.memory?.autoSummarize === 'boolean') s.memory.autoSummarize = body.memory.autoSummarize;
   if (typeof body.memory?.autoFacts === 'boolean') s.memory.autoFacts = body.memory.autoFacts;
+  if (body.image && typeof body.image === 'object') {
+    const problem = applyImageSettings(s, body.image);
+    if (problem) return res.status(400).json({ error: problem });
+  }
   if (body.dev) {
     if (typeof body.dev.particleFix === 'boolean') s.dev.particleFix = body.dev.particleFix;
     if (body.dev.markup) Object.assign(s.dev.markup, body.dev.markup);
@@ -231,7 +277,7 @@ function crud(name, collection, fields, { beforeRemove } = {}) {
 }
 
 const CHARACTER_FIELDS = [
-  'name', 'avatar', 'tags', 'description', 'personality',
+  'name', 'avatar', 'tags', 'description', 'appearance', 'personality',
   'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'
 ];
 
@@ -540,6 +586,10 @@ app.put('/api/chats/:id', (req, res) => {
 });
 
 app.delete('/api/chats/:id', wrap(async (req, res) => {
+  // 이 대화에서 그린 그림도 함께 지웁니다.
+  if (store.chats.has(req.params.id) && SAFE_ID.test(req.params.id)) {
+    await rm(imageDir(req.params.id), { recursive: true, force: true }).catch(() => {});
+  }
   if (!(await store.chats.remove(req.params.id))) {
     return res.status(404).json({ error: '없는 대화입니다.' });
   }
@@ -598,6 +648,7 @@ app.delete('/api/chats/:id/messages/:mid', (req, res) => {
   if (i < 0) return res.status(404).json({ error: '없는 메시지입니다.' });
   const [gone] = chat.messages.splice(i, 1);
   invalidateFacts(chat, gone, { rewind: false });
+  for (const img of gone.images || []) removeImageFile(chat.id, img.file);
   store.chats.save(chat.id);
   res.json({ ok: true });
 });
@@ -1027,6 +1078,178 @@ app.post('/api/chats/:id/impersonate', generateLimit, wrap(async (req, res) => {
   finished = true;
   send({ done: true, draft: cleanImpersonation(text, userName) });
   res.end();
+}));
+
+/* ---------------- 장면 그리기 (ComfyUI) ---------------- */
+
+const IMAGE_FILE = /^[a-z0-9]{6,32}\.(png|jpg|webp)$/;
+/** 한 메시지에 남겨 둘 그림 수. 넘으면 오래된 것부터 지웁니다. */
+const IMAGES_PER_MESSAGE = 6;
+
+const imageDir = (chatId) => path.join(store.dir, 'images', chatId);
+
+function removeImageFile(chatId, file) {
+  if (!SAFE_ID.test(chatId) || !IMAGE_FILE.test(file || '')) return;
+  unlink(path.join(imageDir(chatId), file)).catch(() => {});
+}
+
+/** ComfyUI 에 연결해 체크포인트 목록을 받아 봅니다. 설정 창의 '연결 확인'. query: baseUrl */
+app.get('/api/image/checkpoints', modelsLimit, wrap(async (req, res) => {
+  const baseUrl = String(req.query.baseUrl || settings().image?.baseUrl || '').trim();
+  const verdict = checkBaseUrl(baseUrl);
+  if (!baseUrl || !verdict.ok) return res.status(400).json({ error: verdict.reason || 'ComfyUI 주소를 입력해 주세요.' });
+  res.json({ checkpoints: await listCheckpoints(baseUrl) });
+}));
+
+/** 그린 그림 파일. 대화 id 와 파일 이름을 엄격히 검사해 data/images 밖으로 못 나가게 합니다. */
+app.get('/api/images/:chatId/:file', (req, res) => {
+  const { chatId, file } = req.params;
+  if (!SAFE_ID.test(chatId) || !IMAGE_FILE.test(file)) return res.status(404).end();
+  res.sendFile(path.join(imageDir(chatId), file), { maxAge: '30d', immutable: true }, (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
+});
+
+app.delete('/api/chats/:id/messages/:mid/images/:imgId', (req, res) => {
+  const chat = store.chats.get(req.params.id);
+  const msg = chat?.messages.find((m) => m.id === req.params.mid);
+  const img = msg?.images?.find((x) => x.id === req.params.imgId);
+  if (!img) return res.status(404).json({ error: '없는 그림입니다.' });
+  msg.images = msg.images.filter((x) => x !== img);
+  removeImageFile(chat.id, img.file);
+  store.chats.save(chat.id);
+  res.json({ ok: true });
+});
+
+/**
+ * 메시지 하나의 장면을 그립니다. 진행 단계를 SSE 로 알려 줍니다.
+ * body: { prompt?, random? }
+ *   prompt  사람이 고친 태그. 주면 LLM 을 건너뛰고 이걸로 그립니다 (필터는 그대로 적용)
+ *   random  시드를 무작위로. 기본은 캐릭터마다 고정 시드
+ */
+app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, res) => {
+  const s = settings();
+  const cfg = { ...IMAGE_DEFAULTS(), ...(s.image || {}) };
+  const chat = store.chats.get(req.params.id);
+  const msg = chat?.messages.find((m) => m.id === req.params.mid);
+  if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
+  if (chat.kind === 'assistant') return res.status(400).json({ error: '어시스턴트 대화에서는 그리지 않습니다.' });
+  if (!cfg.enabled) return res.status(400).json({ error: '설정 → 이미지 설정에서 장면 그리기를 먼저 켜 주세요.' });
+  const verdict = checkBaseUrl(cfg.baseUrl);
+  if (!verdict.ok) return res.status(400).json({ error: verdict.reason });
+  if (!cfg.workflow && !cfg.checkpoint) {
+    return res.status(400).json({ error: '이미지 설정에서 체크포인트를 고르거나 워크플로를 올려 주세요.' });
+  }
+  const ctx = rpContext(chat);
+  if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
+  const adult = Boolean(ctx.preset.adult);
+  const typed = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+
+  // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 로컬 엔진으로만.
+  const provider = s.activeProvider;
+  const config = engineConfig(provider);
+  if (!typed) {
+    const problem = engineProblem(config, provider)
+      || (adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const stage = (step, text) => send({ stage: step, text });
+  const controller = new AbortController();
+  let finished = false;
+  res.on('close', () => { if (!finished) controller.abort(); });
+  // 로컬 GPU 하나를 나눠 쓰므로, 뒤에서 돌던 기억 정리는 미룹니다.
+  background.get(chat.id)?.abort();
+
+  const fail = (text) => {
+    finished = true;
+    send({ error: text });
+    res.end();
+  };
+
+  try {
+    // 1) 장면 → 태그
+    let sceneTags;
+    if (typed) {
+      sceneTags = splitTags(typed);
+    } else {
+      stage('prompt', '장면을 태그로 옮기는 중');
+      const i = chat.messages.indexOf(msg);
+      const before = chat.messages.slice(Math.max(0, i - 1), i).filter((m) => m.role === 'user');
+      const scene = [...before, msg]
+        .map((m) => `${m.role === 'user' ? (ctx.persona?.name || '사용자') : ctx.character.name}: ${m.content.trim().slice(-1800)}`)
+        .join('\n\n');
+      const cast = [ctx.character, ...ctx.cast];
+      const stripper = makeThoughtStripper({});
+      let out = '';
+      const stream = streamChat({
+        provider,
+        config,
+        system: withThinking(fillVars(IMAGE_PROMPT_SYSTEM, { char: ctx.character.name, user: ctx.persona?.name, particleFix: false }), false),
+        messages: [{ role: 'user', content: buildImagePrompt({ cast, scene, userName: ctx.persona?.name || '사용자' }) }],
+        params: { ...s.params, temperature: 0.4, maxTokens: 400 },
+        signal: controller.signal
+      });
+      for await (const piece of stream) out += stripper.feed(piece);
+      sceneTags = parseSceneTags(out + stripper.flush());
+      if (!sceneTags.length) return fail('모델이 태그를 쓰지 못했습니다. 다시 시도하거나 🎨 옆 "태그 고쳐 그리기" 로 직접 적어 주세요.');
+    }
+
+    // 2) 조립·필터. 등장인물이 한 명이면 외형 태그를 앞에 확실히 박아 둡니다.
+    const appearance = ctx.cast.length ? [] : splitTags(ctx.character.appearance || '');
+    const composed = composePrompt({ cfg, sceneTags, appearance, adult });
+    if (composed.blocked) {
+      return fail(`미성년으로 읽힐 수 있는 표현이 있어 그리지 않았습니다: ${composed.blocked.join(', ')}\n` +
+        '이 차단은 설정에서 끌 수 없습니다. 캐릭터 외형 태그나 장면을 확인해 주세요.');
+    }
+    send({ prompt: composed.prompt, removed: composed.removed });
+
+    // 3) ComfyUI
+    const seed = req.body?.random
+      ? Math.floor(Math.random() * 4294967295)
+      : seedOf(ctx.character.id || ctx.character.name);
+    const workflow = fillWorkflow(cfg.workflow || DEFAULT_WORKFLOW, {
+      prompt: composed.prompt,
+      negative: composed.negative,
+      seed,
+      width: cfg.width,
+      height: cfg.height,
+      steps: cfg.steps,
+      cfg: cfg.cfg,
+      sampler: cfg.sampler,
+      scheduler: cfg.scheduler,
+      checkpoint: cfg.checkpoint
+    });
+    stage('draw', 'ComfyUI 에 보내는 중');
+    const { buffer, ext } = await renderImage(cfg.baseUrl, workflow, { signal: controller.signal, onStage: stage });
+
+    // 4) 저장. 생성하는 동안 메시지가 지워졌으면 파일도 남기지 않습니다.
+    if (!chat.messages.includes(msg)) return fail('그리는 동안 메시지가 삭제되었습니다.');
+    const id = uid();
+    const file = `${id}${Date.now().toString(36)}.${ext}`.toLowerCase();
+    await mkdir(imageDir(chat.id), { recursive: true });
+    await writeFile(path.join(imageDir(chat.id), file), buffer);
+    const image = { id, file, prompt: composed.prompt, seed, at: Date.now() };
+    msg.images = [...(msg.images || []), image];
+    while (msg.images.length > IMAGES_PER_MESSAGE) removeImageFile(chat.id, msg.images.shift().file);
+    store.chats.save(chat.id);
+
+    finished = true;
+    send({ done: true, image, images: msg.images });
+    res.end();
+    // 같은 GPU 의 LLM 이 다시 VRAM 을 쓸 수 있게 풉니다. 응답을 보낸 뒤라 기다리지 않습니다.
+    if (cfg.freeAfter) freeMemory(cfg.baseUrl);
+  } catch (e) {
+    if (controller.signal.aborted) { finished = true; return; }
+    fail(e.message);
+  }
 }));
 
 /**

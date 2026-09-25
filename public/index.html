@@ -136,6 +136,7 @@
       </div>
       <label class="field"><span>태그</span><input id="c-tags" placeholder="일상, 학원물 (쉼표로 구분)"></label>
       <label class="field"><span>한 줄 소개</span><input id="c-description" placeholder="같은 과 선배. 밤에만 옥상에 나타난다."></label>
+      <label class="field"><span>외형 태그 <small class="field-hint">— 장면 그리기용. 영어 Danbooru 태그</small></span><input id="c-appearance" spellcheck="false" placeholder="1girl, long black hair, red eyes, slender, gray hoodie"></label>
       <label class="field"><span>성격</span><textarea id="c-personality" rows="3" placeholder="무심한 척하지만 은근히 챙긴다. 자기 얘기는 잘 하지 않는다."></textarea></label>
       <label class="field"><span>말투</span><textarea id="c-speech" rows="2" placeholder="짧은 문장. 놀릴 때는 끝을 끈다."></textarea></label>
       <label class="field"><span>배경과 상황</span><textarea id="c-scenario" rows="3" placeholder="늦은 밤 학교 옥상. {{user}}가 문을 열고 들어선다."></textarea></label>
@@ -362,6 +363,7 @@
       <a href="/api/export" download class="ghost-btn as-link">백업 내려받기</a>
       <button id="s-import" class="ghost-btn" type="button" title="내려받은 백업 파일을 지금 데이터에 합칩니다">백업 불러오기</button>
       <input id="s-import-file" type="file" accept=".json,application/json" hidden>
+      <button id="btn-open-image" class="ghost-btn" type="button">이미지 설정</button>
       <button id="btn-open-dev" class="ghost-btn" type="button">개발자 설정</button>
       <span class="spacer"></span>
       <button id="s-cancel" class="ghost-btn" type="button">취소</button>
@@ -391,6 +393,89 @@
       </label>
       <span class="spacer"></span>
       <button id="nc-cancel" class="ghost-btn" type="button">취소</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 이미지 (ComfyUI) -->
+<dialog id="dlg-image" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">이미지 설정 — ComfyUI 장면 그리기</h2>
+    <div class="sheet-body">
+      <label class="check-row">
+        <input id="i-enabled" type="checkbox">
+        <span>장면 그리기 켜기 — 답변 아래에 <b>🎨 그리기</b> 버튼이 생깁니다</span>
+      </label>
+
+      <label class="field"><span>ComfyUI 주소</span>
+        <span class="model-row">
+          <input id="i-baseurl" spellcheck="false" placeholder="http://127.0.0.1:8188">
+          <button id="i-check" class="ghost-btn" type="button">연결 확인</button>
+        </span>
+      </label>
+      <p id="i-status" class="field-hint">Docker 로 돌린다면 PC 주소(예: http://192.168.0.10:8188)를 쓰고, compose 의 LOCAL_ENGINE_HOSTS 에 그 IP 를 넣어 주세요.</p>
+
+      <label class="field"><span>체크포인트 <small class="field-hint">— 기본 워크플로에서 씁니다</small></span>
+        <input id="i-checkpoint" list="i-ckpts" spellcheck="false" placeholder="연결 확인을 누르면 목록이 나옵니다">
+        <datalist id="i-ckpts"></datalist>
+      </label>
+
+      <div class="grid-4">
+        <label class="field"><span>크기</span>
+          <select id="i-size">
+            <option value="832x1216">세로 832×1216</option>
+            <option value="1216x832">가로 1216×832</option>
+            <option value="1024x1024">정사각 1024</option>
+          </select>
+        </label>
+        <label class="field"><span>스텝</span><input id="i-steps" type="number" min="1" max="150"></label>
+        <label class="field"><span>CFG</span><input id="i-cfg" type="number" min="0" max="30" step="0.5"></label>
+        <label class="field"><span>샘플러</span><input id="i-sampler" spellcheck="false" placeholder="euler_ancestral"></label>
+      </div>
+
+      <label class="field"><span>앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small></span>
+        <textarea id="i-prefix" rows="2" spellcheck="false"></textarea></label>
+      <label class="field"><span>네거티브</span><textarea id="i-negative" rows="2" spellcheck="false"></textarea></label>
+
+      <div class="field"><span>워크플로</span></div>
+      <div class="seed-head">
+        <span id="i-workflow-status" class="field-hint grow"></span>
+        <button id="i-workflow-upload" class="ghost-btn" type="button">워크플로 올리기</button>
+        <button id="i-workflow-reset" class="ghost-btn" type="button">기본으로</button>
+        <input id="i-workflow-file" type="file" accept=".json,application/json" hidden>
+      </div>
+      <p class="field-hint">
+        ComfyUI 에서 <b>Save (API Format)</b> 으로 내보낸 JSON 을 올리면 그대로 씁니다. 값 칸에 아래 자리표시자를 적어 두면 앱이 채웁니다.<br>
+        <code>{{prompt}}</code> <code>{{negative}}</code> <code>{{seed}}</code> <code>{{width}}</code> <code>{{height}}</code>
+        <code>{{steps}}</code> <code>{{cfg}}</code> <code>{{sampler}}</code> <code>{{scheduler}}</code> <code>{{checkpoint}}</code>
+      </p>
+
+      <label class="check-row">
+        <input id="i-free" type="checkbox">
+        <span>그린 뒤 ComfyUI 메모리 비우기 — LLM 과 같은 GPU 를 쓸 때 켜 두세요. 다음 그림은 모델을 다시 올리느라 조금 늦게 시작합니다</span>
+      </label>
+
+      <div class="divider"></div>
+      <h3 class="sheet-sub">성인 대화 필터</h3>
+      <p class="field-hint">성인 모드 대화에서 그릴 때만 적용됩니다. 쉼표로 구분하고, <code>*</code> 는 아무 글자나로 봅니다 (예: <code>*blood*</code>).</p>
+      <label class="field"><span>항상 붙일 태그</span><input id="i-force" spellcheck="false" placeholder="adult"></label>
+      <label class="field"><span>지울 태그 <small class="field-hint">— 장면 태그에 섞여 나오면 빼고 그립니다</small></span>
+        <textarea id="i-block" rows="2" spellcheck="false" placeholder="gore, *blood*, vomit"></textarea></label>
+      <label class="field"><span>더할 네거티브</span><textarea id="i-extra-neg" rows="2" spellcheck="false"></textarea></label>
+      <details class="core-block">
+        <summary>고정 차단 목록 — 모든 대화에 적용, 수정할 수 없습니다</summary>
+        <p class="field-hint">
+          미성년으로 읽힐 수 있는 표현입니다. 그림 태그에 하나라도 나오면 빼고 그리는 대신 <b>그리지 않습니다</b>.
+          다른 태그만으로도 어려 보이는 그림이 나올 수 있어서입니다. 일반 대화에도 적용되고, 아래 네거티브도 늘 함께 붙습니다.
+        </p>
+        <p id="i-core-terms" class="core-terms"></p>
+        <p id="i-core-neg" class="core-terms"></p>
+      </details>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button id="i-cancel" class="ghost-btn" type="button">취소</button>
+      <button value="save" class="send-btn" type="submit">저장</button>
     </div>
   </form>
 </dialog>

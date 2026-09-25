@@ -219,6 +219,13 @@ data: {"done": true, "message": {...}}   완료
 
 ---
 
+### 장면 그리기 — `src/image.js`
+
+- 흐름: `IMAGE_PROMPT_SYSTEM` 으로 LLM 에게 장면 → Danbooru 태그 → `parseSceneTags` → `composePrompt`(품질 태그 + 성인 강제 태그 + 외형 + 장면, 필터) → `fillWorkflow` → `renderImage`(`/prompt` → `/history` 1초 폴링 → `/view`) → `data/images/<chatId>/<file>` 저장 → `msg.images`
+- 워크플로는 `settings.image.workflow`(API 형식 JSON) 또는 `DEFAULT_WORKFLOW`. 값 전체가 `"{{seed}}"` 면 원래 타입(숫자)으로, 글 안에 섞이면 글자로 채웁니다
+- 필터: 사용자 설정(`image.adult.forceTags/blockTags/extraNegative`)은 성인 대화에만. `CORE_BLOCK_TERMS`·나이 표기·`CORE_NEGATIVE` 는 **모든 대화에** 고정 적용이며, 걸리면 지우지 않고 그리기를 거부합니다. 설정 API 로도 바꿀 수 없게 코드에만 둡니다
+- 그림 경로는 `SAFE_ID` + `IMAGE_FILE` 로 검사해 `data/images` 밖으로 못 나갑니다. 메시지·대화를 지우면 파일도 지웁니다. 메시지당 6장
+
 ### 컨텍스트 예산 — `src/context.js`
 
 - `estimateTokens` 는 토크나이저 없이 글자 종류로 어림합니다 (한글 음절 0.9, ASCII 0.3, 그 밖 0.8)
@@ -275,6 +282,10 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
 | POST | `/api/chats/:id/facts/extract` | `{ auto }` 최근 대화에서 사실을 뽑아 `chat.facts` 에 추가·수정·삭제. auto 는 답변 4개 이상 쌓였을 때만. 새 generate 요청이 오면 멈춤 |
 | POST | `/api/chats/:id/impersonate` | `{ hint }` 대신 쓰기. 내 다음 차례 초안을 SSE 로 흘려보내고 `done` 에 정리된 `draft`. 저장하지 않음 |
+| POST | `/api/chats/:id/messages/:mid/image` | `{ prompt?, random? }` 장면 그리기. SSE 로 `stage`·`prompt`·`done{image, images}`. prompt 를 주면 LLM 을 건너뜀 |
+| DELETE | `/api/chats/:id/messages/:mid/images/:imgId` | 그림 삭제 |
+| GET | `/api/images/:chatId/:file` | 그림 파일 |
+| GET | `/api/image/checkpoints?baseUrl=` | ComfyUI 연결 확인 + 체크포인트 목록 |
 | GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |

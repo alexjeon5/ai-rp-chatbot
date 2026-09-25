@@ -171,6 +171,22 @@ Heretic 으로 거부 응답을 걷어낸 버전입니다. 제작자 측정으�
 따라서 모드를 바꿔도 화면 설정을 따로 건드릴 필요가 없습니다.
 
 
+## 장면 그리기 (ComfyUI)
+
+같은 PC 나 LAN 에서 도는 ComfyUI 로 답변 장면을 그립니다. 설정 → **이미지 설정** 에서 켜면 답변마다 **🎨 그리기** 버튼이 생깁니다.
+
+1. 지금 LLM 이 장면을 영어 Danbooru 태그로 옮깁니다 (성인 대화는 로컬 엔진으로만)
+2. 앞에 붙일 품질 태그 + 캐릭터의 **외형 태그** + 장면 태그를 합쳐 ComfyUI 에 보냅니다
+3. 다 그리면 `data/images/<대화 id>/` 에 저장하고 답변 아래에 보여 줍니다. 그림마다 *다시 그리기*(다른 시드), *태그 고쳐 그리기*, *삭제*
+
+- **권장 모델**: SDXL 애니메 계열(Illustrious XL, NoobAI-XL 파생). 태그로 외형을 고정하기 쉽고 LLM 과 GPU 를 나눠 쓸 만한 크기입니다. Pony 계열이면 앞에 붙일 태그를 `score_9, score_8_up, …` 로 바꾸세요
+- **워크플로**: 기본 SDXL txt2img 가 들어 있어 체크포인트만 고르면 됩니다. 직접 짠 워크플로는 ComfyUI 의 *Save (API Format)* JSON 을 올리고, 값 칸에 `{{prompt}}` `{{negative}}` `{{seed}}` `{{width}}` `{{height}}` `{{steps}}` `{{cfg}}` `{{sampler}}` `{{scheduler}}` `{{checkpoint}}` 를 적어 두면 채워 넣습니다
+- **캐릭터 외형 태그**: 캐릭터 창의 *외형 태그* 칸 (`1girl, adult, long black hair, red eyes, gray hoodie`). 첫 그림은 캐릭터마다 고정 시드라 비슷한 얼굴로 나옵니다
+- **같은 GPU 에서 LLM 과 함께 쓸 때**: LM Studio 에서 *Force MoE expert weights onto CPU* 를 켜 VRAM 을 비우고, *그린 뒤 ComfyUI 메모리 비우기* 를 켜 두세요
+- **Docker**: ComfyUI 주소를 PC IP 로 쓰고(`http://192.168.0.10:8188`) compose 의 `LOCAL_ENGINE_HOSTS` 에 그 IP 를 넣습니다
+- **필터**: 성인 대화용 *항상 붙일 태그 / 지울 태그 / 더할 네거티브* 는 이미지 설정에서 직접 고칩니다. 미성년으로 읽히는 표현은 **모든 대화에서** 고정으로 막히며(설정으로 끌 수 없음), 나오면 그림을 그리지 않습니다
+- 그림 파일은 백업 JSON 에 들어가지 않습니다. `data` 폴더를 복사하면 함께 보존됩니다
+
 ## 캐릭터 만들기
 
 | 칸 | 쓰임 |

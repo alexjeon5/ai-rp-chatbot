@@ -12,6 +12,7 @@ export const CHAR_FIELDS = [
   { key: 'avatar', label: '아이콘', hint: '이 인물을 나타내는 이모지 하나' },
   { key: 'tags', label: '태그', hint: '장르나 분위기 두세 개, 쉼표로 구분' },
   { key: 'description', label: '한 줄 소개', hint: '목록에서 보일 한 문장' },
+  { key: 'appearance', label: '외형 태그', hint: '그림용. 머리·눈·체형·옷차림을 영어 Danbooru 태그 5~10개로, 쉼표로 구분. 예: long black hair, red eyes, gray hoodie' },
   { key: 'personality', label: '성격', hint: '연기의 뼈대. 행동으로 드러나는 성질을 2~4문장' },
   { key: 'speech', label: '말투', hint: '문장 길이, 존대/반말, 버릇을 1~2문장' },
   { key: 'scenario', label: '배경과 상황', hint: '첫 장면의 무대. {{user}}가 어디서 마주치는지' },
@@ -29,7 +30,7 @@ const BY_LABEL = new Map(CHAR_FIELDS.map((f) => [f.label, f.key]));
  */
 const ALIASES = {
   소개: 'description', 설명: 'description', 특징: 'description',
-  외모: 'description', 생김새: 'description',
+  외모: 'appearance', 생김새: 'appearance', 외형: 'appearance', '외모 태그': 'appearance',
   배경: 'scenario', 상황: 'scenario', 무대: 'scenario',
   말버릇: 'speech', 어투: 'speech',
   인사: 'greeting', 오프닝: 'greeting', 첫인사: 'greeting',

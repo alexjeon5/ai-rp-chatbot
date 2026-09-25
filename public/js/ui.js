@@ -410,6 +410,29 @@ function hostOf(url = '') {
   }
 }
 
+/* 장면 그리기가 켜져 있으면 답변마다 🎨 버튼을 붙입니다. 대화 id 는 그림 주소에 씁니다. */
+let drawing = { enabled: false, chatId: '' };
+export function setDrawing(next) { drawing = { ...drawing, ...next }; }
+
+/** 그림 한 장. 누르면 새 탭에서 원본을 엽니다. */
+export function imageFigure(chatId, img) {
+  const src = `/api/images/${encodeURIComponent(chatId)}/${encodeURIComponent(img.file)}`;
+  return `<figure class="turn-image" data-img="${esc(img.id)}">
+    <a href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(img.prompt || '')}"></a>
+    <figcaption>
+      <button type="button" class="tool" data-act="img-redraw" title="같은 장면을 다른 시드로">다시 그리기</button>
+      <button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>
+      <button type="button" class="tool" data-act="img-del">삭제</button>
+    </figcaption>
+  </figure>`;
+}
+
+function imagesBlock(message) {
+  if (!message.images?.length || !drawing.chatId) return '';
+  // 최근 그림이 앞에 오게 합니다.
+  return `<div class="turn-images">${[...message.images].reverse().map((img) => imageFigure(drawing.chatId, img)).join('')}</div>`;
+}
+
 /** 답변 넘겨보기. 두 장 이상일 때만 보입니다. */
 function swipeNav(message) {
   const total = message.swipes?.length || 0;
@@ -434,10 +457,12 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
       .map((src) => `<li><a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title?.trim() || src.url)}</a></li>`)
       .join('')}</ol></details>` : ''}
     ${isUser ? '' : swipeNav(message)}
+    ${isUser ? '' : imagesBlock(message)}
     <div class="turn-tools">
       <button class="tool" data-act="edit">수정</button>
       <button class="tool" data-act="copy">복사</button>
       <button class="tool" data-act="delete">삭제</button>
+      ${!isUser && !plain && drawing.enabled ? '<button class="tool" data-act="draw" title="이 장면을 ComfyUI 로 그립니다">🎨 그리기</button>' : ''}
     </div>`;
   return li;
 }

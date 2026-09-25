@@ -1,4 +1,4 @@
-import { api, generate, impersonate } from './api.js';
+import { api, generate, impersonate, drawImage } from './api.js';
 import * as ui from './ui.js';
 import { enhanceSelects } from './select.js';
 
@@ -600,8 +600,14 @@ async function refreshContext() {
   if (state.chat === chat) paintContext(info);
 }
 
+/** 🎨 버튼과 그림 주소를 그릴 대화에 맞춥니다. 롤플레이 대화이고 설정에서 켰을 때만 보입니다. */
+function syncDrawing(chat) {
+  ui.setDrawing({ enabled: Boolean(state.settings.image?.enabled) && chat?.kind !== 'assistant', chatId: chat?.id || '' });
+}
+
 function paintThread() {
   if (!state.chat) return;
+  syncDrawing(state.chat);
   ui.renderThread(state.chat, characterOf(state.chat), personaOf(state.chat), {
     bubbles: isBubbles(state.chat),
     charLabel: charLabel(state.chat)
@@ -610,6 +616,7 @@ function paintThread() {
 
 /** 메시지 하나를 그립니다. 생성이 끝났거나 답변을 넘겨볼 때 그 자리를 갈아 끼웁니다. */
 function turnFor(chat, message) {
+  syncDrawing(chat);
   const assistant = chat.kind === 'assistant';
   const isUser = message.role === 'user';
   return ui.turnEl({
@@ -814,6 +821,178 @@ function setStreaming(on) {
   // 막대가 생기고 사라지면서 입력창 높이가 달라지므로 다시 맞춰 줍니다.
   ui.scrollToEnd();
 }
+
+/* ---------------- 장면 그리기 ---------------- */
+
+// 지금 그리는 중인 메시지. 같은 메시지를 두 번 겹쳐 그리지 않게 합니다.
+const drawingNow = new Set();
+
+/**
+ * 메시지 하나의 장면을 ComfyUI 로 그립니다. 답변 아래에 자리를 잡고 진행 단계를 보여 줍니다.
+ * @param {object} [o]
+ * @param {string} [o.prompt] 고친 태그 (주면 LLM 을 건너뜀)
+ * @param {boolean} [o.random] 무작위 시드 (다시 그리기)
+ */
+async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
+  if (!chat || drawingNow.has(msg.id)) return;
+  drawingNow.add(msg.id);
+  const box = turn.querySelector('.turn-images') || (() => {
+    const div = document.createElement('div');
+    div.className = 'turn-images';
+    (turn.querySelector('.swipe-nav') || turn.querySelector('.turn-text')).after(div);
+    return div;
+  })();
+  const slot = document.createElement('figure');
+  slot.className = 'turn-image is-pending';
+  slot.textContent = prompt ? '그리는 중' : '장면을 읽는 중';
+  box.prepend(slot);
+  const started = Date.now();
+  let label = slot.textContent;
+  const tick = setInterval(() => { slot.textContent = `${label} · ${Math.round((Date.now() - started) / 1000)}초`; }, 1000);
+
+  try {
+    const result = await drawImage(chat.id, msg.id, {
+      prompt,
+      random,
+      onEvent: (e) => {
+        if (e.stage) { label = e.text; slot.textContent = e.text; }
+        if (e.prompt) slot.title = e.prompt;
+        if (e.removed?.length) ui.toast(`필터로 뺀 태그: ${e.removed.join(', ')}`);
+      }
+    });
+    if (!result.images) throw new Error('그림을 받지 못했습니다.');
+    msg.images = result.images;
+    // 그리는 동안 다른 대화로 옮겼다면 화면은 건드리지 않습니다.
+    const live = state.chat === chat && document.querySelector(`#thread [data-mid="${msg.id}"]`);
+    if (live) live.replaceWith(turnFor(chat, msg));
+  } catch (e) {
+    slot.className = 'turn-image is-error';
+    slot.textContent = `${e.message}\n(눌러서 닫기)`;
+    slot.addEventListener('click', () => slot.remove(), { once: true });
+  } finally {
+    clearInterval(tick);
+    drawingNow.delete(msg.id);
+  }
+}
+
+/* --- 이미지 설정 창 --- */
+
+const dlgImage = $('dlg-image');
+// undefined: 건드리지 않음, null: 기본으로 되돌림, object: 새로 올린 것
+let draftWorkflow;
+
+function paintWorkflowStatus() {
+  const wf = draftWorkflow === undefined ? state.settings.image?.workflow : draftWorkflow;
+  $('i-workflow-status').textContent = wf
+    ? `올린 워크플로 사용 중 — 노드 ${Object.keys(wf).length}개${draftWorkflow ? ' (저장 전)' : ''}`
+    : '기본 SDXL 워크플로 사용 중 — 체크포인트만 고르면 됩니다';
+}
+
+$('btn-open-image').addEventListener('click', () => {
+  const img = state.settings.image || {};
+  draftWorkflow = undefined;
+  $('i-enabled').checked = Boolean(img.enabled);
+  $('i-baseurl').value = img.baseUrl || '';
+  $('i-checkpoint').value = img.checkpoint || '';
+  const size = `${img.width}x${img.height}`;
+  const sel = $('i-size');
+  if (![...sel.options].some((o) => o.value === size)) sel.add(new Option(`지금 값 ${img.width}×${img.height}`, size));
+  sel.value = size;
+  $('i-steps').value = img.steps;
+  $('i-cfg').value = img.cfg;
+  $('i-sampler').value = img.sampler || '';
+  $('i-prefix').value = img.prefix || '';
+  $('i-negative').value = img.negative || '';
+  $('i-free').checked = img.freeAfter !== false;
+  $('i-force').value = img.adult?.forceTags || '';
+  $('i-block').value = img.adult?.blockTags || '';
+  $('i-extra-neg').value = img.adult?.extraNegative || '';
+  $('i-core-terms').textContent = `차단: ${(state.settings.imageCore?.blockTerms || []).join(', ')} · 17세 이하 나이 표기`;
+  $('i-core-neg').textContent = `늘 붙는 네거티브: ${state.settings.imageCore?.negative || ''}`;
+  paintWorkflowStatus();
+  dlgImage.showModal();
+});
+
+$('i-cancel').addEventListener('click', () => dlgImage.close('cancel'));
+
+$('i-check').addEventListener('click', async () => {
+  const baseUrl = $('i-baseurl').value.trim();
+  $('i-status').textContent = '연결하는 중…';
+  try {
+    const { checkpoints } = await api.imageCheckpoints(baseUrl);
+    $('i-ckpts').innerHTML = checkpoints.map((c) => `<option value="${ui.escapeHtml(c)}">`).join('');
+    if (!$('i-checkpoint').value && checkpoints.length) $('i-checkpoint').value = checkpoints[0];
+    $('i-status').textContent = checkpoints.length
+      ? `연결됐습니다 — 체크포인트 ${checkpoints.length}개. 입력칸을 누르면 목록이 나옵니다.`
+      : '연결됐지만 체크포인트가 없습니다. ComfyUI 의 models/checkpoints 폴더를 확인해 주세요.';
+  } catch (e) {
+    $('i-status').textContent = `연결하지 못했습니다 — ${e.message}`;
+  }
+});
+
+$('i-workflow-upload').addEventListener('click', () => {
+  $('i-workflow-file').value = '';
+  $('i-workflow-file').click();
+});
+
+$('i-workflow-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const json = JSON.parse(await file.text());
+    const nodes = Object.values(json || {});
+    if (!nodes.length || !nodes.every((n) => n?.class_type && n?.inputs)) {
+      return ui.toast('API 형식 워크플로가 아닙니다. ComfyUI 에서 Save (API Format) 으로 내보내 주세요.');
+    }
+    const text = JSON.stringify(json);
+    if (!text.includes('{{prompt}}')) {
+      ui.toast('워크플로에 {{prompt}} 자리가 없습니다. 긍정 프롬프트 칸에 {{prompt}} 를 적어 두어야 장면이 들어갑니다.');
+    }
+    draftWorkflow = json;
+    paintWorkflowStatus();
+  } catch {
+    ui.toast('JSON 파일을 읽지 못했습니다.');
+  }
+});
+
+$('i-workflow-reset').addEventListener('click', () => {
+  draftWorkflow = null;
+  paintWorkflowStatus();
+});
+
+dlgImage.addEventListener('close', async () => {
+  if (dlgImage.returnValue !== 'save') return;
+  const [width, height] = $('i-size').value.split('x').map(Number);
+  const image = {
+    enabled: $('i-enabled').checked,
+    baseUrl: $('i-baseurl').value.trim(),
+    checkpoint: $('i-checkpoint').value.trim(),
+    width,
+    height,
+    steps: Number($('i-steps').value),
+    cfg: Number($('i-cfg').value),
+    sampler: $('i-sampler').value.trim() || 'euler_ancestral',
+    prefix: $('i-prefix').value.trim(),
+    negative: $('i-negative').value.trim(),
+    freeAfter: $('i-free').checked,
+    adult: {
+      forceTags: $('i-force').value.trim(),
+      blockTags: $('i-block').value.trim(),
+      extraNegative: $('i-extra-neg').value.trim()
+    }
+  };
+  if (draftWorkflow !== undefined) image.workflow = draftWorkflow;
+  try {
+    state.settings = await api.saveSettings({ image });
+  } catch (e) {
+    dlgImage.returnValue = '';
+    dlgImage.showModal();
+    return ui.toast(`저장하지 못했습니다 — ${e.message}`);
+  }
+  // 🎨 버튼이 생기거나 사라지도록 다시 그립니다.
+  if (!state.run) paintThread();
+  ui.toast(image.enabled ? '이미지 설정을 저장했습니다 — 답변 아래 🎨 그리기로 그려 보세요' : '이미지 설정을 저장했습니다');
+});
 
 /* ---------------- 대신 쓰기 ---------------- */
 
@@ -1161,6 +1340,30 @@ document.getElementById('messages').addEventListener('click', async (e) => {
   const msg = state.chat.messages.find((m) => m.id === mid);
   if (!msg) return;
 
+  if (btn.dataset.act === 'draw') return drawScene(state.chat, msg, turn);
+  if (btn.dataset.act.startsWith('img-')) {
+    const imgId = btn.closest('[data-img]')?.dataset.img;
+    const img = msg.images?.find((x) => x.id === imgId);
+    if (!img) return;
+    if (btn.dataset.act === 'img-redraw') return drawScene(state.chat, msg, turn, { prompt: img.prompt, random: true });
+    if (btn.dataset.act === 'img-edit') {
+      const edited = window.prompt('그림 태그 (쉼표로 구분). 품질 태그·필터는 저장 시 다시 적용됩니다.', img.prompt);
+      if (edited?.trim()) drawScene(state.chat, msg, turn, { prompt: edited.trim(), random: true });
+      return;
+    }
+    if (btn.dataset.act === 'img-del') {
+      if (!confirm('이 그림을 지울까요?')) return;
+      try {
+        await api.deleteImage(state.chat.id, mid, imgId);
+        msg.images = msg.images.filter((x) => x !== img);
+        turn.replaceWith(turnFor(state.chat, msg));
+      } catch (err) {
+        ui.toast(`지우지 못했습니다 — ${err.message}`);
+      }
+    }
+    return;
+  }
+
   if (btn.dataset.act === 'swipe-prev' || btn.dataset.act === 'swipe-next') {
     if (state.run) return;
     const chat = state.chat;
@@ -1322,7 +1525,7 @@ $('btn-stop').addEventListener('click', () => stopGeneration());
 
 /* ---------------- 캐릭터 시트 ---------------- */
 
-const CHAR_FIELDS = ['avatar', 'name', 'tags', 'description', 'personality',
+const CHAR_FIELDS = ['avatar', 'name', 'tags', 'description', 'appearance', 'personality',
   'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'];
 const dlgChar = $('dlg-character');
 

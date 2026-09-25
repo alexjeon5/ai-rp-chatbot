@@ -19,6 +19,9 @@ export const api = {
     req(`/api/providers/${encodeURIComponent(provider)}/unavailable`, { method: 'DELETE' }),
   importBackup: (data, includeSettings) =>
     req('/api/import', { method: 'POST', body: { data, includeSettings } }),
+  imageCheckpoints: (baseUrl) => req(`/api/image/checkpoints?baseUrl=${encodeURIComponent(baseUrl)}`),
+  deleteImage: (chatId, mid, imgId) =>
+    req(`/api/chats/${chatId}/messages/${mid}/images/${imgId}`, { method: 'DELETE' }),
   logs: () => req('/api/logs'),
   clearLogs: () => req('/api/logs', { method: 'DELETE' }),
 
@@ -69,7 +72,17 @@ export function impersonate(chatId, { hint = '', ...handlers }) {
   return streamPost(`/api/chats/${chatId}/impersonate`, { hint }, handlers);
 }
 
-async function streamPost(url, body, { signal, onDelta, onThought, onSources, onContext }) {
+/**
+ * 장면 그리기. 단계마다 onEvent({ stage, text } | { prompt }) 를 부르고, 끝나면 { image, images } 를 돌려줍니다.
+ * @param {object} o
+ * @param {string} [o.prompt] 사람이 고친 태그. 주면 LLM 을 건너뜁니다
+ * @param {boolean} [o.random] 무작위 시드
+ */
+export function drawImage(chatId, mid, { prompt, random = false, ...handlers }) {
+  return streamPost(`/api/chats/${chatId}/messages/${mid}/image`, { prompt, random }, handlers);
+}
+
+async function streamPost(url, body, { signal, onDelta, onThought, onSources, onContext, onEvent }) {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -102,6 +115,7 @@ async function streamPost(url, body, { signal, onDelta, onThought, onSources, on
       if (payload.thought) onThought?.(payload.thought);
       if (payload.sources) onSources?.(payload.sources);
       if (payload.context) onContext?.(payload.context);
+      onEvent?.(payload);
       if (payload.done) result = payload;
     }
   }
