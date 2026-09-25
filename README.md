@@ -199,7 +199,7 @@ Heretic 으로 거부 응답을 걷어낸 버전입니다. 제작자 측정으�
 - **부정 태그**: 그림마다 저장되어 *다시 그리기* 에도 그대로 쓰이고, *태그 고쳐 그리기* 창에서 태그와 함께 고칩니다. 설정의 네거티브와 고정 네거티브는 늘 더해집니다
 - **권장 모델**: SDXL 애니메 계열(Illustrious XL, NoobAI-XL 파생). 태그로 외형을 고정하기 쉽고 LLM 과 GPU 를 나눠 쓸 만한 크기입니다. Pony 계열이면 앞에 붙일 태그를 `score_9, score_8_up, …` 로 바꾸세요
 - **워크플로**: 기본 SDXL txt2img 가 들어 있어 체크포인트만 고르면 됩니다. 직접 짠 워크플로는 ComfyUI 의 *Save (API Format)* JSON 을 올리고, 값 칸에 `{{prompt}}` `{{negative}}` `{{seed}}` `{{width}}` `{{height}}` `{{steps}}` `{{cfg}}` `{{sampler}}` `{{scheduler}}` `{{checkpoint}}` 를 적어 두면 채워 넣습니다
-- **캐릭터 외형 태그**: 캐릭터 창의 *외형 태그* 칸 (`1girl, adult, long black hair, red eyes, gray hoodie`). 첫 그림은 캐릭터마다 고정 시드라 비슷한 얼굴로 나옵니다
+- **캐릭터 외형 태그**: 캐릭터 창의 *외형 태그* 칸 (`1girl, adult, long black hair, red eyes, gray hoodie`). 첫 그림은 캐릭터마다 고정 시드라 비슷한 얼굴로 나옵니다. 내장 캐릭터 여섯은 외형 태그가 기본으로 들어 있고, 외형 태그 칸이 생기기 전에 넣어 둔 내장 캐릭터도 앱을 켤 때 비어 있으면 채워집니다 (직접 고친 태그는 그대로)
 - **같은 GPU 에서 LLM 과 함께 쓸 때**: LM Studio 에서 *Force MoE expert weights onto CPU* 를 켜 VRAM 을 비우고, *그린 뒤 ComfyUI 메모리 비우기* 를 켜 두세요
 - **Docker**: ComfyUI 주소를 PC IP 로 쓰고(`http://192.168.0.10:8188`) compose 의 `LOCAL_ENGINE_HOSTS` 에 그 IP 를 넣습니다
 - **필터**: 성인 대화용 *항상 붙일 태그 / 지울 태그 / 더할 네거티브* 는 설정의 이미지 탭에서 직접 고칩니다. 미성년으로 읽히는 표현은 **모든 대화에서** 고정으로 막히며(설정으로 끌 수 없음), 나오면 그림을 그리지 않습니다
