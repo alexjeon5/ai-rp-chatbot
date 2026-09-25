@@ -60,6 +60,8 @@ data/chats/<id>.json      대화 하나가 파일 하나
 | OpenAI | `https://api.openai.com/v1` | `sk-...` |
 | Anthropic | `https://api.anthropic.com/v1` | `sk-ant-...` |
 | Gemini | `https://generativelanguage.googleapis.com/v1beta` | AI Studio 키 |
+| Ollama (클라우드) | `https://ollama.com/v1` | [ollama.com/settings/keys](https://ollama.com/settings/keys) 에서 만든 키 |
+| Ollama (로컬) | `http://localhost:11434/v1` | 필요 없음 |
 
 LM Studio는 Developer 탭에서 **Start Server** 를 눌러야 열립니다. 앱을 다른 기기(라즈베리파이 등)에서
 돌린다면 LM Studio 쪽 "Serve on Local Network" 를 켜고 주소를 `http://<PC-IP>:1234/v1` 로 바꾸세요.
@@ -287,6 +289,7 @@ API 키는 `.env` 파일에 두면 `data/settings.json` 에 평문으로 남지 
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GEMINI_API_KEY=AIza...
+OLLAMA_API_KEY=...
 ```
 
 환경변수로 넣은 키는 설정 화면에서 회색으로 잠기고, 화면에서 바꿀 수 없습니다.

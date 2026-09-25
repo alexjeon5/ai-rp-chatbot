@@ -1756,7 +1756,9 @@ function fillProviderBox(key) {
   $('s-key-field').hidden = key === 'lmstudio';
   $('s-model-msg').textContent = key === 'lmstudio'
     ? 'LM Studio 의 Developer 탭에서 서버를 켠 뒤 불러오기를 눌러 주세요.'
-    : '';
+    : key === 'ollama'
+      ? 'ollama.com/settings/keys 에서 만든 API 키를 넣고 불러오기를 누르세요. 로컬 Ollama 는 주소를 http://localhost:11434/v1 로 바꾸면 키 없이 됩니다.'
+      : '';
   modelOptions = [];
   closeCombo();
   paintProviderOptions();

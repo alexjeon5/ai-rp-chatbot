@@ -503,7 +503,10 @@ const defaultSettings = () => ({
     lmstudio: { label: 'LM Studio', type: 'openai', builtin: true, baseUrl: 'http://localhost:1234/v1', apiKey: 'lm-studio', model: '', contextTokens: 16384, unavailableModels: [] },
     openai: { label: 'OpenAI', type: 'openai', builtin: true, baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o', contextTokens: 128000, unavailableModels: [] },
     anthropic: { label: 'Anthropic', type: 'anthropic', builtin: true, baseUrl: 'https://api.anthropic.com/v1', apiKey: '', model: 'claude-sonnet-5', contextTokens: 200000, unavailableModels: [] },
-    gemini: { label: 'Google Gemini', type: 'gemini', builtin: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: '', model: 'gemini-3.8-flash', contextTokens: 1000000, unavailableModels: [] }
+    gemini: { label: 'Google Gemini', type: 'gemini', builtin: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: '', model: 'gemini-3.8-flash', contextTokens: 1000000, unavailableModels: [] },
+    // Ollama Cloud 의 OpenAI 호환 API. 주소를 http://localhost:11434/v1 로 바꾸면 로컬 Ollama 에도 그대로 붙습니다.
+    // 클라우드 모델은 한도가 넉넉하지만 요금제 사용량을 아끼려고 컨텍스트를 32K 로 둡니다.
+    ollama: { label: 'Ollama', type: 'openai', builtin: true, baseUrl: 'https://ollama.com/v1', apiKey: '', model: 'gemma4:31b', contextTokens: 32768, unavailableModels: [] }
   }
 });
 

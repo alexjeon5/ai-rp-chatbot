@@ -469,7 +469,12 @@ const lmstudio = (opts) => {
   return openaiCompatible({ ...opts, extra: Object.keys(extra).length ? extra : undefined });
 };
 
-const ADAPTERS = { lmstudio, openai: openaiCompatible, anthropic, gemini };
+/*
+ * Ollama(클라우드·로컬)는 OpenAI 호환 /v1 을 씁니다. 받는 필드가 OpenAI 와 같아서
+ * LM Studio 용 top_k·repeat_penalty 를 붙이지 않는 기본 어댑터를 씁니다.
+ * 인증은 Authorization: Bearer <키> 이고, 로컬 서버는 키를 보지 않습니다.
+ */
+const ADAPTERS = { lmstudio, openai: openaiCompatible, anthropic, gemini, ollama: openaiCompatible };
 
 /** 내장 어댑터가 없으면 config.type 을 보고 고릅니다(커스텀 엔진). */
 function pickAdapter(provider, config) {
@@ -512,6 +517,21 @@ export async function listModels(provider, config) {
   const keep = (ids) => ids.filter((id) => !hidden.has(id));
   const base = trimSlash(config.baseUrl);
   const kind = ADAPTERS[provider] ? provider : config.type;
+  if (kind === 'ollama') {
+    // 문서가 안내하는 목록은 /api/tags 입니다(/v1 이 아니라 호스트 바로 아래). 안 되면 /v1/models 로.
+    const origin = base.replace(/\/v1$/, '');
+    const headers = config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {};
+    const tags = await timedFetch({ provider, kind: 'models' }, `${origin}/api/tags`, { headers }).catch(() => null);
+    if (tags?.ok) {
+      const json = await tags.json();
+      const ids = (json.models || []).map((m) => m.model || m.name).filter(Boolean);
+      if (ids.length) return keep([...new Set(ids)]).sort();
+    }
+    const res = await timedFetch({ provider, kind: 'models', retry: true }, `${base}/models`, { headers });
+    await assertOk(res, '모델 목록');
+    const json = await res.json();
+    return keep((json.data || []).map((m) => m.id).filter(Boolean)).sort();
+  }
   if (kind === 'lmstudio' || kind === 'openai') {
     const res = await timedFetch(
       { provider, kind: 'models' },

@@ -47,7 +47,8 @@ export const isLocalUrl = (url = '') => isLocalHost(hostOf(url));
 const PUBLIC_HOSTS = new Set([
   'api.openai.com',
   'api.anthropic.com',
-  'generativelanguage.googleapis.com'
+  'generativelanguage.googleapis.com',
+  'ollama.com'
 ]);
 
 /** 클라우드 메타데이터 주소. 어떤 설정으로도 열어 주지 않습니다. */
@@ -115,7 +116,8 @@ export function checkBaseUrl(url = '') {
 const ENV_KEYS = {
   openai: 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
-  gemini: 'GEMINI_API_KEY'
+  gemini: 'GEMINI_API_KEY',
+  ollama: 'OLLAMA_API_KEY'
 };
 
 /** 환경변수가 있으면 그쪽이 우선입니다. */
