@@ -79,6 +79,7 @@ export const store = new Store();  // 싱글턴
    추가하고, **내장 여섯 개를 일반→성인 순서로 재정렬**합니다. 커스텀 틀은 순서를 건드리지 않고
    그 뒤로 보냅니다.
 4. 캐릭터도 페르소나도 없으면 `seed()` — 기본 페르소나 하나와 내장 캐릭터를 넣습니다.
+5. `addMissingBuiltinPersonas()` — `BUILTIN_PERSONAS` 중 아직 넣은 적 없는 것을 추가합니다.
 
 ### 내장 콘텐츠
 
@@ -89,6 +90,9 @@ export const store = new Store();  // 싱글턴
 - `BUILTIN_CHARACTERS` — 내장 캐릭터 배열. `addMissingBuiltins()`가 **이름으로 중복을 판단**합니다.
   즉 사용자가 내장 캐릭터의 이름을 바꾸면 그 캐릭터는 "없는 것"으로 보여 다시 추가될 수 있습니다.
   반대로 설명만 바꾸고 이름을 유지하면 건너뜁니다.
+- `BUILTIN_PERSONAS` — 내장 페르소나 배열(지금은 입력을 연출 지시로 읽게 하는 `감독`).
+  `addMissingBuiltinPersonas()`가 넣은 이름을 `settings.seededPersonas`에 적어 두므로,
+  사용자가 지운 내장 페르소나는 다음 실행 때 되살아나지 않습니다.
 
 ### 저장 파일 레이아웃
 
