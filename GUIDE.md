@@ -787,6 +787,7 @@ API 가 'gemini-3.5-flash-lite' 를 대신 권합니다.
    | Anthropic | `https://api.anthropic.com/v1` |
    | Gemini | `https://generativelanguage.googleapis.com/v1beta` |
    | Ollama | `https://ollama.com/v1` (클라우드) · `http://localhost:11434/v1` (내 PC 의 Ollama) |
+   | Vercel AI Gateway | `https://ai-gateway.vercel.sh/v1` |
 
 3. API 키를 붙여 넣습니다. 입력한 키는 점으로 가려집니다. 제대로 들어갔는지 확인하려면 옆의 **보기** 를 누르세요. 설정을 다시 열거나 엔진을 바꾸면 자동으로 다시 가려집니다
 4. **불러오기** 를 눌러 모델 목록을 받습니다. 목록이 바로 펼쳐지고, 글자를 치면 걸러집니다.
@@ -803,6 +804,13 @@ API 가 'gemini-3.5-flash-lite' 를 대신 권합니다.
 - **로컬**: 주소를 `http://localhost:11434/v1` 로 바꾸면 키 없이 됩니다. `ollama pull` 로 받아 둔 모델이 목록에 나옵니다
 - 클라우드는 외부 API 라 **성인 모드 대화는 보낼 수 없습니다.** 로컬 주소일 때만 됩니다
 - 컨텍스트 길이 기본값은 32768 입니다. 클라우드 요금제 사용량을 아끼려는 값이라, 필요하면 늘리세요
+
+**Vercel AI Gateway** 는 키 하나로 여러 회사의 모델을 부릅니다.
+
+- Vercel 대시보드 → **AI Gateway → API Keys** 에서 키를 만들어 붙여 넣고 **불러오기**. 모델 이름은 `anthropic/claude-sonnet-5`, `openai/gpt-5.4-nano` 처럼 *회사/모델* 입니다
+- 목록에서 이미지·임베딩 모델은 빠집니다
+- 모델마다 받는 값이 달라 거부당하면(예: Anthropic 모델의 온도 상한 1) 앱이 고쳐서 다시 보냅니다
+- 외부 API 라 **성인 모드 대화는 보낼 수 없습니다**
 
 Gemini 는 목록을 두 가지로 거릅니다. 임베딩·이미지 생성 전용 모델은 대화에 쓸 수 없어 빠지고,
 목록이 여러 쪽으로 나뉘어 오면 끝까지 따라가 모읍니다.

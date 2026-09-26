@@ -48,7 +48,8 @@ const PUBLIC_HOSTS = new Set([
   'api.openai.com',
   'api.anthropic.com',
   'generativelanguage.googleapis.com',
-  'ollama.com'
+  'ollama.com',
+  'ai-gateway.vercel.sh'
 ]);
 
 /** 클라우드 메타데이터 주소. 어떤 설정으로도 열어 주지 않습니다. */
@@ -117,7 +118,8 @@ const ENV_KEYS = {
   openai: 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   gemini: 'GEMINI_API_KEY',
-  ollama: 'OLLAMA_API_KEY'
+  ollama: 'OLLAMA_API_KEY',
+  vercel: 'AI_GATEWAY_API_KEY'
 };
 
 /** 환경변수가 있으면 그쪽이 우선입니다. */

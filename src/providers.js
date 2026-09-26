@@ -169,7 +169,8 @@ function buildOpenAiBody({ config, system, messages, params, extra, quirks, webS
   else body.max_tokens = params.maxTokens;
 
   if (!quirks.dropSampling) {
-    body.temperature = params.temperature;
+    // 게이트웨이 뒤의 Anthropic 모델처럼 온도 상한이 1 인 곳이 있습니다. 거부당하면 1 로 자릅니다.
+    body.temperature = quirks.clampTemperature ? clamp(params.temperature, 0, 1) : params.temperature;
     body.top_p = params.topP;
   }
   return body;
@@ -190,6 +191,11 @@ function quirksFromError(text = '', current) {
   }
   if (/stream_options|include_usage/i.test(text) && !current.noUsage) {
     next.noUsage = true;
+    changed = true;
+  }
+  if (/temperature/i.test(text) && /less than or equal|at most|maximum|range|between|must be/i.test(text) &&
+      !current.clampTemperature && !next.dropSampling) {
+    next.clampTemperature = true;
     changed = true;
   }
   return changed ? next : null;
@@ -217,8 +223,9 @@ async function* openaiCompatible({ provider, config, system, messages, params, s
   );
 
   let res = await send();
-  if (res.status === 400) {
-    // 파라미터 때문에 거부당했다면 한 번만 고쳐서 다시 보냅니다.
+  // 파라미터 때문에 거부당했다면 고쳐서 다시 보냅니다. 게이트웨이 뒤의 모델은 한 번에
+  // 하나씩만 알려 주는 일이 있어(온도 → stream_options …) 세 번까지 따라갑니다.
+  for (let attempt = 0; res.status === 400 && attempt < 3; attempt++) {
     const text = await res.text().catch(() => '');
     if (webSearch && /web_search/i.test(text)) {
       const err = new Error(
@@ -474,7 +481,7 @@ const lmstudio = (opts) => {
  * LM Studio 용 top_k·repeat_penalty 를 붙이지 않는 기본 어댑터를 씁니다.
  * 인증은 Authorization: Bearer <키> 이고, 로컬 서버는 키를 보지 않습니다.
  */
-const ADAPTERS = { lmstudio, openai: openaiCompatible, anthropic, gemini, ollama: openaiCompatible };
+const ADAPTERS = { lmstudio, openai: openaiCompatible, anthropic, gemini, ollama: openaiCompatible, vercel: openaiCompatible };
 
 /** 내장 어댑터가 없으면 config.type 을 보고 고릅니다(커스텀 엔진). */
 function pickAdapter(provider, config) {
@@ -531,6 +538,21 @@ export async function listModels(provider, config) {
     await assertOk(res, '모델 목록');
     const json = await res.json();
     return keep((json.data || []).map((m) => m.id).filter(Boolean)).sort();
+  }
+  if (kind === 'vercel') {
+    // 게이트웨이 목록에는 이미지·임베딩 모델도 섞여 옵니다. 종류가 적혀 있으면 대화 모델만 남깁니다.
+    const res = await timedFetch(
+      { provider, kind: 'models' },
+      `${base}/models`,
+      { headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {} }
+    );
+    await assertOk(res, '모델 목록');
+    const json = await res.json();
+    const ids = (json.data || [])
+      .filter((m) => !m.type || m.type === 'language')
+      .map((m) => m.id)
+      .filter(Boolean);
+    return keep(ids).sort();
   }
   if (kind === 'lmstudio' || kind === 'openai') {
     const res = await timedFetch(

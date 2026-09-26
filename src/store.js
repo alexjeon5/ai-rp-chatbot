@@ -506,7 +506,9 @@ const defaultSettings = () => ({
     gemini: { label: 'Google Gemini', type: 'gemini', builtin: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: '', model: 'gemini-3.8-flash', contextTokens: 1000000, unavailableModels: [] },
     // Ollama Cloud 의 OpenAI 호환 API. 주소를 http://localhost:11434/v1 로 바꾸면 로컬 Ollama 에도 그대로 붙습니다.
     // 클라우드 모델은 한도가 넉넉하지만 요금제 사용량을 아끼려고 컨텍스트를 32K 로 둡니다.
-    ollama: { label: 'Ollama', type: 'openai', builtin: true, baseUrl: 'https://ollama.com/v1', apiKey: '', model: 'gemma4:31b', contextTokens: 32768, unavailableModels: [] }
+    ollama: { label: 'Ollama', type: 'openai', builtin: true, baseUrl: 'https://ollama.com/v1', apiKey: '', model: 'gemma4:31b', contextTokens: 32768, unavailableModels: [] },
+    // Vercel AI Gateway 의 OpenAI 호환 API. 여러 회사의 모델을 'provider/model' 이름 하나로 부릅니다.
+    vercel: { label: 'Vercel AI Gateway', type: 'openai', builtin: true, baseUrl: 'https://ai-gateway.vercel.sh/v1', apiKey: '', model: 'anthropic/claude-sonnet-5', contextTokens: 128000, unavailableModels: [] }
   }
 });
 

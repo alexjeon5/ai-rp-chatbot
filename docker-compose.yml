@@ -24,6 +24,7 @@ services:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
+      AI_GATEWAY_API_KEY: "${AI_GATEWAY_API_KEY:-}"
 
       # 리버스 프록시(Nginx Proxy Manager)를 통해서도 들어오고, 이제 LAN 에서 직접도 들어옵니다.
       # "1"로 두면 누구든 X-Forwarded-For 헤더를 위조해서 요청 제한(레이트 리밋)을 우회할 수 있습니다.

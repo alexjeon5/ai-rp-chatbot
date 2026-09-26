@@ -1758,7 +1758,9 @@ function fillProviderBox(key) {
     ? 'LM Studio 의 Developer 탭에서 서버를 켠 뒤 불러오기를 눌러 주세요.'
     : key === 'ollama'
       ? 'ollama.com/settings/keys 에서 만든 API 키를 넣고 불러오기를 누르세요. 로컬 Ollama 는 주소를 http://localhost:11434/v1 로 바꾸면 키 없이 됩니다.'
-      : '';
+      : key === 'vercel'
+        ? 'Vercel 대시보드 → AI Gateway → API Keys 에서 만든 키를 넣고 불러오기를 누르세요. 모델 이름은 anthropic/claude-sonnet-5 처럼 회사/모델 입니다.'
+        : '';
   modelOptions = [];
   closeCombo();
   paintProviderOptions();
