@@ -2552,6 +2552,7 @@ function showSettingsTab(tab) {
     if (on) btn.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
   for (const pane of dlgSettings.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== tab;
+  resetSettingsScroll();
   modelCombo.close();
   checkpointCombo.close();
   try { localStorage.setItem('settingsTab', tab); } catch { /* 저장 못 해도 괜찮습니다 */ }
@@ -2574,6 +2575,29 @@ $('s-tabs').addEventListener('keydown', (e) => {
 });
 
 $('btn-settings').addEventListener('click', () => openSettings());
+
+/*
+ * 설정 창은 어느 경로로 열든 탭마다 맨 위부터 보입니다. 창이 닫혀 있거나 탭이 숨겨진 동안에는
+ * scrollTop 이 먹지 않으므로, 창을 띄운 직후와 연 뒤 처음 보는 탭으로 넘어갈 때 맞춥니다.
+ */
+let unscrolledPanes = new Set();
+
+function resetSettingsScroll() {
+  if (!dlgSettings.open) return;
+  for (const pane of dlgSettings.querySelectorAll('[data-pane]')) {
+    if (pane.hidden || !unscrolledPanes.has(pane.dataset.pane)) continue;
+    pane.scrollTop = 0;
+    unscrolledPanes.delete(pane.dataset.pane);
+  }
+}
+
+/** 설정 창을 띄웁니다. 창을 여는 곳은 모두 이 함수를 거칩니다. */
+function showSettingsDialog() {
+  unscrolledPanes = new Set(SETTINGS_TABS);
+  dlgSettings.showModal();
+  dlgSettings.scrollTop = 0;
+  resetSettingsScroll();
+}
 
 /** 설정 창을 엽니다. 모든 탭의 입력칸을 지금 설정으로 채운 뒤 tab 을 보여 줍니다. */
 async function openSettings(tab = lastSettingsTab()) {
@@ -2604,7 +2628,7 @@ async function openSettings(tab = lastSettingsTab()) {
   fillImageSheet();
   fillDevSheet();
   showSettingsTab(tab);
-  dlgSettings.showModal();
+  showSettingsDialog();
   // 창이 뜨기 전에는 스크롤이 먹지 않으므로, 연 뒤에 고른 탭을 한 번 더 보이게 합니다.
   // 좁은 화면에서는 가로로 스크롤되는 탭 줄 자체가 첫 포커스를 받아 테두리가 생기므로, 고른 탭에 포커스를 둡니다.
   const current = $('s-tabs').querySelector('.is-on');
@@ -2732,7 +2756,7 @@ dlgSettings.addEventListener('close', async () => {
   } catch (e) {
     // 저장이 거부되면 입력한 그대로 창을 다시 열어 고칠 수 있게 합니다.
     dlgSettings.returnValue = '';
-    dlgSettings.showModal();
+    showSettingsDialog();
     const tab = tabForError(e.message);
     if (tab) showSettingsTab(tab);
     ui.toast(`저장하지 못했습니다 — ${e.message}`);
