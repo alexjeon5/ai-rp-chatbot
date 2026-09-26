@@ -357,9 +357,16 @@ export function cleanFacts(list) {
  * @param {object} o
  * @param {string} [o.hint]      입력창에 미리 적어 둔 방향
  * @param {boolean} [o.messenger] 메신저 모드면 문자 형식으로
+ * @param {boolean} [o.director]  감독 페르소나면 대사 대신 다음 장면의 행동 지시로
  */
-export function impersonatePrompt({ hint = '', messenger = false } = {}) {
-  const lines = [
+export function impersonatePrompt({ hint = '', messenger = false, director = false } = {}) {
+  const lines = director ? [
+    '[진행 지시: 이번 한 번은 예외로, 당신이 감독인 {{user}}를 대신해 {{user}}의 다음 연출 지시를 초안으로 씁니다.',
+    '- {{user}}는 이야기 속 인물이 아니라 장면 밖의 감독입니다. {{user}} 자신이 말하거나 장면에 나서는 문장은 쓰지 않습니다.',
+    '- 다음에 일어날 일을 등장인물의 행동과 상황의 변화로만 씁니다. 따옴표로 감싼 대사는 쓰지 않습니다.',
+    '- 장면을 길게 풀어 쓰지 말고, 지금까지 {{user}}가 쓰던 지시 표기법을 따라 1~2문장으로 짧게 씁니다.',
+    '- 이름표, 머리말 없이 지시 본문만 씁니다.'
+  ] : [
     '[진행 지시: 이번 한 번은 예외로, 당신이 {{user}}를 대신해 {{user}}의 다음 차례를 초안으로 씁니다.',
     '- {{user}}의 시점에서 {{user}}가 할 말과 행동만 씁니다. {{char}}나 다른 인물의 대사와 반응은 쓰지 않습니다.',
     messenger
@@ -372,12 +379,27 @@ export function impersonatePrompt({ hint = '', messenger = false } = {}) {
   return `${lines.join('\n')}]`;
 }
 
-/** 모델이 붙이는 '이름:' 머리나 감싼 따옴표를 걷어냅니다. */
-export function cleanImpersonation(text = '', userName = '') {
+/**
+ * 모델이 붙이는 '이름:' 머리나 감싼 따옴표를 걷어냅니다.
+ * director 면 지시를 어기고 끼워 넣은 따옴표 대사도 걷어냅니다. 대사만 있었다면 지우지 않고 그대로 둡니다.
+ */
+export function cleanImpersonation(text = '', userName = '', { director = false } = {}) {
   let out = text.trim();
   if (userName) {
     const esc = userName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(`^(\\*\\*)?${esc}(\\*\\*)?\\s*[:：]\\s*`), '');
   }
-  return out.replace(/^\[?초안\]?\s*[:：]\s*/, '').trim();
+  out = out.replace(/^\[?초안\]?\s*[:：]\s*/, '').trim();
+  if (director) {
+    // 페르소나 이름을 바꿨어도 모델은 '감독:' 이나 '지시:' 를 붙이곤 합니다.
+    out = out.replace(/^(\*\*)?(감독|연출|지시|연출 지시)(\*\*)?\s*[:：]\s*/, '');
+    const actions = out
+      .replace(/"[^"\n]*"|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/ +([.,!?…])/g, '$1')
+      .split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
+    // 대사를 빼고 남은 게 기호뿐이면 지시로 쓸 수 없으니 원문을 둡니다.
+    if (/[가-힣A-Za-z]/.test(actions)) out = actions;
+  }
+  return out;
 }

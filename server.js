@@ -1114,9 +1114,12 @@ app.post('/api/chats/:id/impersonate', generateLimit, wrap(async (req, res) => {
   background.get(chat.id)?.abort();
 
   const userName = ctx.persona?.name || '사용자';
+  // 감독 페르소나는 이야기 밖의 연출자라, 대신 쓰기도 감독의 대사가 아니라 다음 장면의 행동 지시로 씁니다.
+  const director = Boolean(ctx.persona?.director);
   const instruction = fillVars(impersonatePrompt({
     hint: req.body?.hint,
-    messenger: ['messenger', 'adult-messenger'].includes(ctx.preset.id)
+    messenger: ['messenger', 'adult-messenger'].includes(ctx.preset.id),
+    director
   }), { char: ctx.character.name, user: userName, particleFix: s.dev.particleFix });
   const plan = planFor(chat, { provider, extra: instruction });
   const history = [...plan.history, { role: 'user', content: instruction }];
@@ -1157,7 +1160,7 @@ app.post('/api/chats/:id/impersonate', generateLimit, wrap(async (req, res) => {
     if (!controller.signal.aborted) send({ error: describeFailure(e, provider, config) });
   }
   finished = true;
-  send({ done: true, draft: cleanImpersonation(text, userName) });
+  send({ done: true, draft: cleanImpersonation(text, userName, { director }) });
   res.end();
 }));
 
@@ -1614,13 +1617,16 @@ const cleanCharacter = (raw) => {
 
 const cleanPersona = (raw) => {
   if (!str(raw.name).trim()) return null;
-  return normalizePersona({
+  const persona = normalizePersona({
     name: str(raw.name),
     description: str(raw.description),
     gender: str(raw.gender),
     age: str(raw.age),
     traits: Array.isArray(raw.traits) ? raw.traits.filter((t) => typeof t === 'string') : []
   });
+  // 감독 페르소나는 백업을 옮겨도 감독으로 남아야 합니다.
+  if (raw.director === true) persona.director = true;
+  return persona;
 };
 
 const cleanSources = (list) => list.filter(isObj)

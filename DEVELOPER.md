@@ -103,6 +103,10 @@ export const store = new Store();  // 싱글턴
 - `BUILTIN_PERSONAS` — 내장 페르소나 배열(지금은 입력을 연출 지시로 읽게 하는 `감독`).
   `addMissingBuiltinPersonas()`가 넣은 이름을 `settings.seededPersonas`에 적어 두므로,
   사용자가 지운 내장 페르소나는 다음 실행 때 되살아나지 않습니다.
+  `감독`에는 `director: true` 가 붙어, 대신 쓰기(`impersonatePrompt({ director })`)가 대사 대신 행동 지시를 쓰고
+  `cleanImpersonation` 이 끼어든 따옴표 대사를 걷어냅니다. 이 표시가 생기기 전에 들어온 `감독`은
+  `tagBuiltinPersonas()`가 이름으로 찾아 한 번만 붙이고(`settings.builtinPersonasTagged`), 그 뒤로는 이름을 바꿔도 남습니다.
+  API 로는 바꿀 수 없고(`PERSONA_FIELDS` 밖) 백업에는 따라갑니다.
 
 ### 저장 파일 레이아웃
 
@@ -135,7 +139,7 @@ data/
 
 `substitute(text, token, value)`가 `{{char}}`/`{{user}}` 뒤에 붙은 조사를 받침에 맞춥니다.
 
-- `PARTICLE_PAIRS`: [받침 있을 때, 없을 때] 아홉 쌍(은/는, 이/가, 을/를 …).
+- `PARTICLE_PAIRS`: [받침 있을 때, 없을 때] 열 쌍(은/는, 이/가, 을/를 … 이나/나).
 - `hasBatchim(word)`: 한글이면 유니코드 오프셋으로 받침 유무를 계산. 영문이면 끝 글자가
   모음인지로 어림.
 - 조사 뒤에 한글이 더 이어지면(`{{char}}로서` 처럼) 조사로 보지 않고 건드리지 않습니다 —
@@ -446,9 +450,10 @@ curl -s -N -X POST http://127.0.0.1:5199/api/chats/$ID/generate -d '{}'
 docker compose up -d
 ```
 
-컨테이너 안에서는 `localhost`가 호스트를 가리키지 않으므로, LM Studio 주소를
-`http://host.docker.internal:1234/v1`로 잡아야 합니다. `docker-compose.yml`에
-`extra_hosts: host.docker.internal:host-gateway`가 이미 들어 있습니다.
+컨테이너 안에서는 `localhost`가 호스트를 가리키지 않습니다. 기본 `docker-compose.yml`은 LM Studio 가 다른 PC 에 있는
+구성(라즈베리파이 등)을 전제로 해서, 그 PC 의 LAN IP 를 `LOCAL_ENGINE_HOSTS`에 적고 엔진 주소도 그 IP 로 잡습니다.
+같은 PC 에서 돌린다면 compose 에 `extra_hosts: ["host.docker.internal:host-gateway"]`를 더하고
+`http://host.docker.internal:1234/v1`을 쓰세요(이 호스트 이름은 `security.js`가 로컬로 취급합니다).
 
 ---
 

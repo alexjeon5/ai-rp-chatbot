@@ -227,7 +227,8 @@ function renderMarkdown(src = '') {
 
 const PARTICLE_PAIRS = [
   ['은', '는'], ['이', '가'], ['을', '를'], ['과', '와'],
-  ['으로', '로'], ['이라', '라'], ['이랑', '랑'], ['이다', '다'], ['아', '야']
+  ['으로', '로'], ['이라', '라'], ['이랑', '랑'], ['이다', '다'], ['아', '야'],
+  ['이나', '나']
 ];
 const PARTICLE_ALT = new Map();
 for (const [withB, withoutB] of PARTICLE_PAIRS) {
