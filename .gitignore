@@ -3,3 +3,5 @@ data/
 *.patch
 *.log
 .env
+golden-out.json
+golden-auth.json
