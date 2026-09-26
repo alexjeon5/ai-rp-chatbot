@@ -1141,10 +1141,18 @@ function paintWorkflowStatus() {
     : '기본 SDXL 워크플로 사용 중 — 체크포인트만 고르면 됩니다';
 }
 
+/** 장면 그리기를 켰을 때만 ComfyUI 설정을 보여 줍니다. 숨겨도 입력값은 남아 저장 때 함께 갑니다. */
+function paintImageOptions() {
+  $('i-options').hidden = !$('i-enabled').checked;
+}
+
+$('i-enabled').addEventListener('change', paintImageOptions);
+
 function fillImageSheet() {
   const img = state.settings.image || {};
   draftWorkflow = undefined;
   $('i-enabled').checked = Boolean(img.enabled);
+  paintImageOptions();
   $('i-baseurl').value = img.baseUrl || '';
   $('i-checkpoint').value = img.checkpoint || '';
   const size = `${img.width}x${img.height}`;

@@ -435,6 +435,8 @@
           <span>장면 그리기 켜기 — 답변 아래에 <b>🎨 그리기</b> 버튼이 생깁니다</span>
         </label>
 
+        <!-- 장면 그리기를 켰을 때만 보이는 설정. 꺼 두어도 값은 그대로 저장됩니다 -->
+        <div id="i-options">
         <label class="field"><span>ComfyUI 주소</span>
           <span class="model-row">
             <input id="i-baseurl" spellcheck="false" placeholder="http://127.0.0.1:8188">
@@ -505,6 +507,7 @@
           <p id="i-core-terms" class="core-terms"></p>
           <p id="i-core-neg" class="core-terms"></p>
         </details>
+        </div>
       </div>
       <div class="sheet-body settings-pane" id="pane-display" data-pane="display" role="tabpanel" hidden>
         <h3 class="sheet-sub">메시지 표시 방식</h3>
