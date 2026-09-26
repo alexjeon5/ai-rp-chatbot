@@ -1203,13 +1203,25 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .sel--sm > .sel-btn { padding: 5px 9px; border-radius: 7px; font-size: 12px; color: var(--muted); }
 .sel--sm > .sel-btn:hover { color: var(--text); }
 
+/*
+ * 펼친 목록은 버튼 폭에 묶지 않고 글자 길이만큼 넓힙니다. 버튼이 좁으면(입력창 아래 엔진 선택기 등)
+ * 항목 이름이 "LM S…" 처럼 잘리기 때문입니다. 버튼보다 좁아지지는 않고, 너무 길면 max-width 에서 말줄임.
+ * 오른쪽이 모자라면 select.js 의 placeList 가 .is-end 를 붙여 버튼 오른쪽 끝에 맞춥니다.
+ */
+.sel-list, .combo-list {
+  left: 0;
+  right: auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(420px, calc(100vw - 24px));
+}
+
+.sel-list.is-end, .combo-list.is-end { left: auto; right: 0; }
+
 .sel-list {
   position: absolute;
   z-index: 40;
   top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  min-width: 100%;
   max-height: 260px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1263,8 +1275,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
   position: absolute;
   z-index: 5;
   top: calc(100% + 6px);
-  left: 0;
-  right: 0;
   max-height: 232px;
   overflow-y: auto;
   overscroll-behavior: contain;

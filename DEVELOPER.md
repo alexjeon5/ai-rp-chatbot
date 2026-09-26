@@ -376,6 +376,14 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 합니다. 항목 수로 "고를 게 없다"를 판단하지 마세요 — `innerHTML`로 옵션을 갈아끼운 직후엔
 `MutationObserver`가 아직 안 돈 상태라 비어 있는 것으로 오판합니다(실제로 겪은 버그).
 
+`makeCombo(input, { items, onPick, emptyText, noMatchText })`는 글자를 쳐서 거르거나 목록에서 고르는
+입력칸입니다(엔진 모델, ComfyUI 체크포인트). 브라우저 기본 `datalist`는 테마를 따라오지 않아서 쓰지 않습니다.
+적힌 값이 목록의 한 항목과 똑같으면 거르지 않고 전부 보여 줍니다 — 고른 뒤 다시 열어 다른 걸 고를 수 있게.
+
+두 목록 모두 버튼 폭에 묶지 않고 글자 길이만큼 넓어집니다(`.sel-list, .combo-list { width: max-content }`).
+좁은 버튼(입력창 아래 엔진 선택기)에서 항목이 "LM S…" 처럼 잘리던 문제 때문입니다. `placeList()`가 펼칠 때
+아래가 모자라면 `.is-up`, 오른쪽이 모자라면 `.is-end`(버튼 오른쪽 끝 기준)를 붙입니다.
+
 ### `public/js/app.js`
 
 상태(`state`)와 이벤트 바인딩. 파일이 크니 검색으로 다니세요. 주요 상태:

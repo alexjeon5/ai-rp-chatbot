@@ -1,6 +1,6 @@
 import { api, generate, impersonate, drawImage } from './api.js';
 import * as ui from './ui.js';
-import { enhanceSelects } from './select.js';
+import { enhanceSelects, makeCombo } from './select.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1148,6 +1148,14 @@ function paintImageOptions() {
 
 $('i-enabled').addEventListener('change', paintImageOptions);
 
+/* 체크포인트 입력칸. 연결 확인으로 받은 목록에서 고르거나 이름을 직접 적습니다. */
+let checkpointOptions = [];
+const checkpointCombo = makeCombo($('i-checkpoint'), {
+  items: () => checkpointOptions,
+  emptyText: '연결 확인을 누르면 ComfyUI 의 체크포인트 목록이 나옵니다. 이름을 직접 적어도 됩니다.',
+  noMatchText: (q) => `'${q}' 와 일치하는 체크포인트가 없습니다. 적은 이름을 그대로 써도 됩니다.`
+});
+
 function fillImageSheet() {
   const img = state.settings.image || {};
   draftWorkflow = undefined;
@@ -1188,7 +1196,7 @@ $('i-check').addEventListener('click', async () => {
       };
       paintSamplerChoices($('i-sampler').value, $('i-scheduler').value);
     }
-    $('i-ckpts').innerHTML = checkpoints.map((c) => `<option value="${ui.escapeHtml(c)}">`).join('');
+    checkpointOptions = checkpoints;
     if (!$('i-checkpoint').value && checkpoints.length) $('i-checkpoint').value = checkpoints[0];
     $('i-status').textContent = checkpoints.length
       ? `연결됐습니다 — 체크포인트 ${checkpoints.length}개. 입력칸을 누르면 목록이 나옵니다.`
@@ -2426,116 +2434,20 @@ function fillProviderBox(key) {
         ? 'Vercel 대시보드 → AI Gateway → API Keys 에서 만든 키를 넣고 불러오기를 누르세요. 모델 이름은 anthropic/claude-sonnet-5 처럼 회사/모델 입니다.'
         : '';
   modelOptions = [];
-  closeCombo();
+  modelCombo.close();
   paintProviderOptions();
 }
 
-/* ---------- 모델 고르기 (직접 만든 드롭다운) ---------- */
+/* ---------- 모델 고르기 (select.js 의 makeCombo) ---------- */
 
 let modelOptions = [];
-let comboIndex = -1;
 
-const comboInput = $('s-model');
-const comboList = $('model-list');
-
-const escapeHtml = (t = '') =>
-  t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-/** 입력한 글자와 겹치는 부분을 강조해 보여 줍니다. */
-function markHit(name, query) {
-  if (!query) return escapeHtml(name);
-  const at = name.toLowerCase().indexOf(query.toLowerCase());
-  if (at < 0) return escapeHtml(name);
-  return escapeHtml(name.slice(0, at)) +
-    `<span class="hit">${escapeHtml(name.slice(at, at + query.length))}</span>` +
-    escapeHtml(name.slice(at + query.length));
-}
-
-function filteredModels() {
-  const q = comboInput.value.trim().toLowerCase();
-  if (!q) return modelOptions;
-  return modelOptions.filter((m) => m.toLowerCase().includes(q));
-}
-
-function openCombo() {
-  const items = filteredModels();
-  const q = comboInput.value.trim();
-
-  if (!modelOptions.length) {
-    comboList.innerHTML = '<div class="combo-empty">먼저 불러오기를 눌러 주세요.</div>';
-  } else if (!items.length) {
-    comboList.innerHTML = `<div class="combo-empty">'${escapeHtml(q)}' 와 일치하는 모델이 없습니다. 직접 입력한 이름을 그대로 써도 됩니다.</div>`;
-  } else {
-    const head = `<div class="combo-head">${items.length}개${q ? ` · '${escapeHtml(q)}' 검색` : ''}</div>`;
-    comboList.innerHTML = head + items
-      .map((m, i) => `<button type="button" class="combo-item${i === comboIndex ? ' is-active' : ''}" data-model="${escapeHtml(m)}" role="option">${markHit(m, q)}</button>`)
-      .join('');
-  }
-  comboList.hidden = false;
-  comboInput.setAttribute('aria-expanded', 'true');
-  placeCombo();
-}
-
-/**
- * 설정 시트는 세로로 스크롤되므로, 아래로 펼치면 잘릴 수 있습니다.
- * 남는 공간을 재서 모자라면 위로 펼칩니다.
- */
-function placeCombo() {
-  const holder = comboList.closest('.sheet-body');
-  if (!holder) return;
-  comboList.classList.remove('is-up');
-  const box = comboList.getBoundingClientRect();
-  const limit = holder.getBoundingClientRect();
-  if (box.bottom > limit.bottom - 8) comboList.classList.add('is-up');
-}
-
-function closeCombo() {
-  comboList.hidden = true;
-  comboIndex = -1;
-  comboInput.setAttribute('aria-expanded', 'false');
-}
-
-function moveCombo(step) {
-  const items = filteredModels();
-  if (!items.length) return;
-  comboIndex = (comboIndex + step + items.length) % items.length;
-  openCombo();
-  comboList.querySelector('.is-active')?.scrollIntoView?.({ block: 'nearest' });
-}
-
-function pickModel(name) {
-  comboInput.value = name;
-  closeCombo();
-  $('s-model-msg').textContent = `선택한 모델: ${name}`;
-}
-
-comboInput.addEventListener('focus', openCombo);
-comboInput.addEventListener('input', () => { comboIndex = -1; openCombo(); });
-
-comboInput.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowDown') { e.preventDefault(); if (comboList.hidden) openCombo(); else moveCombo(1); }
-  else if (e.key === 'ArrowUp') { e.preventDefault(); moveCombo(-1); }
-  else if (e.key === 'Escape' && !comboList.hidden) { e.preventDefault(); closeCombo(); }
-  else if (e.key === 'Enter') {
-    const items = filteredModels();
-    if (!comboList.hidden && comboIndex >= 0 && items[comboIndex]) {
-      e.preventDefault();
-      pickModel(items[comboIndex]);
-    } else {
-      closeCombo();
-    }
-  }
+const modelCombo = makeCombo($('s-model'), {
+  items: () => modelOptions,
+  emptyText: '먼저 불러오기를 눌러 주세요.',
+  noMatchText: (q) => `'${q}' 와 일치하는 모델이 없습니다. 직접 입력한 이름을 그대로 써도 됩니다.`,
+  onPick: (name) => { $('s-model-msg').textContent = `선택한 모델: ${name}`; }
 });
-
-// blur 보다 먼저 잡아야 클릭이 먹습니다.
-comboList.addEventListener('mousedown', (e) => {
-  const btn = e.target.closest('[data-model]');
-  if (!btn) return;
-  e.preventDefault();
-  pickModel(btn.dataset.model);
-});
-
-comboInput.addEventListener('blur', () => setTimeout(closeCombo, 120));
 
 /** 화면에 떠 있던 엔진의 입력값을 임시본에 담아둡니다. */
 function stashProvider() {
@@ -2640,7 +2552,8 @@ function showSettingsTab(tab) {
     if (on) btn.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
   for (const pane of dlgSettings.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== tab;
-  closeCombo();
+  modelCombo.close();
+  checkpointCombo.close();
   try { localStorage.setItem('settingsTab', tab); } catch { /* 저장 못 해도 괜찮습니다 */ }
 }
 
@@ -2721,7 +2634,7 @@ $('s-fetch-models').addEventListener('click', async () => {
       : '응답은 왔지만 대화에 쓸 수 있는 모델이 없습니다. 키가 이 API 에 대해 활성화돼 있는지 확인해 주세요.';
     if (models.length) {
       $('s-model').focus();
-      openCombo();
+      modelCombo.open();
     }
     paintWebSearch();
   } catch (e) {

@@ -10,6 +10,22 @@ const esc = (s = '') =>
 
 let openOne = null;
 
+/**
+ * 펼친 목록이 잘리지 않게 자리를 잡습니다. 목록은 글자 길이만큼 넓어지므로(CSS 의 width: max-content),
+ * 아래가 모자라면 위로, 오른쪽이 모자라면 버튼 오른쪽 끝에 맞춰 펼칩니다.
+ * 설정 시트처럼 안에서 스크롤되는 곳이면 그 시트가 경계이고, 아니면 화면이 경계입니다.
+ */
+function placeList(list) {
+  list.classList.remove('is-up', 'is-end');
+  const holder = list.closest('.sheet-body') || document.body;
+  const box = list.getBoundingClientRect();
+  const limit = holder === document.body
+    ? { bottom: window.innerHeight, right: window.innerWidth }
+    : holder.getBoundingClientRect();
+  if (box.bottom > limit.bottom - 8) list.classList.add('is-up');
+  if (box.right > limit.right - 8) list.classList.add('is-end');
+}
+
 function enhance(select) {
   if (select.dataset.enhanced) return;
   select.dataset.enhanced = '1';
@@ -69,16 +85,6 @@ function enhance(select) {
       .join('');
   }
 
-  /** 아래로 펼치면 잘리는 자리에서는 위로 펼칩니다. */
-  function place() {
-    list.classList.remove('is-up');
-    const holder = list.closest('.sheet-body') || document.body;
-    const box = list.getBoundingClientRect();
-    const limit = holder === document.body
-      ? { bottom: window.innerHeight }
-      : holder.getBoundingClientRect();
-    if (box.bottom > limit.bottom - 8) list.classList.add('is-up');
-  }
 
   function open() {
     if (btn.disabled) return;
@@ -89,7 +95,7 @@ function enhance(select) {
     list.hidden = false;
     wrap.classList.add('is-open');
     btn.setAttribute('aria-expanded', 'true');
-    place();
+    placeList(list);
     list.querySelector('.is-active')?.scrollIntoView?.({ block: 'nearest' });
   }
 
@@ -164,3 +170,132 @@ export function enhanceSelects(root = document) {
 document.addEventListener('mousedown', (e) => {
   if (!e.target.closest('.sel')) openOne?.();
 });
+
+/** 입력한 글자와 겹치는 부분을 강조해 보여 줍니다. */
+function markHit(text, query) {
+  if (!query) return esc(text);
+  const at = text.toLowerCase().indexOf(query.toLowerCase());
+  if (at < 0) return esc(text);
+  return esc(text.slice(0, at)) +
+    `<span class="hit">${esc(text.slice(at, at + query.length))}</span>` +
+    esc(text.slice(at + query.length));
+}
+
+/**
+ * 글자를 쳐서 거르거나 목록에서 고르는 입력칸. 브라우저 기본 datalist 는 테마를 따라오지 않아 직접 그립니다.
+ * 목록에 없는 이름을 그대로 적어도 됩니다 — 값의 주인은 여전히 input 입니다.
+ *
+ * @param {HTMLInputElement} input
+ * @param {object} o
+ * @param {() => string[]} o.items           지금 고를 수 있는 항목
+ * @param {(value: string) => void} [o.onPick] 목록에서 골랐을 때
+ * @param {string} [o.emptyText]              항목이 하나도 없을 때 안내
+ * @param {(q: string) => string} [o.noMatchText] 거른 결과가 없을 때 안내. q 는 이미 escape 된 값
+ * @returns {{ open: () => void, close: () => void }}
+ */
+export function makeCombo(input, { items, onPick = () => {}, emptyText = '목록이 없습니다.', noMatchText } = {}) {
+  let wrap = input.closest('.combo');
+  if (!wrap) {
+    wrap = document.createElement('span');
+    wrap.className = 'combo';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+  }
+  let list = wrap.querySelector('.combo-list');
+  if (!list) {
+    list = document.createElement('div');
+    list.className = 'combo-list';
+    list.id = `${input.id}-list`;
+    list.setAttribute('role', 'listbox');
+    list.hidden = true;
+    wrap.appendChild(list);
+  }
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-controls', list.id);
+  input.setAttribute('aria-expanded', 'false');
+  input.autocomplete = 'off';
+
+  let index = -1;
+
+  /** 적힌 값이 목록의 한 항목과 똑같으면(고른 뒤 다시 연 경우) 거르지 않고 전부 보여 줍니다. */
+  function query() {
+    const q = input.value.trim();
+    return items().includes(q) ? '' : q;
+  }
+
+  function filtered() {
+    const q = query().toLowerCase();
+    return q ? items().filter((v) => v.toLowerCase().includes(q)) : items();
+  }
+
+  function open() {
+    const all = items();
+    const shown = filtered();
+    const q = query();
+    if (!all.length) {
+      list.innerHTML = `<div class="combo-empty">${esc(emptyText)}</div>`;
+    } else if (!shown.length) {
+      const text = noMatchText ? noMatchText(esc(q)) : `'${esc(q)}' 와 일치하는 항목이 없습니다.`;
+      list.innerHTML = `<div class="combo-empty">${text}</div>`;
+    } else {
+      const current = input.value.trim();
+      const head = `<div class="combo-head">${shown.length}개${q ? ` · '${esc(q)}' 검색` : ''}</div>`;
+      list.innerHTML = head + shown
+        .map((v, i) => `<button type="button" role="option" data-value="${esc(v)}"
+          class="combo-item${i === index || (index < 0 && v === current) ? ' is-active' : ''}">${markHit(v, q)}</button>`)
+        .join('');
+    }
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    placeList(list);
+    list.querySelector('.is-active')?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  function close() {
+    list.hidden = true;
+    index = -1;
+    input.setAttribute('aria-expanded', 'false');
+  }
+
+  function move(step) {
+    const shown = filtered();
+    if (!shown.length) return;
+    index = (index + step + shown.length) % shown.length;
+    open();
+  }
+
+  function pick(value) {
+    input.value = value;
+    close();
+    onPick(value);
+  }
+
+  input.addEventListener('focus', open);
+  input.addEventListener('input', () => { index = -1; open(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) open(); else move(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+    else if (e.key === 'Escape' && !list.hidden) { e.preventDefault(); close(); }
+    else if (e.key === 'Enter') {
+      const shown = filtered();
+      if (!list.hidden && index >= 0 && shown[index]) {
+        e.preventDefault();
+        pick(shown[index]);
+      } else {
+        close();
+      }
+    }
+  });
+
+  // blur 보다 먼저 잡아야 클릭이 먹습니다.
+  list.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('[data-value]');
+    if (!item) return;
+    e.preventDefault();
+    pick(item.dataset.value);
+  });
+
+  input.addEventListener('blur', () => setTimeout(close, 120));
+
+  return { open, close };
+}
