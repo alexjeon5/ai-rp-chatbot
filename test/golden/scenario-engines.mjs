@@ -43,6 +43,14 @@ export async function scenario({ call }) {
     await call(`rp generate: ${p}`, 'POST', `/api/chats/${rp.id}/generate`, { provider: p });
   }
   await call('context', 'GET', `/api/chats/${rp.id}/context?provider=gemini`);
+
+  /* 그림: 미성년으로 읽히는 태그는 그리지 않습니다 */
+  await call('settings: 그리기 켜기', 'PUT', '/api/settings', { image: { enabled: true, baseUrl: `${MOCK}/comfy`, checkpoint: 'a.safetensors' } });
+  const blocked = await call('msg: 금지 태그', 'POST', `/api/chats/${rp.id}/messages`, { role: 'assistant', content: '금지태그 장면' });
+  await call('image: 미성년 차단', 'POST', `/api/chats/${rp.id}/messages/${blocked.id}/image`, { review: true });
+  await call('image: 성인 대화 필터', 'PUT', `/api/chats/${rp.id}`, { presetId: 'adult' });
+  await call('settings: 필터', 'PUT', '/api/settings', { image: { adult: { forceTags: 'adult, mature', blockTags: 'smile, *night*', extraNegative: 'blurry' } } });
+  await call('image: 성인 대화 검토', 'POST', `/api/chats/${rp.id}/messages/${blocked.id}/image`, { prompt: 'smile, night sky, rooftop' , review: true });
   await call('settings: 마지막', 'GET', '/api/settings');
   return settings;
 }

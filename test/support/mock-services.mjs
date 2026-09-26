@@ -28,7 +28,8 @@ export function replyFor(system = '', user = '') {
   if (system.includes('Danbooru tags')) {
     if (user.includes('That was not a tag list')) return 'Tags: 1girl, adult, smile, rooftop, night\nNegative: 2girls, daytime';
     if (user.includes('태그실패')) return '이 장면은 옥상에서 벌어지는 이야기입니다.';
-    return 'Tags: 1girl, adult, smile, rooftop, night, loli\nNegative: 2girls, daytime';
+    if (user.includes('금지태그')) return 'Tags: 1girl, adult, smile, rooftop, night, loli\nNegative: 2girls, daytime';
+    return 'Tags: 1girl, adult, smile, rooftop, night\nNegative: 2girls, daytime';
   }
   if (user.includes('[진행 지시: 이번 한 번은 예외로')) return '감독: 유하린이 고개를 든다. "누구야?" 빗줄기가 굵어진다.';
   if (user.includes('[진행 지시: 바로 앞')) return ' 이어서 쓴 뒷부분.';
