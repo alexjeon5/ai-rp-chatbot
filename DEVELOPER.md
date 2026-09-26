@@ -78,8 +78,12 @@ export const store = new Store();  // 싱글턴
    새 이름으로 바꾸고(`RENAMED` 맵, 사용자가 직접 바꾼 이름은 건드리지 않음), 없는 내장 틀을
    추가하고, **내장 여섯 개를 일반→성인 순서로 재정렬**합니다. 커스텀 틀은 순서를 건드리지 않고
    그 뒤로 보냅니다.
-4. 캐릭터도 페르소나도 없으면 `seed()` — 기본 페르소나 하나와 내장 캐릭터를 넣습니다.
-5. `addMissingBuiltinPersonas()` — `BUILTIN_PERSONAS` 중 아직 넣은 적 없는 것을 추가합니다.
+4. `tagBuiltinCharacters()` — `builtin` 표시가 생기기 전에 들어온 내장 캐릭터를 이름으로 찾아 표시를
+   붙입니다(`settings.builtinCharactersTagged` 로 한 번만). 옛 외형 태그 채우기(`fillBuiltinAppearance()`)도
+   이때 같이 돕니다.
+5. `syncBuiltinCharacters()` — 사람이 손대지 않은 내장 캐릭터를 코드의 최신 내용으로 맞춥니다.
+6. 캐릭터도 페르소나도 없으면 `seed()` — 기본 페르소나 하나와 내장 캐릭터를 넣습니다.
+7. `addMissingBuiltinPersonas()` — `BUILTIN_PERSONAS` 중 아직 넣은 적 없는 것을 추가합니다.
 
 ### 내장 콘텐츠
 
@@ -87,9 +91,15 @@ export const store = new Store();  // 싱글턴
   일반 셋(`default`, `novelist`, `narrator`) 다음에 성인 셋(`adult`, `adult-novel`, `adult-narrator`)이
   옵니다. 순서를 바꾸려면 이 배열만 고치면 되고, `normalizeSettings()`의 재정렬 로직이
   기존 설치에도 소급 적용합니다.
-- `BUILTIN_CHARACTERS` — 내장 캐릭터 배열. `addMissingBuiltins()`가 **이름으로 중복을 판단**합니다.
-  즉 사용자가 내장 캐릭터의 이름을 바꾸면 그 캐릭터는 "없는 것"으로 보여 다시 추가될 수 있습니다.
-  반대로 설명만 바꾸고 이름을 유지하면 건너뜁니다.
+- `BUILTIN_CHARACTERS` — 내장 캐릭터 배열. 저장된 캐릭터에는 두 필드가 붙습니다.
+  - `builtin` — 어느 내장 캐릭터인지(배열의 `name`). 화면의 **기본** 탭은 이 필드로 나뉘고,
+    `addMissingBuiltins()`도 이 필드로 중복을 판단하므로 사용자가 이름을 바꿔도 다시 추가되지 않습니다.
+    **배포한 내장 캐릭터의 `name` 은 열쇠이므로 바꾸지 마세요.**
+  - `builtinSig` — 마지막으로 받은 내장 내용의 지문(`characterSig()`, `CHARACTER_FIELDS` 의 sha1).
+    지금 내용의 지문이 이것과 같으면 손대지 않은 것이라 `syncBuiltinCharacters()`가 새 내용으로 바꾸고,
+    다르면 사람이 고친 것이라 그대로 둡니다. 즉 배열의 다른 칸을 고치면 기존 설치에도 반영됩니다.
+  - 두 필드는 API 로 쓸 수 없습니다(`CHARACTER_FIELDS` 밖). 복제·대화에서 저장한 캐릭터는 늘 내 캐릭터이고,
+    백업 불러오기는 같은 내장 캐릭터가 아직 없을 때만 표시를 살립니다.
 - `BUILTIN_PERSONAS` — 내장 페르소나 배열(지금은 입력을 연출 지시로 읽게 하는 `감독`).
   `addMissingBuiltinPersonas()`가 넣은 이름을 `settings.seededPersonas`에 적어 두므로,
   사용자가 지운 내장 페르소나는 다음 실행 때 되살아나지 않습니다.

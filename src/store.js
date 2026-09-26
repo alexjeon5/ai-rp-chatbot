@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { readFile, rename } from 'node:fs/promises';
 import { Collection, JsonDoc, uid, flushAll, merge, DATA_DIR } from './db.js';
 import { IMAGE_DEFAULTS } from './image.js';
@@ -378,6 +379,18 @@ export const BUILTIN_TEMPLATES = () => [
 
 /* ---------------- 내장 캐릭터 ---------------- */
 
+/** 캐릭터 시트의 칸. 서버의 입력 검사와 내장 캐릭터 비교에 같이 씁니다. */
+export const CHARACTER_FIELDS = [
+  'name', 'avatar', 'tags', 'description', 'appearance', 'personality',
+  'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'
+];
+
+/** 캐릭터 내용의 지문. 내장 캐릭터를 사람이 고쳤는지 알아볼 때 씁니다. */
+export function characterSig(c) {
+  const values = CHARACTER_FIELDS.map((f) => String(c?.[f] ?? ''));
+  return createHash('sha1').update(JSON.stringify(values)).digest('hex').slice(0, 16);
+}
+
 /**
  * 예전 판의 내장 캐릭터 외형 태그. 저장된 캐릭터가 이 값 그대로면 사람이 고치지 않은 것이므로
  * 새 기본값으로 바꿉니다. 고친 태그는 건드리지 않습니다.
@@ -391,6 +404,11 @@ const OLD_BUILTIN_APPEARANCE = new Set([
   '1girl, adult, long wavy dark brown hair, gentle eyes, trench coat, holding umbrella'
 ]);
 
+/**
+ * 내장 캐릭터. 저장될 때 builtin 에 이 배열의 name 이 붙어 '기본' 탭으로 갑니다.
+ * name 은 내장 캐릭터를 알아보는 열쇠이므로, 이미 배포한 캐릭터의 이름은 바꾸지 마세요.
+ * 다른 칸은 고쳐도 됩니다 — 사람이 손대지 않은 캐릭터는 다음 실행 때 새 내용으로 바뀝니다.
+ */
 export const BUILTIN_CHARACTERS = [
   {
     name: '유하린',
@@ -474,7 +492,7 @@ export const BUILTIN_CHARACTERS = [
     name: '차연서',
     avatar: '🌸',
     tags: '순애, 연인, 일상',
-    description: '{{user}}의 연인, 20세. 고등학교 도서부에서 처음 만나 같은 대학 새내기가 된 지금까지 한 사람만 바라봐 왔다.',
+    description: '고등학교 도서부에서 만난 연인, 20세. 같은 대학 새내기가 된 지금까지 한 사람만 바라봐 왔다.',
     appearance: '1girl, adult, long black hair, straight hair, side bangs, dark brown eyes, gentle eyes, light smile, cream knit sweater, long skirt',
     personality: '조용하고 다정하지만 {{user}}에 관한 일에는 누구보다 단단하다. 사소한 약속도 전부 기억하고, 기념일보다 평범한 하루를 더 소중히 여긴다. 질투를 해도 화내는 대신 서운하다고 솔직하게 말하고, 금방 웃으며 손을 잡는다. 다른 사람의 호의에는 정중하게 선을 긋는다.',
     speech: '부드러운 반말. 말끝이 둥글고 차분하다. 부끄러울 때는 말을 줄이고 대신 옷소매를 살짝 잡는다. "있잖아" 로 말을 꺼내는 버릇이 있다.',
@@ -487,7 +505,7 @@ export const BUILTIN_CHARACTERS = [
     name: '이도윤',
     avatar: '🌿',
     tags: '순애, 연인, 일상',
-    description: '{{user}}의 연인, 21세. 고등학교 입학식 날 첫눈에 반해 졸업식 날에야 고백했고, 지금은 함께한 지 2년째다.',
+    description: '고등학교 입학식 날 첫눈에 반한 연인, 21세. 졸업식 날에야 고백했고, 지금은 함께한 지 2년째다.',
     appearance: '1boy, adult, short black hair, neat hair, dark eyes, soft smile, tall, broad shoulders, white shirt, navy cardigan, slacks',
     personality: '무뚝뚝해 보이지만 {{user}} 앞에서는 표정이 다 풀린다. 말보다 행동이 먼저라 우산, 약, 간식 같은 걸 늘 챙겨 다닌다. 한 번 한 약속은 반드시 지키고, {{user}}가 불안해하면 몇 번이고 같은 말로 안심시킨다. 다른 사람에게는 친절하되 여지를 남기지 않는다.',
     speech: '낮고 차분한 반말. 말수는 적지만 좋아한다는 말은 아끼지 않는다. 당황하면 귀부터 빨개지고 "...그냥." 으로 얼버무린다.',
@@ -611,7 +629,8 @@ export class Store {
       this.chats.load()
     ]);
     this.normalizeSettings();
-    this.fillBuiltinAppearance();
+    this.tagBuiltinCharacters();
+    this.syncBuiltinCharacters();
 
     if (!this.characters.size && !this.personas.size) this.seed();
     this.addMissingBuiltinPersonas();
@@ -693,11 +712,13 @@ export class Store {
    * 내장 캐릭터의 외형 태그를 채웁니다. 외형 태그 칸이 생기기 전에 들어온 캐릭터는 비어 있어서
    * 장면 그리기 때 얼굴이 매번 달라집니다. 이름이 내장 캐릭터와 같고, 태그가 비었거나 예전 기본값
    * 그대로일 때만 바꿉니다 — 사람이 고친 태그와 직접 만든 캐릭터는 그대로 둡니다.
+   * builtin 표시가 생기기 전에 들어온 캐릭터용이라 tagBuiltinCharacters() 안에서만 부릅니다.
    */
   fillBuiltinAppearance() {
     const defaults = new Map(BUILTIN_CHARACTERS.map((c) => [c.name, c.appearance]));
     let filled = 0;
     for (const c of this.characters.all()) {
+      if (c.builtin) continue;
       const next = defaults.get(c.name);
       const current = String(c.appearance || '').trim();
       if (!next || current === next) continue;
@@ -709,13 +730,59 @@ export class Store {
     return filled;
   }
 
-  /** 아직 없는 내장 캐릭터만 추가합니다. 이미 있는 이름은 건드리지 않습니다. */
+  /**
+   * builtin 표시가 없던 시절에 들어온 내장 캐릭터를 이름으로 찾아 표시를 붙입니다. 한 번만 돕니다.
+   * 지금 내용이 내장 캐릭터와 똑같으면 '손대지 않음', 조금이라도 다르면 '사람이 고침'으로 봅니다 —
+   * 예전에 고친 내용을 모르고 덮어쓰는 일이 없게, 애매하면 고친 쪽으로 둡니다.
+   */
+  tagBuiltinCharacters() {
+    const s = this.settings;
+    if (s.builtinCharactersTagged) return 0;
+    this.fillBuiltinAppearance();
+
+    const byName = new Map(BUILTIN_CHARACTERS.map((c) => [c.name, c]));
+    const taken = new Set(this.characters.all().map((c) => c.builtin).filter(Boolean));
+    let tagged = 0;
+    for (const c of this.characters.all()) {
+      const def = byName.get(c.name);
+      if (c.builtin || !def || taken.has(def.name)) continue;
+      taken.add(def.name);
+      this.characters.update(c.id, { builtin: def.name, builtinSig: characterSig(def) });
+      tagged += 1;
+    }
+    s.builtinCharactersTagged = true;
+    this.saveSettings();
+    return tagged;
+  }
+
+  /**
+   * 사람이 손대지 않은 내장 캐릭터를 코드의 최신 내용으로 맞춥니다.
+   * builtinSig 는 그 캐릭터가 마지막으로 받은 내장 내용의 지문입니다. 지금 내용의 지문이
+   * 그것과 같으면 손대지 않은 것이므로 새 내용으로 바꾸고, 다르면 사람이 고친 것이므로 둡니다.
+   */
+  syncBuiltinCharacters() {
+    const byName = new Map(BUILTIN_CHARACTERS.map((c) => [c.name, c]));
+    let synced = 0;
+    for (const c of this.characters.all()) {
+      const def = byName.get(c.builtin);
+      if (!def) continue;
+      const latest = characterSig(def);
+      if (c.builtinSig === latest || characterSig(c) !== c.builtinSig) continue;
+      const patch = Object.fromEntries(CHARACTER_FIELDS.map((f) => [f, def[f] ?? '']));
+      this.characters.update(c.id, { ...patch, builtinSig: latest });
+      synced += 1;
+    }
+    if (synced) console.log(`내장 캐릭터 ${synced}명을 새 설정으로 바꿨습니다.`);
+    return synced;
+  }
+
+  /** 아직 없는 내장 캐릭터만 추가합니다. 이름을 바꿨더라도 builtin 표시로 알아보고 건너뜁니다. */
   addMissingBuiltins() {
-    const names = new Set(this.characters.all().map((c) => c.name));
+    const present = new Set(this.characters.all().map((c) => c.builtin).filter(Boolean));
     let added = 0;
     for (const c of BUILTIN_CHARACTERS) {
-      if (names.has(c.name)) continue;
-      this.characters.add({ ...c });
+      if (present.has(c.name)) continue;
+      this.characters.add({ ...c, builtin: c.name, builtinSig: characterSig(c) });
       added += 1;
     }
     return added;

@@ -350,22 +350,42 @@ export function renderChatList(chats, activeId, characters, { hideAdult = false,
     (hiddenCount ? `<li class="rail-empty">성인 대화 ${hiddenCount}개 숨김</li>` : '');
 }
 
-export function renderCharacterList(characters) {
-  const ul = document.getElementById('character-list');
-  if (!characters.length) {
-    ul.innerHTML = '<li class="rail-empty">아직 만든 캐릭터가 없습니다.</li>';
-    return;
+/**
+ * 캐릭터 목록을 탭 하나 분량만 그립니다. builtin 표시가 있는 캐릭터는 '기본' 탭, 나머지는 '내 캐릭터' 탭입니다.
+ * missing 은 아직 넣지 않은 내장 캐릭터 수로, '기본' 탭 맨 위에 넣기 버튼을 띄울 때 씁니다.
+ */
+export function renderCharacterList(characters, { tab = 'mine', missing = 0 } = {}) {
+  const mine = characters.filter((c) => !c.builtin);
+  const builtin = characters.filter((c) => c.builtin);
+
+  for (const btn of document.querySelectorAll('#char-tabs [data-tab]')) {
+    const on = btn.dataset.tab === tab;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-selected', String(on));
   }
-  ul.innerHTML = characters
-    .map(
-      (c) => `<li><button class="rail-item" data-character="${c.id}">
+  document.querySelector('#char-tabs [data-count="mine"]').textContent = mine.length || '';
+  document.querySelector('#char-tabs [data-count="builtin"]').textContent = builtin.length || '';
+
+  const shown = tab === 'builtin' ? builtin : mine;
+  const rows = shown.map(
+    (c) => `<li><button class="rail-item" data-character="${c.id}">
         <span class="rail-avatar">${esc(c.avatar || '◦')}</span>
         <span class="rail-body">
           <span class="rail-name"><span class="label">${esc(c.name)}</span></span>
           <span class="rail-note">${esc(c.description || (c.tags || ''))}</span>
         </span></button></li>`
-    )
-    .join('');
+  );
+  if (tab === 'builtin' && missing) {
+    const label = builtin.length ? `빠진 기본 캐릭터 ${missing}명 넣기` : `기본 캐릭터 ${missing}명 넣기`;
+    rows.unshift(`<li class="rail-seed"><button class="ghost-btn" data-seed-builtins
+      title="앱에 들어 있는 기본 캐릭터 중 목록에 없는 것만 추가합니다">${label}</button></li>`);
+  }
+  if (!shown.length && !(tab === 'builtin' && missing)) {
+    rows.push(tab === 'builtin'
+      ? '<li class="rail-empty">기본 캐릭터가 없습니다.</li>'
+      : '<li class="rail-empty">아직 만든 캐릭터가 없습니다. <b>새로 만들기</b> 로 시작하거나 <b>기본</b> 탭의 캐릭터를 복사해 고쳐 보세요.</li>');
+  }
+  document.getElementById('character-list').innerHTML = rows.join('');
 }
 
 /** 첫 글자가 오기 전까지 자리를 지키는 점 세 개. */

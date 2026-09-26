@@ -31,7 +31,7 @@ async function boot() {
   applyDev(state.settings.dev);
   paintAccount();
   paintAdultRules();
-  ui.renderCharacterList(state.characters);
+  paintCharacters();
   paintMode();
   paintAdultToggle();
   ui.renderChatList(visibleChats(), null, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
@@ -1712,11 +1712,39 @@ $('character-list').addEventListener('contextmenu', (e) => {
 
 $('btn-new-character').addEventListener('click', () => openCharacterDialog(null));
 
-$('btn-seed-characters').addEventListener('click', async () => {
+/* --- 캐릭터 탭: 내 캐릭터 / 기본 --- */
+
+/** 마지막으로 본 탭. 처음이면 직접 만든 캐릭터가 있을 때 '내 캐릭터', 없으면 '기본' 입니다. */
+function characterTab() {
+  let saved = null;
+  try { saved = localStorage.getItem('characterTab'); } catch { /* 못 읽어도 괜찮습니다 */ }
+  if (saved === 'mine' || saved === 'builtin') return saved;
+  return state.characters.some((c) => !c.builtin) ? 'mine' : 'builtin';
+}
+
+function rememberCharacterTab(tab) {
+  try { localStorage.setItem('characterTab', tab); } catch { /* 저장 못 해도 괜찮습니다 */ }
+}
+
+function paintCharacters() {
+  const present = new Set(state.characters.map((c) => c.builtin).filter(Boolean));
+  const missing = (state.settings.builtinCharacters || []).filter((name) => !present.has(name)).length;
+  ui.renderCharacterList(state.characters, { tab: characterTab(), missing });
+}
+
+$('char-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-tab]');
+  if (!btn) return;
+  rememberCharacterTab(btn.dataset.tab);
+  paintCharacters();
+});
+
+$('character-list').addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-seed-builtins]')) return;
   const { added, characters } = await api.seedCharacters();
   state.characters = characters;
-  ui.renderCharacterList(state.characters);
-  ui.toast(added ? `기본 캐릭터 ${added}개를 넣었습니다` : '이미 다 들어 있습니다');
+  paintCharacters();
+  ui.toast(added ? `기본 캐릭터 ${added}명을 넣었습니다` : '이미 다 들어 있습니다');
 });
 
 $('btn-new-chat').addEventListener('click', () => {
@@ -1740,7 +1768,8 @@ $('btn-save-character').addEventListener('click', async () => {
   state.chat.characterId = character.id;
   delete state.chat.character;
   state.characters = await api.characters();
-  ui.renderCharacterList(state.characters);
+  rememberCharacterTab('mine');
+  paintCharacters();
   await refreshChatList();
   $('btn-save-character').hidden = true;
   ui.toast(`캐릭터 목록에 넣었습니다 — ${character.name}`);
@@ -1788,6 +1817,9 @@ function openCharacterDialog(ch) {
   state.editingCharacterId = ch?.id || null;
   $('char-dlg-title').textContent = ch ? `${ch.name} 고치기` : '캐릭터 만들기';
   $('c-delete').hidden = !ch;
+  // 기본 캐릭터는 원본을 두고 내 버전을 따로 만들 수 있게 합니다.
+  $('c-copy').hidden = !ch?.builtin;
+  $('c-builtin-note').hidden = !ch?.builtin;
   // 이미 저장된 캐릭터를 고칠 때는 '이번만 쓰기' 가 뜻이 없습니다.
   $('c-once').hidden = Boolean(ch?.id);
   for (const f of CHAR_FIELDS) $(`c-${f}`).value = ch?.[f] || '';
@@ -1836,6 +1868,17 @@ $('c-once').addEventListener('click', () => {
 
 $('c-cancel').addEventListener('click', () => dlgChar.close('cancel'));
 
+// 칸 내용은 그대로 두고 '새로 만들기' 상태로 바꿉니다. 저장하면 내 캐릭터로 들어갑니다.
+$('c-copy').addEventListener('click', () => {
+  state.editingCharacterId = null;
+  $('char-dlg-title').textContent = '캐릭터 만들기';
+  $('c-name').value = `${$('c-name').value.trim()} (내 버전)`;
+  for (const id of ['c-delete', 'c-copy', 'c-builtin-note']) $(id).hidden = true;
+  $('c-once').hidden = false;
+  draftNote('복사했습니다. 고친 뒤 저장하면 내 캐릭터에 들어갑니다.');
+  $('c-name').focus();
+});
+
 $('c-delete').addEventListener('click', () => {
   if (!state.editingCharacterId) return;
   if (!confirm('이 캐릭터를 삭제할까요? 이미 나눈 대화는 그대로 남습니다.')) return;
@@ -1852,11 +1895,15 @@ dlgChar.addEventListener('close', async () => {
     const body = Object.fromEntries(CHAR_FIELDS.map((f) => [f, $(`c-${f}`).value.trim()]));
     if (!body.name) return ui.toast('이름을 입력해 주세요');
     if (id) await api.updateCharacter(id, body);
-    else await api.createCharacter(body);
+    else {
+      await api.createCharacter(body);
+      // 새로 만든 캐릭터가 바로 보이도록 '내 캐릭터' 탭으로 옮깁니다.
+      rememberCharacterTab('mine');
+    }
   } else return;
 
   state.characters = await api.characters();
-  ui.renderCharacterList(state.characters);
+  paintCharacters();
   await refreshChatList();
   // 서버가 지운 캐릭터의 대화를 1회성 캐릭터로 바꿔 두었으니, 열린 대화를 다시 읽습니다.
   // 고친 경우에도 이름·소개가 화면 곳곳에 반영되도록 같은 길로 다시 그립니다.
@@ -2468,7 +2515,7 @@ $('s-import-file').addEventListener('change', async (e) => {
   ]);
   applyDev(state.settings.dev);
   paintAdultRules();
-  ui.renderCharacterList(state.characters);
+  paintCharacters();
   paintModelBadge();
   await refreshChatList();
   if (state.chat && !state.run) await openChat(state.chat.id);

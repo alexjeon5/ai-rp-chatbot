@@ -1,7 +1,9 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { store, uid, flushAll, merge, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from './src/store.js';
+import {
+  store, uid, flushAll, merge, DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES, BUILTIN_CHARACTERS, CHARACTER_FIELDS
+} from './src/store.js';
 import { streamChat, listModels, readsAsModelGone, supportsWebSearch } from './src/providers.js';
 import { listLogs, clearLogs } from './src/logs.js';
 import { buildSystem, fillVars, withThinking } from './src/prompt.js';
@@ -152,6 +154,8 @@ function settingsPayload() {
     defaultTemplate: DEFAULT_SYSTEM_TEMPLATE,
     // 내장 틀의 원본 내용. 설정에서 '기본 내용 가져오기' 로 되돌릴 때 씁니다.
     builtinTemplates: BUILTIN_TEMPLATES(),
+    // 내장 캐릭터 이름. 캐릭터 목록의 '기본' 탭이 빠진 캐릭터 수를 셀 때 씁니다.
+    builtinCharacters: BUILTIN_CHARACTERS.map((c) => c.name),
     // 그림 필터 중 고칠 수 없는 부분(모든 대화에 적용). 이미지 설정 창에 읽기 전용으로 보여 줍니다.
     imageCore: { blockTerms: CORE_BLOCK_TERMS, negative: CORE_NEGATIVE },
     // ComfyUI 에 연결하기 전 이미지 탭의 샘플러·스케줄러 목록. 연결 확인을 누르면 실제 목록으로 바뀝니다.
@@ -340,11 +344,6 @@ function crud(name, collection, fields, { beforeRemove, normalize = (x) => x } =
     res.json({ ok: true });
   }));
 }
-
-const CHARACTER_FIELDS = [
-  'name', 'avatar', 'tags', 'description', 'appearance', 'personality',
-  'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'
-];
 
 /**
  * 캐릭터를 지워도 그 캐릭터와 나눈 대화는 계속 이어갈 수 있어야 합니다.
@@ -1679,8 +1678,18 @@ app.post('/api/import', auth.requireOwner, (req, res) => {
 
   const characterIds = new Map();
   const personaIds = new Map();
-  const characters = importItems(store.characters, data.characters, cleanCharacter,
-    { signature: characterSignature, remap: characterIds });
+  // 백업 속 내장 캐릭터는 '기본' 탭 표시를 살립니다. 같은 내장 캐릭터가 이미 있으면 표시 없이 들어옵니다.
+  const builtinTaken = new Set(store.characters.all().map((c) => c.builtin).filter(Boolean));
+  const builtinNames = new Set(BUILTIN_CHARACTERS.map((c) => c.name));
+  const characters = importItems(store.characters, data.characters, (raw) => {
+    const c = cleanCharacter(raw);
+    if (c && builtinNames.has(raw.builtin) && !builtinTaken.has(raw.builtin)) {
+      builtinTaken.add(raw.builtin);
+      c.builtin = raw.builtin;
+      c.builtinSig = str(raw.builtinSig);
+    }
+    return c;
+  }, { signature: characterSignature, remap: characterIds });
   const personas = importItems(store.personas, data.personas, cleanPersona,
     { signature: personaSignature, remap: personaIds });
   const chats = importItems(store.chats, data.chats, (raw) => {

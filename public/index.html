@@ -44,11 +44,14 @@
       <div class="rail-head">
         <h2>캐릭터</h2>
         <span class="head-pair">
-          <button id="btn-seed-characters" class="ghost-btn" title="앱에 들어 있는 기본 캐릭터 중 아직 없는 것만 추가합니다">기본 캐릭터</button>
           <button id="btn-new-character" class="ghost-btn">새로 만들기</button>
         </span>
       </div>
-      <ul id="character-list" class="rail-list"></ul>
+      <nav id="char-tabs" class="char-tabs" role="tablist" aria-label="캐릭터 분류">
+        <button class="char-tab" role="tab" data-tab="mine">내 캐릭터 <span class="char-count" data-count="mine"></span></button>
+        <button class="char-tab" role="tab" data-tab="builtin">기본 <span class="char-count" data-count="builtin"></span></button>
+      </nav>
+      <ul id="character-list" class="rail-list" role="tabpanel"></ul>
     </section>
   </div>
 
@@ -120,6 +123,7 @@
   <form method="dialog" class="sheet-inner">
     <h2 class="sheet-title" id="char-dlg-title">캐릭터 만들기</h2>
     <div class="sheet-body">
+      <p id="c-builtin-note" class="field-hint builtin-note" hidden>앱에 들어 있는 기본 캐릭터입니다. 고치지 않고 두면 앱을 업데이트할 때 새 설정을 받고, 고치면 그 뒤로는 고친 내용을 그대로 지킵니다. 원본을 두고 내 버전을 따로 만들려면 <b>복사해서 내 캐릭터로</b> 를 누르세요.</p>
       <div class="seed-box">
         <div class="seed-head">
           <span class="field-hint grow">어떤 캐릭터인지 줄글로 적으면 AI 가 아래 항목을 채웁니다. 이미 적어 둔 칸은 그대로 둡니다.</span>
@@ -148,6 +152,7 @@
     </div>
     <div class="sheet-foot">
       <button id="c-delete" class="ghost-btn danger" type="button">삭제</button>
+      <button id="c-copy" class="ghost-btn" type="button" title="이 기본 캐릭터를 원본 그대로 두고, 같은 내용으로 내 캐릭터를 새로 만듭니다" hidden>복사해서 내 캐릭터로</button>
       <span class="spacer"></span>
       <button id="c-once" class="ghost-btn" type="button" title="목록에 남기지 않고 이번 대화에만 씁니다">이번만 쓰기</button>
       <button id="c-cancel" class="ghost-btn" type="button">취소</button>
