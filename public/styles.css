@@ -488,6 +488,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .rail-seed { padding: 4px 8px 8px; }
 .rail-seed .ghost-btn { width: 100%; }
 
+/* 대화 목록의 보관함 드나드는 줄 */
+.rail-archive { padding: 6px 8px 2px; }
+.rail-archive:first-child { padding: 0 8px 6px; }
+.rail-archive .ghost-btn { width: 100%; }
+
 .builtin-note {
   margin: 0 0 12px;
   padding: 8px 10px;
@@ -550,6 +555,17 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .stage-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 
 .head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; }
+
+/* 대화 관리 ⋯ 메뉴. 목록 모양은 드롭다운(.sel-list/.sel-item)을 그대로 씁니다. */
+.chat-menu { position: relative; }
+.chat-menu-btn { padding-left: 11px; padding-right: 11px; letter-spacing: 0.08em; }
+.chat-menu-btn[aria-expanded="true"] { color: var(--text); border-color: var(--brass-soft); }
+/* .sel-list 가 파일 뒤쪽에 있어 선택자를 한 단계 올려야 덮입니다. */
+.chat-menu > .chat-menu-list { left: auto; right: 0; min-width: 150px; }
+.sel-list > .sel-item.danger { margin-top: 4px; border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; color: var(--danger); }
+
+/* 대화 목록 우클릭 메뉴. 커서 자리에 띄우므로 화면 기준으로 둡니다. 좌표는 app.js 가 넣습니다. */
+.sel-list.row-menu { position: fixed; z-index: 60; top: 0; right: auto; bottom: auto; min-width: 150px; max-height: none; }
 
 .messages {
   flex: 1;
@@ -1762,6 +1778,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
   .sidebar.open { transform: none; box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); }
   .stage-head, .messages, .composer { padding-left: 16px; padding-right: 16px; }
+  /* 버튼 줄이 제목 칸을 폭 0 으로 누르지 않게, 제목 아래 한 줄로 내립니다. ⋯ 메뉴가 화면 밖으로 안 나가게 오른쪽 정렬은 둡니다. */
+  .stage-head { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+  .head-actions { flex-basis: 100%; }
   .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; }
   .theme-grid { grid-template-columns: repeat(3, 1fr); }
 }

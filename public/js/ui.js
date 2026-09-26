@@ -316,22 +316,36 @@ export async function copyText(text) {
   return ok;
 }
 
-export function renderChatList(chats, activeId, characters, { hideAdult = false, mode = 'rp' } = {}) {
+/**
+ * 대화 목록. archiveView 면 보관한 대화를 보여 주고 맨 위에 돌아가는 줄을,
+ * 아니면 보관한 대화가 있을 때만 맨 아래에 보관함으로 가는 줄을 붙입니다.
+ */
+export function renderChatList(chats, activeId, characters,
+  { hideAdult = false, mode = 'rp', archiveView = false, archivedCount = 0 } = {}) {
   const ul = document.getElementById('chat-list');
   const visible = hideAdult ? chats.filter((c) => !c.adult) : chats;
   const hiddenCount = chats.length - visible.length;
 
+  const head = archiveView
+    ? '<li class="rail-archive"><button class="ghost-btn" data-archive-view="off">← 대화 목록으로</button></li>'
+    : '';
+  const foot = !archiveView && archivedCount
+    ? `<li class="rail-archive"><button class="ghost-btn" data-archive-view="on">보관함 <span class="char-count">${archivedCount}</span></button></li>`
+    : '';
+
   if (!visible.length) {
-    const empty = mode === 'assistant'
-      ? '새 채팅을 눌러 시작해 보세요.'
-      : '캐릭터를 골라 대화를 시작하세요.';
-    ul.innerHTML = hiddenCount
+    const empty = archiveView
+      ? '보관한 대화가 없습니다.'
+      : mode === 'assistant'
+        ? '새 채팅을 눌러 시작해 보세요.'
+        : '캐릭터를 골라 대화를 시작하세요.';
+    ul.innerHTML = head + (hiddenCount
       ? `<li class="rail-empty">성인 대화 ${hiddenCount}개가 숨겨져 있습니다.</li>`
-      : `<li class="rail-empty">${empty}</li>`;
+      : `<li class="rail-empty">${empty}</li>`) + foot;
     return;
   }
 
-  ul.innerHTML = visible
+  ul.innerHTML = head + visible
     .map((c) => {
       const ch = characters.find((x) => x.id === c.characterId);
       const icon = c.kind === 'assistant' ? '✳' : c.avatar || ch?.avatar || '◦';
@@ -347,7 +361,8 @@ export function renderChatList(chats, activeId, characters, { hideAdult = false,
         </span></button></li>`;
     })
     .join('') +
-    (hiddenCount ? `<li class="rail-empty">성인 대화 ${hiddenCount}개 숨김</li>` : '');
+    (hiddenCount ? `<li class="rail-empty">성인 대화 ${hiddenCount}개 숨김</li>` : '') +
+    foot;
 }
 
 /**

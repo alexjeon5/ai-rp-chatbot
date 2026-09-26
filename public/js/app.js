@@ -14,6 +14,8 @@ const state = {
   run: null,
   editingCharacterId: null,
   hideAdult: localStorage.getItem('hideAdult') === '1',
+  // 대화 목록 대신 보관함을 보고 있는가
+  showArchived: false,
   mode: localStorage.getItem('mode') === 'assistant' ? 'assistant' : 'rp'
 };
 
@@ -34,7 +36,7 @@ async function boot() {
   paintCharacters();
   paintMode();
   paintAdultToggle();
-  ui.renderChatList(visibleChats(), null, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
+  paintChatList(null);
   paintModelBadge();
   const last = localStorage.getItem('lastChat');
   const candidates = visibleChats();
@@ -224,7 +226,7 @@ $('active-model').addEventListener('click', () => openSettings('engine'));
 
 async function refreshChatList() {
   state.chats = await api.chats();
-  ui.renderChatList(visibleChats(), state.chat?.id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
+  paintChatList();
 }
 
 function paintMode() {
@@ -238,13 +240,59 @@ function paintMode() {
   $('btn-new-assistant').hidden = rp;
 }
 
-function visibleChats() {
+/** 지금 모드(롤플레이/어시스턴트)의 대화. 보관 여부는 가리지 않습니다. */
+function modeChats() {
   return state.chats.filter((c) =>
     state.mode === 'assistant' ? c.kind === 'assistant' : c.kind !== 'assistant');
 }
 
+/**
+ * 목록에 보일 대화. 평소에는 보관하지 않은 것만 마지막 대화 순으로,
+ * 보관함을 보고 있으면 보관한 것만 최근에 보관한 순으로 돌려줍니다.
+ */
+function visibleChats() {
+  const list = modeChats().filter((c) => Boolean(c.archivedAt) === state.showArchived);
+  return state.showArchived ? list.sort((a, b) => b.archivedAt - a.archivedAt) : list;
+}
+
+/** 실제로 화면에 그려지는 대화. '성인 숨기기'로 가린 것까지 뺍니다. */
+function listedChats() {
+  return visibleChats().filter((c) => !(state.hideAdult && c.adult));
+}
+
+function paintChatList(activeId = state.chat?.id) {
+  ui.renderChatList(visibleChats(), activeId, state.characters, {
+    hideAdult: state.hideAdult,
+    mode: state.mode,
+    archiveView: state.showArchived,
+    // 숨긴 성인 대화는 세지 않아야, 보관함에 들어갔을 때 보이는 수와 맞습니다.
+    archivedCount: modeChats().filter((c) => c.archivedAt && !(state.hideAdult && c.adult)).length
+  });
+}
+
+/**
+ * 방금 말을 건 대화를 목록 맨 위로 올립니다. 서버도 updatedAt 순으로 돌려주지만,
+ * 목록은 답변이 끝나야 다시 불러오므로 그때까지 기다리지 않고 먼저 옮겨 둡니다.
+ */
+function bumpChat(chat, preview) {
+  const i = state.chats.findIndex((c) => c.id === chat.id);
+  if (i < 0) return;
+  const [row] = state.chats.splice(i, 1);
+  const { archivedAt, ...rest } = row;
+  state.chats.unshift({
+    ...rest,
+    title: chat.title,
+    updatedAt: Date.now(),
+    messageCount: chat.messages.length,
+    preview: preview.slice(0, 60)
+  });
+  paintChatList();
+}
+
 for (const tab of document.querySelectorAll('.mode-tab[data-mode]')) {
   tab.addEventListener('click', () => {
+    // 이미 켜진 탭을 다시 누른 것이면 보관함 보기를 그대로 둡니다. 열려 있는 보관한 대화가 목록에서 사라지지 않게 합니다.
+    if (tab.dataset.mode !== state.mode) state.showArchived = false;
     state.mode = tab.dataset.mode;
     localStorage.setItem('mode', state.mode);
     paintMode();
@@ -256,7 +304,7 @@ for (const tab of document.querySelectorAll('.mode-tab[data-mode]')) {
     // 가운데 안내 문구를 여기서 새 모드에 맞게 다시 그립니다.
     else if (!state.chat) ui.renderEmptyStage(state.mode);
 
-    ui.renderChatList(visibleChats(), state.chat?.id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
+    paintChatList();
   });
 }
 
@@ -268,7 +316,10 @@ function closeChat() {
   $('chat-title').textContent = state.mode === 'assistant' ? '어시스턴트' : '대화를 선택해 주세요';
   $('chat-sub').textContent = '';
   $('composer').hidden = true;
+  $('btn-chat-menu').hidden = true;
+  toggleChatMenu(false);
   $('btn-rename').hidden = true;
+  $('btn-archive-chat').hidden = true;
   $('btn-delete-chat').hidden = true;
   $('btn-save-character').hidden = true;
   $('btn-cast').hidden = true;
@@ -297,7 +348,7 @@ $('btn-toggle-adult').addEventListener('click', () => {
   state.hideAdult = !state.hideAdult;
   localStorage.setItem('hideAdult', state.hideAdult ? '1' : '0');
   paintAdultToggle();
-  ui.renderChatList(visibleChats(), state.chat?.id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
+  paintChatList();
 });
 
 /** 대화 상단의 틀 선택기를 현재 대화에 맞춰 그립니다. */
@@ -338,13 +389,18 @@ async function openChat(id) {
   if (state.run && state.run.chatId !== id) await stopGeneration();
   state.chat = await api.chat(id);
   localStorage.setItem('lastChat', id);
+  // 연 대화가 들어 있는 쪽(대화 목록/보관함)을 보여 줍니다. 새로 만든 대화는 늘 대화 목록입니다.
+  state.showArchived = Boolean(state.chat.archivedAt);
   const assistant = state.chat.kind === 'assistant';
   const ch = characterOf(state.chat);
   $('chat-title').textContent = state.chat.title;
   paintChatSub();
   $('composer').hidden = false;
+  $('btn-chat-menu').hidden = false;
+  toggleChatMenu(false);
   $('btn-rename').hidden = false;
   $('btn-delete-chat').hidden = false;
+  paintArchiveButton();
   $('btn-save-character').hidden = !state.chat.character;
   $('btn-cast').hidden = assistant;
   $('btn-memory').hidden = assistant;
@@ -360,16 +416,18 @@ async function openChat(id) {
   paintThinking();
   paintThread();
   refreshContext();
-  ui.renderChatList(visibleChats(), id, state.characters, { hideAdult: state.hideAdult, mode: state.mode });
+  paintChatList(id);
   closeSidebarOnNarrow();
 }
 
 /** 대화 제목 아래 한 줄. 1회성 여부 · 캐릭터 소개 · 내 페르소나 */
 function paintChatSub() {
   if (!state.chat) return;
+  const archived = state.chat.archivedAt ? '보관한 대화' : null;
   $('chat-sub').textContent = state.chat.kind === 'assistant'
-    ? '어시스턴트 모드 — 캐릭터 없이 대화합니다'
+    ? [archived, '어시스턴트 모드 — 캐릭터 없이 대화합니다'].filter(Boolean).join(' · ')
     : [
+        archived,
         state.chat.character ? '1회성 캐릭터' : null,
         castOf(state.chat).length ? `함께: ${castOf(state.chat).map((c) => c.name).join(', ')}` : null,
         characterOf(state.chat)?.description,
@@ -696,8 +754,16 @@ async function send() {
     // 서버와 같은 규칙으로 첫 질문을 제목으로 씁니다.
     state.chat.title = content.slice(0, 24) || '새 채팅';
     $('chat-title').textContent = state.chat.title;
-    refreshChatList();
   }
+  if (state.chat.archivedAt) {
+    // 서버가 보관을 풀었습니다. 화면도 대화 목록으로 돌아갑니다.
+    delete state.chat.archivedAt;
+    state.showArchived = false;
+    paintArchiveButton();
+    paintChatSub();
+    ui.toast('보관한 대화를 목록으로 꺼냈습니다');
+  }
+  bumpChat(state.chat, content);
   ui.scrollToEnd({ force: true });
   await run();
 }
@@ -831,7 +897,7 @@ async function run({ mode = 'new' } = {}) {
     setStreaming(false);
     finish();
     if (reload && isOpen()) setTimeout(() => { if (isOpen() && !state.run) openChat(chat.id); }, 300);
-    else refreshChatList();
+    refreshChatList();
     if (succeeded) afterReply(chat);
     if (isOpen()) refreshContext();
   }
@@ -1691,6 +1757,12 @@ document.getElementById('messages').addEventListener('click', async (e) => {
 /* ---------------- 사이드바 ---------------- */
 
 $('chat-list').addEventListener('click', (e) => {
+  const view = e.target.closest('[data-archive-view]');
+  if (view) {
+    state.showArchived = view.dataset.archiveView === 'on';
+    paintChatList();
+    return;
+  }
   const btn = e.target.closest('[data-chat]');
   if (btn) openChat(btn.dataset.chat);
 });
@@ -1755,11 +1827,179 @@ $('btn-new-chat').addEventListener('click', () => {
   else ui.toast('왼쪽에서 캐릭터를 골라 주세요');
 });
 
-$('btn-delete-chat').addEventListener('click', async () => {
-  if (!state.chat || !confirm('이 대화를 삭제할까요? 되돌릴 수 없습니다.')) return;
-  await api.deleteChat(state.chat.id);
-  closeChat();
+/* --- 대화 관리: 상단 ⋯ 메뉴와 목록의 우클릭 메뉴가 같이 씁니다 --- */
+
+/**
+ * 열린 대화가 목록에서 빠졌을 때(보관·삭제) 그 자리에 올라온 대화를 엽니다.
+ * index 는 빠지기 전 목록에서의 자리입니다. 남은 대화가 없으면 빈 화면으로 둡니다.
+ */
+async function openNeighbor(index) {
+  const list = listedChats();
+  const next = list[Math.min(Math.max(index, 0), list.length - 1)];
+  if (next) await openChat(next.id);
+  else closeChat();
+}
+
+async function renameChat(id) {
+  const current = state.chat?.id === id ? state.chat.title : state.chats.find((c) => c.id === id)?.title;
+  const title = prompt('대화 이름', current || '')?.trim();
+  if (!title) return;
+  try {
+    await api.updateChat(id, { title });
+  } catch (err) {
+    ui.toast(`이름을 바꾸지 못했습니다 — ${err.message}`);
+    return;
+  }
+  if (state.chat?.id === id) {
+    state.chat.title = title;
+    $('chat-title').textContent = title;
+  }
+  refreshChatList();
+}
+
+async function setArchived(id, archive) {
+  try {
+    await api.updateChat(id, { archived: archive });
+  } catch (err) {
+    ui.toast(`${archive ? '보관하지' : '꺼내지'} 못했습니다 — ${err.message}`);
+    return;
+  }
+  // 응답을 기다리는 사이 다른 대화를 열었을 수 있으니, 열린 대화인지는 여기서 봅니다.
+  const open = state.chat?.id === id;
+  if (open && archive) {
+    // 보관한 대화는 목록에서 빠지므로 닫고, 대화 목록에서 그 자리의 다음 대화를 엽니다.
+    const index = state.showArchived ? 0 : listedChats().findIndex((c) => c.id === id);
+    closeChat();
+    state.showArchived = false;
+    await refreshChatList();
+    if (!state.chat) await openNeighbor(index);
+  } else {
+    if (open) {
+      delete state.chat.archivedAt;
+      state.showArchived = false;
+      paintArchiveButton();
+      paintChatSub();
+    }
+    await refreshChatList();
+  }
+  ui.toast(archive ? '보관함으로 옮겼습니다' : '대화 목록으로 꺼냈습니다');
+}
+
+async function removeChat(id) {
+  // 목록에서 우클릭으로 지울 때는 열린 대화가 아닐 수 있으니 이름을 보여 줍니다.
+  const title = state.chats.find((c) => c.id === id)?.title;
+  if (!confirm(`${title ? `'${title}' ` : '이 '}대화를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+  try {
+    await api.deleteChat(id);
+  } catch (err) {
+    ui.toast(`삭제하지 못했습니다 — ${err.message}`);
+    return;
+  }
+  const open = state.chat?.id === id;
+  const index = listedChats().findIndex((c) => c.id === id);
+  // 쓰던 답변이 지워진 대화에 붙지 않게 먼저 닫습니다.
+  if (open) closeChat();
   await refreshChatList();
+  if (open && !state.chat) await openNeighbor(index);
+}
+
+/**
+ * 메뉴 안의 키보드 처리. 방향키로 항목을 옮기고, Esc 는 닫고 원래 자리로 포커스를 돌려주며,
+ * Tab 으로 메뉴를 벗어나면 닫습니다. close(refocus) 는 메뉴마다 다릅니다.
+ */
+function menuKeys(menu, e, close) {
+  if (menu.hidden) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    close(true);
+  } else if (e.key === 'Tab') {
+    close(false);
+  } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const items = [...menu.querySelectorAll('.sel-item:not([hidden])')];
+    const at = items.indexOf(document.activeElement);
+    const step = e.key === 'ArrowDown' ? 1 : -1;
+    items[(at + step + items.length) % items.length]?.focus();
+  }
+}
+
+/* 상단 ⋯ 메뉴 — 열려 있는 대화에 씁니다 */
+
+function toggleChatMenu(open = $('chat-menu').hidden) {
+  $('chat-menu').hidden = !open;
+  $('btn-chat-menu').setAttribute('aria-expanded', String(open));
+  if (open) $('chat-menu').querySelector('.sel-item:not([hidden])')?.focus();
+}
+
+$('btn-chat-menu').addEventListener('click', () => toggleChatMenu());
+// 항목을 고르면 닫습니다. 각 항목의 동작은 아래 버튼별 처리기가 맡습니다.
+$('chat-menu').addEventListener('click', (e) => {
+  if (e.target.closest('.sel-item')) toggleChatMenu(false);
+});
+$('chat-menu').parentElement.addEventListener('keydown', (e) => {
+  menuKeys($('chat-menu'), e, (refocus) => {
+    toggleChatMenu(false);
+    if (refocus) $('btn-chat-menu').focus();
+  });
+});
+
+$('btn-delete-chat').addEventListener('click', () => { if (state.chat) removeChat(state.chat.id); });
+
+/* 목록 우클릭 메뉴 — 대화를 열지 않고 정리합니다 */
+
+let rowMenuChatId = null;
+
+function closeRowMenu(refocus = false) {
+  const id = rowMenuChatId;
+  $('row-menu').hidden = true;
+  rowMenuChatId = null;
+  if (refocus && id) $('chat-list').querySelector(`[data-chat="${CSS.escape(id)}"]`)?.focus();
+}
+
+$('chat-list').addEventListener('contextmenu', (e) => {
+  const btn = e.target.closest('[data-chat]');
+  const chat = btn && state.chats.find((c) => c.id === btn.dataset.chat);
+  if (!chat) return;
+  e.preventDefault();
+  toggleChatMenu(false);
+  rowMenuChatId = chat.id;
+  const menu = $('row-menu');
+  menu.innerHTML = `
+    <button type="button" class="sel-item" role="menuitem" data-act="rename">이름 바꾸기</button>
+    <button type="button" class="sel-item" role="menuitem" data-act="${chat.archivedAt ? 'unarchive' : 'archive'}">
+      ${chat.archivedAt ? '보관 해제' : '보관'}</button>
+    <button type="button" class="sel-item danger" role="menuitem" data-act="delete">대화 삭제</button>`;
+  menu.hidden = false;
+  // 메뉴 키·Shift+F10 으로 열면 좌표가 0 이라, 그때는 항목 바로 아래에 띄웁니다.
+  const box = btn.getBoundingClientRect();
+  const x = e.clientX || box.left + 12;
+  const y = e.clientY || box.bottom;
+  const { offsetWidth: w, offsetHeight: h } = menu;
+  menu.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
+  menu.style.top = `${y + h > innerHeight - 8 ? Math.max(8, y - h) : y}px`;
+  menu.querySelector('.sel-item')?.focus();
+});
+
+$('row-menu').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-act]');
+  if (!item) return;
+  const id = rowMenuChatId;
+  closeRowMenu();
+  const act = item.dataset.act;
+  if (act === 'rename') renameChat(id);
+  else if (act === 'archive' || act === 'unarchive') setArchived(id, act === 'archive');
+  else if (act === 'delete') removeChat(id);
+});
+
+$('row-menu').addEventListener('keydown', (e) => menuKeys($('row-menu'), e, closeRowMenu));
+// 목록이 움직이면 메뉴가 엉뚱한 항목 옆에 떠 있게 되므로 닫습니다.
+document.querySelector('.rail-scroll').addEventListener('scroll', () => closeRowMenu());
+window.addEventListener('resize', () => closeRowMenu());
+
+// 두 메뉴 모두 바깥을 누르면 닫습니다.
+document.addEventListener('mousedown', (e) => {
+  if (!$('chat-menu').hidden && !e.target.closest('.chat-menu')) toggleChatMenu(false);
+  if (!$('row-menu').hidden && !e.target.closest('#row-menu')) closeRowMenu();
 });
 
 $('btn-save-character').addEventListener('click', async () => {
@@ -1775,14 +2015,21 @@ $('btn-save-character').addEventListener('click', async () => {
   ui.toast(`캐릭터 목록에 넣었습니다 — ${character.name}`);
 });
 
-$('btn-rename').addEventListener('click', async () => {
-  const title = prompt('대화 이름', state.chat.title);
-  if (!title?.trim()) return;
-  await api.updateChat(state.chat.id, { title: title.trim() });
-  state.chat.title = title.trim();
-  $('chat-title').textContent = state.chat.title;
-  refreshChatList();
+function paintArchiveButton() {
+  const btn = $('btn-archive-chat');
+  const archived = Boolean(state.chat?.archivedAt);
+  btn.hidden = !state.chat;
+  btn.textContent = archived ? '보관 해제' : '보관';
+  btn.title = archived
+    ? '이 대화를 대화 목록으로 되돌립니다'
+    : '이 대화를 목록에서 치워 보관함에 둡니다. 지우지 않으므로 언제든 꺼낼 수 있습니다';
+}
+
+$('btn-archive-chat').addEventListener('click', () => {
+  if (state.chat) setArchived(state.chat.id, !state.chat.archivedAt);
 });
+
+$('btn-rename').addEventListener('click', () => { if (state.chat) renameChat(state.chat.id); });
 
 const sidebar = $('sidebar');
 $('btn-open-sidebar').addEventListener('click', () => sidebar.classList.add('open'));

@@ -74,9 +74,17 @@
       <select id="chat-persona" class="head-select" title="이 대화에서 쓸 내 페르소나" hidden></select>
       <button id="btn-cast" class="ghost-btn" hidden title="이 대화에 함께 등장할 캐릭터를 고릅니다">등장인물</button>
       <button id="btn-memory" class="ghost-btn" hidden title="오래된 대화의 요약과, 매 턴 붙는 진행 지시를 봅니다">기억·노트</button>
-      <button id="btn-save-character" class="ghost-btn" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
-      <button id="btn-rename" class="ghost-btn" hidden>이름 바꾸기</button>
-      <button id="btn-delete-chat" class="ghost-btn danger" hidden>대화 삭제</button>
+      <!-- 가끔 쓰는 대화 관리는 ⋯ 메뉴에 모아 둡니다 -->
+      <div class="chat-menu">
+        <button id="btn-chat-menu" class="ghost-btn chat-menu-btn" hidden aria-haspopup="menu" aria-expanded="false"
+          aria-controls="chat-menu" title="대화 관리" aria-label="대화 관리">⋯</button>
+        <div id="chat-menu" class="sel-list chat-menu-list" role="menu" hidden>
+          <button id="btn-save-character" class="sel-item" role="menuitem" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
+          <button id="btn-rename" class="sel-item" role="menuitem" hidden>이름 바꾸기</button>
+          <button id="btn-archive-chat" class="sel-item" role="menuitem" hidden>보관</button>
+          <button id="btn-delete-chat" class="sel-item danger" role="menuitem" hidden>대화 삭제</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -714,6 +722,9 @@
 </dialog>
 
 <div id="toast" class="toast" popover="manual" role="status" hidden></div>
+
+<!-- 대화 목록 우클릭 메뉴. 항목은 app.js 가 대화에 맞춰 채웁니다 -->
+<div id="row-menu" class="sel-list row-menu" role="menu" aria-label="대화 관리" hidden></div>
 
 <script type="module" src="/js/app.js"></script>
 </body>

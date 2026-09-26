@@ -655,6 +655,9 @@ app.put('/api/chats/:id', (req, res) => {
   if (typeof body.memory === 'string') chat.memory = body.memory.slice(0, MEMORY_MAX_CHARS * 2);
   if (typeof body.authorNote === 'string') chat.authorNote = body.authorNote.slice(0, 2000);
   if (Array.isArray(body.facts)) chat.facts = cleanFacts(body.facts);
+  // 보관한 대화는 목록에서 빠지고 보관함에만 보입니다. 지우지 않으므로 언제든 꺼낼 수 있습니다.
+  if (body.archived === true && !chat.archivedAt) chat.archivedAt = Date.now();
+  if (body.archived === false) delete chat.archivedAt;
   if (Array.isArray(body.castIds)) {
     // 함께 등장할 인물. 목록에 있는 캐릭터만, 주인공은 빼고, 겹치지 않게 받습니다.
     chat.castIds = [...new Set(body.castIds)]
@@ -690,6 +693,8 @@ app.post('/api/chats/:id/messages', (req, res) => {
   }
   chat.messages.push(msg);
   chat.updatedAt = Date.now();
+  // 보관한 대화에 다시 말을 걸면 목록으로 돌아옵니다.
+  if (msg.role === 'user') delete chat.archivedAt;
   store.chats.save(chat.id);
   res.json(msg);
 });
@@ -1657,6 +1662,7 @@ const cleanChat = (raw) => {
   if (typeof raw.memory === 'string') chat.memory = raw.memory;
   if (typeof raw.authorNote === 'string') chat.authorNote = raw.authorNote;
   if (Number.isFinite(raw.summaryUntilAt)) chat.summaryUntilAt = raw.summaryUntilAt;
+  if (Number.isFinite(raw.archivedAt)) chat.archivedAt = raw.archivedAt;
   if (Array.isArray(raw.facts)) chat.facts = cleanFacts(raw.facts);
   if (Number.isFinite(raw.factsUntilAt)) chat.factsUntilAt = raw.factsUntilAt;
   if (Array.isArray(raw.castIds)) chat.castIds = raw.castIds.filter((id) => typeof id === 'string');

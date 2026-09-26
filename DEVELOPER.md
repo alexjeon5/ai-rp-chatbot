@@ -296,7 +296,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
 | GET/POST/PUT/DELETE | `/api/personas[/:id]` | 페르소나 CRUD |
-| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` |
+| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` `archived`. 목록은 `updatedAt` 최신순. `archived: true` 면 `archivedAt` 을 적고 화면이 보관함으로 옮깁니다. 보관한 대화에 사용자 메시지가 들어오면 서버가 보관을 풉니다 |
 | POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제 |
 | POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate, continue }` 바디. regenerate 는 마지막 답변에 새 장(`swipes`)을 얹고, continue 는 끝에 이어 붙임. 둘 다 새 내용이 생겼을 때만 바뀜 |
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
@@ -348,16 +348,21 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 ("이 주석부터 저 주석까지" 방식으로 자르는 구간에 다른 함수가 들어 있었음). 이 파일을 고칠 때는:
 
 ```bash
-# app.js 가 쓰는 ui.* 가 전부 export 되는지 확인
-python3 -c "
-import re
-ui = open('public/js/ui.js').read()
-app = open('public/js/app.js').read()
-exported = set(re.findall(r'export (?:function|const) (\w+)', ui))
-used = set(re.findall(r'ui\.(\w+)', app)) - {'js'}
-print('빠진 것:', used - exported or '없음')
+# app.js 가 쓰는 ui.* 가 전부 export 되는지, $('id') 로 찾는 DOM id 가 index.html 에 다 있는지 확인
+node -e "
+const fs = require('fs');
+const ui = fs.readFileSync('public/js/ui.js', 'utf8');
+const app = fs.readFileSync('public/js/app.js', 'utf8');
+const html = fs.readFileSync('public/index.html', 'utf8');
+const exported = new Set([...ui.matchAll(/export (?:async )?(?:function|const) (\w+)/g)].map((m) => m[1]));
+const used = new Set([...app.matchAll(/ui\.(\w+)/g)].map((m) => m[1]).filter((n) => n !== 'js'));
+const ids = new Set([...app.matchAll(/[$][(]'([\w-]+)'[)]/g)].map((m) => m[1]));
+console.log('빠진 export:', [...used].filter((n) => !exported.has(n)).join(', ') || '없음');
+console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + '\"')).join(', ') || '없음');
 "
 ```
+
+`export async function` 도 잡아야 합니다 — 예전 스니펫은 이걸 놓쳐서 `copyText` 가 빠졌다고 잘못 알렸습니다.
 
 ### `public/js/select.js`
 
@@ -377,9 +382,15 @@ state = {
   abort,                                          // 진행 중인 생성의 AbortController
   mode,                                           // 'rp' | 'assistant'
   hideAdult,                                      // 성인 대화 숨김 (localStorage)
+  showArchived,                                   // 대화 목록 대신 보관함을 보는 중
   pendingCharacter                                // 모드 선택 창에 띄운 캐릭터
 }
 ```
+
+대화 목록은 `modeChats()`(지금 모드) → `visibleChats()`(보관 여부로 나눔, 보관함은 보관한 순) →
+`listedChats()`(성인 숨기기까지 적용한, 실제로 보이는 것) 세 단계로 거릅니다. 이름 바꾸기·보관·삭제는
+`renameChat` / `setArchived` / `removeChat` 이 대화 id 로 처리하고, 상단 ⋯ 메뉴와 목록 우클릭 메뉴가
+둘 다 이 함수들을 부릅니다. 열린 대화가 보관·삭제로 목록에서 빠지면 `openNeighbor` 가 그 자리의 다음 대화를 엽니다.
 
 스크롤은 `ui.watchScroll()`이 "사용자가 직접 위로 올렸는가"만 추적하는 pinned 방식입니다.
 거리 기반 판정은 '응답 생성 중' 막대가 나타나 레이아웃이 바뀌는 순간 밀려나는 버그가 있어
