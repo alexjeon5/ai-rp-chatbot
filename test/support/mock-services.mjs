@@ -51,7 +51,9 @@ export function startMockServices(port) {
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
-      const path = url.pathname;
+      const raw0 = url.pathname;
+      const vendor = /^\/(ollama|vercel)(?=\/)/.exec(raw0)?.[1] || '';
+      const path = vendor ? raw0.slice(vendor.length + 1) : raw0;
       let body = null;
       try { body = raw ? JSON.parse(raw) : null; } catch { body = raw; }
       if (path === '/__requests') {
@@ -75,6 +77,10 @@ export function startMockServices(port) {
       const usage = (b) => Math.round(JSON.stringify(b).length / 3);
 
       /* ----- OpenAI 호환 ----- */
+      if (vendor === 'ollama' && path === '/api/tags') return json(200, { models: [{ model: 'gemma4:31b' }, { name: 'llama3' }, { model: 'gemma4:31b' }] });
+      if (vendor === 'vercel' && path === '/v1/models') {
+        return json(200, { data: [{ id: 'anthropic/claude', type: 'language' }, { id: 'openai/dall-e', type: 'image' }, { id: 'plain' }] });
+      }
       if (path === '/v1/models') {
         return json(200, { data: ['mock-7b', 'gone-model', 'text-embedding-3', 'mock-search'].map((id) => ({ id })) });
       }
@@ -86,6 +92,7 @@ export function startMockServices(port) {
         const system = body.messages[0]?.content || '';
         const reply = replyFor(system, textOf(lastUser(body.messages.slice(1))?.content));
         const events = pieces(reply).map((t) => ({ choices: [{ delta: { content: t } }] }));
+        if (body.web_search_options) events.push({ choices: [{ delta: { content: '', annotations: [{ type: 'url_citation', url_citation: { url: 'https://example.com/o', title: 'O' } }] } }] });
         if (body.stream_options?.include_usage) events.push({ choices: [], usage: { prompt_tokens: usage(body.messages) } });
         events.push('[DONE]');
         return sse(events);
@@ -101,6 +108,7 @@ export function startMockServices(port) {
         return sse([
           { type: 'message_start', message: { usage: { input_tokens: usage(body.messages) } } },
           ...(body.thinking ? [{ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '앤트로픽 생각' } }] : []),
+          ...(body.tools ? [{ type: 'content_block_start', content_block: { type: 'web_search_tool_result', content: [{ url: 'https://example.com/a', title: 'A' }, { url: 'https://example.com/a', title: 'A again' }] } }] : []),
           ...pieces(reply).map((t) => ({ type: 'content_block_delta', delta: { type: 'text_delta', text: t } })),
           { type: 'message_stop' }
         ]);
@@ -114,12 +122,19 @@ export function startMockServices(port) {
         ] });
       }
       if (path.startsWith('/gem/v1beta/models/') && path.endsWith(':streamGenerateContent')) {
+        const thinkingConfig = body.generationConfig?.thinkingConfig;
+        const model = decodeURIComponent(path.slice('/gem/v1beta/models/'.length).split(':')[0]);
+        if (model.startsWith('gemini-2') && thinkingConfig && 'thinkingBudget' in thinkingConfig) {
+          return json(400, { error: { message: 'thinkingBudget is not supported for this model' } });
+        }
+        if (model.startsWith('gemma') && body.tools) return json(400, { error: { message: 'Tool use with google_search is not supported' } });
         const system = body.systemInstruction?.parts?.[0]?.text || '';
         const users = body.contents.filter((c) => c.role === 'user');
         const reply = replyFor(system, users[users.length - 1]?.parts?.[0]?.text || '');
         return sse([
+          ...(thinkingConfig?.includeThoughts ? [{ candidates: [{ content: { parts: [{ text: '제미니 생각', thought: true }] } }] }] : []),
           ...pieces(reply).map((t) => ({ candidates: [{ content: { parts: [{ text: t }] } }] })),
-          { candidates: [{ content: { parts: [] } }], usageMetadata: { promptTokenCount: usage(body.contents) } }
+          { candidates: [{ content: { parts: [] }, ...(body.tools ? { groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com/g', title: 'G' } }] } } : {}) }], usageMetadata: { promptTokenCount: usage(body.contents) } }
         ]);
       }
 

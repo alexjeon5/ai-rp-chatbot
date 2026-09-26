@@ -13,11 +13,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startMockServices } from '../support/mock-services.mjs';
-import { scenario } from './scenario.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(process.argv[2] || path.join(here, '../..'));
 const outFile = process.argv[3] || path.join(appDir, 'golden-out.json');
+// 시나리오 파일. 요청 제한(1분 30회) 때문에 생성을 많이 부르는 묶음은 따로 둡니다.
+const { scenario } = await import(`./${process.argv[4] || 'scenario.mjs'}`);
 const APP_PORT = Number(process.env.GOLDEN_APP_PORT || 5185);
 const MOCK_PORT = Number(process.env.GOLDEN_MOCK_PORT || 5181);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
