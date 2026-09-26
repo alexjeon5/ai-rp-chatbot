@@ -226,14 +226,6 @@ export function buildImageMessages({ cast, scene, userName }) {
   ];
 }
 
-/**
- * 모델 출력에서 태그만 추립니다.
- * 'Tags:' 머리, 코드 블록, 목록 표시를 걷어내고, 한글이 섞인 조각이나 문장처럼 긴 조각은 버립니다.
- */
-export function parseSceneTags(text = '') {
-  return parseSceneOutput(text).tags;
-}
-
 /** 목록 한 줄을 태그 배열로. 목록 표시·따옴표를 걷어내고 한글이나 문장 조각은 버립니다. */
 function cleanTagList(body, max = 50) {
   return splitTags(body)

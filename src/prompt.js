@@ -155,9 +155,3 @@ export function withThinking(system, on) {
   return on ? `<|think|>\n${cleaned}` : cleaned;
 }
 
-export function buildHistory(chat, limit) {
-  return chat.messages
-    .filter((m) => !m.hidden && m.content?.trim())
-    .slice(-limit)
-    .map((m) => ({ role: m.role, content: m.content }));
-}
