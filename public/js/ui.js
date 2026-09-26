@@ -414,11 +414,11 @@ function hostOf(url = '') {
 let drawing = { enabled: false, chatId: '' };
 export function setDrawing(next) { drawing = { ...drawing, ...next }; }
 
-/** 그림 한 장. 누르면 새 탭에서 원본을 엽니다. */
+/** 그림 한 장. 누르면 대화 창 안의 보기 창으로 크게 엽니다 (Ctrl·가운데 클릭은 새 탭). */
 export function imageFigure(chatId, img) {
   const src = `/api/images/${encodeURIComponent(chatId)}/${encodeURIComponent(img.file)}`;
   return `<figure class="turn-image" data-img="${esc(img.id)}">
-    <a href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(img.prompt || '')}"></a>
+    <a class="img-open" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(`${img.checkpoint ? `모델: ${img.checkpoint}\n` : ''}${img.prompt || ''}`)}"></a>
     <figcaption>
       <button type="button" class="tool" data-act="img-redraw" title="같은 장면을 다른 시드로">다시 그리기</button>
       <button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>
@@ -542,16 +542,21 @@ export function renderPersonaList(personas, activeId) {
   }
   ul.innerHTML = personas
     .map(
-      (p) => `<li class="persona-row ${p.id === activeId ? 'active' : ''}">
+      (p) => {
+        const meta = [p.gender, p.age, ...(p.traits || [])].map((x) => String(x || '').trim()).filter(Boolean);
+        return `<li class="persona-row ${p.id === activeId ? 'active' : ''}">
         <span class="grow">
           <div class="p-name">${esc(p.name)}</div>
           <div class="p-desc">${esc(p.description || '소개 없음')}</div>
+          ${meta.length ? `<div class="p-meta">${meta.map(esc).join(' · ')}</div>` : ''}
         </span>
         <button type="button" class="ghost-btn" data-use="${p.id}" ${p.id === activeId ? 'disabled' : ''}>
           ${p.id === activeId ? '사용 중' : '사용'}
         </button>
+        <button type="button" class="ghost-btn" data-edit="${p.id}">수정</button>
         <button type="button" class="ghost-btn danger" data-del="${p.id}">삭제</button>
-      </li>`
+      </li>`;
+      }
     )
     .join('');
 }

@@ -4,6 +4,9 @@ import path from 'node:path';
 
 export const uid = () => randomUUID().slice(0, 8);
 
+/** 모든 데이터 파일이 놓이는 폴더. 서버와 scripts/ 가 같은 값을 써야 합니다. */
+export const DATA_DIR = process.env.DATA_DIR || path.resolve('./data');
+
 /* ---------------- 쓰기 큐 ---------------- */
 
 const pending = new Map();

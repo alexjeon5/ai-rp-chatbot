@@ -29,6 +29,8 @@ async function boot() {
     api.settings(), api.characters(), api.personas(), api.chats()
   ]);
   applyDev(state.settings.dev);
+  paintAccount();
+  paintAdultRules();
   ui.renderCharacterList(state.characters);
   paintMode();
   paintAdultToggle();
@@ -40,6 +42,25 @@ async function boot() {
   else if (candidates.length) await openChat(candidates[0].id);
   else closeChat();
 }
+
+/* ---------------- 계정 ---------------- */
+
+/** 로그아웃 버튼에 누구로 들어와 있는지 적어 둡니다. 로그인을 끈 개발 모드면 버튼을 숨깁니다. */
+async function paintAccount() {
+  try {
+    const { user, authDisabled } = await api.me();
+    $('btn-logout').hidden = Boolean(authDisabled);
+    $('btn-logout').title = `${user.name} 로그아웃`;
+  } catch {
+    // 계정 표시는 부가 정보라, 실패해도 앱은 그대로 씁니다.
+  }
+}
+
+$('btn-logout').addEventListener('click', async () => {
+  if (state.run && !confirm('답변을 쓰는 중입니다. 로그아웃하면 여기서 멈춥니다. 계속할까요?')) return;
+  await api.logout().catch(() => {});
+  location.replace('/login.html');
+});
 
 /** 개발자 설정(테마·표기법)을 화면에 적용합니다. */
 function applyDev(dev) {
@@ -94,6 +115,23 @@ function shade(hex, delta) {
 const isLocalUrl = (url = '') =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url);
 
+/** 개발자 설정에서 경고를 확인하고 성인 모드의 클라우드 허용을 켰는지. */
+const adultCloudOn = () => state.settings?.dev?.adultCloud === true;
+
+/** 성인 대화를 이 엔진으로 보낼 수 있는지. (서버의 adultAllowed 와 같은 규칙) */
+const adultAllowed = (cfg) => isLocalUrl(cfg?.baseUrl) || adultCloudOn();
+
+/** 설정·페르소나 창의 성인 안내 문구를 지금 규칙에 맞춥니다. */
+function paintAdultRules() {
+  const cloud = adultCloudOn();
+  $('s-preset-adult-rule').textContent = cloud
+    ? '클라우드 허용이 켜져 있어, 선택한 외부 API 엔진으로도 보냅니다.'
+    : '로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.';
+  $('p-adult-rule').textContent = cloud
+    ? '문장 만들기는 선택한 엔진으로 보냅니다 (클라우드 허용 켜짐).'
+    : '문장 만들기는 로컬(LM Studio) 엔진으로만 보냅니다.';
+}
+
 function paintModelBadge() {
   const s = state.settings;
   const cfg = s.providers[s.activeProvider];
@@ -104,7 +142,7 @@ function paintModelBadge() {
   paintQuickProvider();
 }
 
-/** 입력창 아래의 엔진 선택기. 지금 대화가 성인 모드가면 외부 엔진은 고를 수 없습니다. */
+/** 입력창 아래의 엔진 선택기. 지금 대화가 성인 모드면 (클라우드 허용을 켜지 않은 한) 외부 엔진은 고를 수 없습니다. */
 function paintQuickProvider() {
   const sel = $('quick-provider');
   const s = state.settings;
@@ -113,7 +151,7 @@ function paintQuickProvider() {
 
   sel.innerHTML = Object.entries(s.providers)
     .map(([key, cfg]) => {
-      const blocked = adultChat && !isLocalUrl(cfg.baseUrl);
+      const blocked = adultChat && !adultAllowed(cfg);
       return `<option value="${key}"${blocked ? ' disabled' : ''}>${cfg.label}${blocked ? ' (성인 틀 불가)' : ''}</option>`;
     })
     .join('');
@@ -182,7 +220,7 @@ $('quick-provider').addEventListener('change', async (e) => {
   }
 });
 
-$('active-model').addEventListener('click', () => $('btn-settings').click());
+$('active-model').addEventListener('click', () => openSettings('engine'));
 
 async function refreshChatList() {
   state.chats = await api.chats();
@@ -442,15 +480,19 @@ function paintModeTab(audience) {
     tab.setAttribute('aria-selected', String(on));
   }
 
-  // 성인 모드는 로컬 엔진으로만 나갑니다. 지금 엔진이 외부면 고르기 전에 알려 줍니다.
+  // 성인 모드는 기본적으로 로컬 엔진으로만 나갑니다. 지금 엔진이 외부면 고르기 전에 알려 줍니다.
   const note = $('nc-audience-note');
   const cfg = s.providers[s.activeProvider];
+  const label = cfg?.label || s.activeProvider;
   const local = isLocalUrl(cfg?.baseUrl);
+  const cloud = adultCloudOn();
   note.hidden = !adult;
   note.classList.toggle('is-warn', adult && !local);
-  note.textContent = !adult ? '' : local
-    ? '성인 모드는 로컬 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.'
-    : `지금 엔진(${cfg?.label || s.activeProvider})은 로컬 주소가 아니라 성인 모드로 보낼 수 없습니다. 입력창 아래에서 LM Studio 로 바꿔 주세요.`;
+  note.textContent = !adult ? ''
+    : local && cloud ? '지금 엔진은 로컬 주소입니다. 대화 내용이 이 PC 밖으로 나가지 않습니다.'
+    : local ? '성인 모드는 로컬 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.'
+    : cloud ? `지금 엔진(${label})은 클라우드입니다. 대화 내용이 그 회사 서버로 전송되고, 이용 약관에 따라 거부되거나 계정이 제한될 수 있습니다.`
+    : `지금 엔진(${label})은 로컬 주소가 아니라 성인 모드로 보낼 수 없습니다. 입력창 아래에서 LM Studio 로 바꿔 주세요.`;
 
   const list = s.presets.filter((p) => Boolean(p.adult) === adult);
   $('nc-list').innerHTML = list.length
@@ -827,13 +869,118 @@ function setStreaming(on) {
 // 지금 그리는 중인 메시지. 같은 메시지를 두 번 겹쳐 그리지 않게 합니다.
 const drawingNow = new Set();
 
+/* --- 태그 검토·고치기 창 --- */
+
+const dlgTags = $('dlg-tags');
+
+// '태그 고쳐 그리기' 의 모델 목록. 한 번 받으면 기억해 두고, 창을 열 때마다 새로 받아 바꿉니다.
+let checkpointList = null;
+// 창을 빨리 닫고 다시 열었을 때 앞서 받던 목록이 새 창을 덮지 않게 합니다.
+let modelLoad = 0;
+
+/** 모델 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
+function paintModelChoice(current) {
+  const list = checkpointList || [];
+  const items = current && !list.includes(current) ? [current, ...list] : list;
+  $('tg-checkpoint').innerHTML = items
+    .map((v) => `<option value="${ui.escapeHtml(v)}">${ui.escapeHtml(v)}${checkpointList && !list.includes(v) ? ' (목록에 없음)' : ''}</option>`)
+    .join('');
+  $('tg-checkpoint').value = current || items[0] || '';
+}
+
+/** 모델 칸을 지금 값으로 보여 주고, ComfyUI 에서 체크포인트 목록을 받아 채웁니다. */
+async function loadModelChoice(current) {
+  const load = ++modelLoad;
+  const select = $('tg-checkpoint');
+  const note = $('tg-model-note');
+  const base = '고른 모델은 이번 그림에만 씁니다. 설정의 체크포인트는 그대로입니다.';
+  paintModelChoice(current);
+  // 올린 워크플로에 {{checkpoint}} 칸이 없으면 모델을 바꿔 보내도 쓰이지 않습니다.
+  const wf = state.settings.image?.workflow;
+  select.disabled = Boolean(wf) && !JSON.stringify(wf).includes('{{checkpoint}}');
+  if (select.disabled) {
+    note.textContent = '올린 워크플로에 {{checkpoint}} 칸이 없어 모델을 바꿀 수 없습니다. 워크플로 안의 모델로 그립니다.';
+    return;
+  }
+  note.textContent = checkpointList ? base : `${base} 체크포인트 목록을 받는 중…`;
+  try {
+    const { checkpoints } = await api.imageCheckpoints('');
+    if (load !== modelLoad || !dlgTags.open) return;
+    checkpointList = checkpoints;
+    // 목록을 받는 사이 고른 값은 그대로 둡니다.
+    paintModelChoice(select.value);
+    note.textContent = checkpoints.length ? base : `${base} ComfyUI 에 체크포인트가 없습니다.`;
+  } catch (e) {
+    if (load === modelLoad && dlgTags.open) note.textContent = `${base} 목록을 받지 못했습니다 — ${e.message}`;
+  }
+}
+
+/**
+ * 그릴 태그와 부정 태그를 보여 주고 고치게 합니다.
+ * 그리기를 누르면 { prompt, negative, checkpoint? } 를, 취소하면 null 을 돌려줍니다.
+ * @param {object} o
+ * @param {string} o.prompt 처음 보여 줄 태그
+ * @param {string} [o.negative] 처음 보여 줄 부정 태그
+ * @param {boolean} [o.review] 🎨 그리기 전 검토인지 (아니면 '태그 고쳐 그리기')
+ * @param {string[]} [o.removed] 필터로 빠진 태그
+ * @param {string} [o.checkpoint] 처음 고를 모델. '태그 고쳐 그리기' 에서만 모델 칸을 보여 줍니다
+ */
+function askTags({ prompt, negative = '', review = false, removed = [], checkpoint = '' }) {
+  $('tg-title').textContent = review ? '그릴 태그 확인' : '태그 고쳐 그리기';
+  $('tg-hint').textContent = review
+    ? 'AI 가 장면을 읽고 만든 태그입니다. 빼거나 더할 태그를 고친 뒤 그리기를 누르세요.'
+    : '이 그림에 쓴 태그와 모델입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.';
+  $('tg-text').value = prompt;
+  $('tg-negative').value = negative;
+  $('tg-removed').hidden = !removed.length;
+  $('tg-removed').textContent = removed.length ? `필터로 뺀 태그: ${removed.join(', ')}` : '';
+  // '다음부터 묻지 않기' 는 🎨 그리기의 검토에만 해당합니다.
+  $('tg-skip-row').hidden = !review;
+  $('tg-skip').checked = false;
+  $('tg-model-row').hidden = review;
+  dlgTags.returnValue = '';
+  dlgTags.showModal();
+  if (!review) loadModelChoice(checkpoint);
+  $('tg-text').focus();
+
+  return new Promise((resolve) => {
+    dlgTags.addEventListener('close', async () => {
+      const tags = $('tg-text').value.trim();
+      if (dlgTags.returnValue !== 'draw' || !tags) return resolve(null);
+      if (review && $('tg-skip').checked) {
+        try {
+          state.settings = await api.saveSettings({ image: { reviewTags: false } });
+          ui.toast('다음부터 검토 없이 바로 그립니다 — 설정 → 이미지 탭에서 다시 켤 수 있습니다');
+        } catch (e) {
+          ui.toast(`설정을 저장하지 못했습니다 — ${e.message}`);
+        }
+      }
+      const picked = { prompt: tags, negative: $('tg-negative').value.trim() };
+      if (!review && !$('tg-checkpoint').disabled && $('tg-checkpoint').value) picked.checkpoint = $('tg-checkpoint').value;
+      resolve(picked);
+    }, { once: true });
+  });
+}
+
+for (const id of ['tg-text', 'tg-negative']) {
+  $(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      dlgTags.close('draw');
+    }
+  });
+}
+
 /**
  * 메시지 하나의 장면을 ComfyUI 로 그립니다. 답변 아래에 자리를 잡고 진행 단계를 보여 줍니다.
  * @param {object} [o]
  * @param {string} [o.prompt] 고친 태그 (주면 LLM 을 건너뜀)
+ * @param {string} [o.negative] 고친 부정 태그
+ * @param {string} [o.checkpoint] 이번 한 장만 쓸 모델 (태그 고쳐 그리기)
  * @param {boolean} [o.random] 무작위 시드 (다시 그리기)
+ * @param {boolean} [o.review] 태그까지만 만들고, 사람이 확인·수정한 뒤에 그립니다
  */
-async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
+async function drawScene(chat, msg, turn, { prompt, negative, checkpoint, random = false, review = false } = {}) {
   if (!chat || drawingNow.has(msg.id)) return;
   drawingNow.add(msg.id);
   const box = turn.querySelector('.turn-images') || (() => {
@@ -850,16 +997,26 @@ async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
   let label = slot.textContent;
   const tick = setInterval(() => { slot.textContent = `${label} · ${Math.round((Date.now() - started) / 1000)}초`; }, 1000);
 
+  let reviewed = null;
   try {
     const result = await drawImage(chat.id, msg.id, {
       prompt,
+      negative,
+      checkpoint,
       random,
+      review,
       onEvent: (e) => {
         if (e.stage) { label = e.text; slot.textContent = e.text; }
         if (e.prompt) slot.title = e.prompt;
-        if (e.removed?.length) ui.toast(`필터로 뺀 태그: ${e.removed.join(', ')}`);
+        // 검토 창에서 따로 보여 주므로 토스트는 그릴 때만 띄웁니다.
+        if (e.removed?.length && !review) ui.toast(`필터로 뺀 태그: ${e.removed.join(', ')}`);
       }
     });
+    if (review && result.review) {
+      reviewed = result.review;
+      slot.remove();
+      return;
+    }
     if (!result.images) throw new Error('그림을 받지 못했습니다.');
     msg.images = result.images;
     // 그리는 동안 다른 대화로 옮겼다면 화면은 건드리지 않습니다.
@@ -872,12 +1029,42 @@ async function drawScene(chat, msg, turn, { prompt, random = false } = {}) {
   } finally {
     clearInterval(tick);
     drawingNow.delete(msg.id);
+    if (reviewed) reviewAndDraw(chat, msg, turn, reviewed, random);
   }
 }
 
-/* --- 이미지 설정 창 --- */
+/** 검토 창을 띄우고, 그리기를 누르면 고친 태그로 그립니다. */
+async function reviewAndDraw(chat, msg, turn, { prompt, negative, removed }, random) {
+  const picked = await askTags({ prompt, negative, review: true, removed });
+  if (!picked) return;
+  // 창이 떠 있는 동안 화면이 다시 그려졌을 수 있으니 지금 보이는 답변을 찾습니다.
+  const live = document.querySelector(`#thread [data-mid="${msg.id}"]`);
+  drawScene(chat, msg, state.chat === chat && live ? live : turn, { ...picked, random });
+}
 
-const dlgImage = $('dlg-image');
+/* --- 이미지 설정 (설정 창의 이미지 탭) --- */
+
+// 연결 확인으로 받아 온 ComfyUI 의 실제 샘플러·스케줄러 목록. 없으면 서버가 준 흔한 목록을 씁니다.
+let comfyLists = null;
+
+/** 목록으로 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
+function fillChoice(id, list, current) {
+  const items = current && !list.includes(current) ? [current, ...list] : list;
+  $(id).innerHTML = items
+    .map((v) => `<option value="${ui.escapeHtml(v)}">${ui.escapeHtml(v)}${list.includes(v) ? '' : ' (목록에 없음)'}</option>`)
+    .join('');
+  $(id).value = current || items[0] || '';
+}
+
+function paintSamplerChoices(sampler, scheduler) {
+  const lists = comfyLists || state.settings.imageLists || { samplers: [], schedulers: [] };
+  fillChoice('i-sampler', lists.samplers || [], sampler);
+  fillChoice('i-scheduler', lists.schedulers || [], scheduler);
+  $('i-lists-note').textContent = comfyLists
+    ? `ComfyUI 에서 받은 목록입니다 — 샘플러 ${lists.samplers.length}개, 스케줄러 ${lists.schedulers.length}개.`
+    : '샘플러·스케줄러는 흔히 쓰는 목록입니다. 연결 확인을 누르면 ComfyUI 가 실제로 지원하는 목록으로 바뀝니다.';
+}
+
 // undefined: 건드리지 않음, null: 기본으로 되돌림, object: 새로 올린 것
 let draftWorkflow;
 
@@ -888,7 +1075,7 @@ function paintWorkflowStatus() {
     : '기본 SDXL 워크플로 사용 중 — 체크포인트만 고르면 됩니다';
 }
 
-$('btn-open-image').addEventListener('click', () => {
+function fillImageSheet() {
   const img = state.settings.image || {};
   draftWorkflow = undefined;
   $('i-enabled').checked = Boolean(img.enabled);
@@ -900,26 +1087,33 @@ $('btn-open-image').addEventListener('click', () => {
   sel.value = size;
   $('i-steps').value = img.steps;
   $('i-cfg').value = img.cfg;
-  $('i-sampler').value = img.sampler || '';
+  paintSamplerChoices(img.sampler || 'euler_ancestral', img.scheduler || 'normal');
   $('i-prefix').value = img.prefix || '';
   $('i-negative').value = img.negative || '';
   $('i-free').checked = img.freeAfter !== false;
+  $('i-review').checked = img.reviewTags !== false;
   $('i-force').value = img.adult?.forceTags || '';
   $('i-block').value = img.adult?.blockTags || '';
   $('i-extra-neg').value = img.adult?.extraNegative || '';
   $('i-core-terms').textContent = `차단: ${(state.settings.imageCore?.blockTerms || []).join(', ')} · 17세 이하 나이 표기`;
   $('i-core-neg').textContent = `늘 붙는 네거티브: ${state.settings.imageCore?.negative || ''}`;
   paintWorkflowStatus();
-  dlgImage.showModal();
-});
-
-$('i-cancel').addEventListener('click', () => dlgImage.close('cancel'));
+}
 
 $('i-check').addEventListener('click', async () => {
   const baseUrl = $('i-baseurl').value.trim();
   $('i-status').textContent = '연결하는 중…';
   try {
-    const { checkpoints } = await api.imageCheckpoints(baseUrl);
+    const { checkpoints, samplers = [], schedulers = [] } = await api.imageCheckpoints(baseUrl);
+    // 받은 목록이 있으면 드롭다운을 실제 목록으로 바꿉니다. 고르던 값은 그대로 둡니다.
+    if (samplers.length || schedulers.length) {
+      const fallback = state.settings.imageLists || {};
+      comfyLists = {
+        samplers: samplers.length ? samplers : fallback.samplers || [],
+        schedulers: schedulers.length ? schedulers : fallback.schedulers || []
+      };
+      paintSamplerChoices($('i-sampler').value, $('i-scheduler').value);
+    }
     $('i-ckpts').innerHTML = checkpoints.map((c) => `<option value="${ui.escapeHtml(c)}">`).join('');
     if (!$('i-checkpoint').value && checkpoints.length) $('i-checkpoint').value = checkpoints[0];
     $('i-status').textContent = checkpoints.length
@@ -960,8 +1154,7 @@ $('i-workflow-reset').addEventListener('click', () => {
   paintWorkflowStatus();
 });
 
-dlgImage.addEventListener('close', async () => {
-  if (dlgImage.returnValue !== 'save') return;
+function readImageSheet() {
   const [width, height] = $('i-size').value.split('x').map(Number);
   const image = {
     enabled: $('i-enabled').checked,
@@ -971,10 +1164,12 @@ dlgImage.addEventListener('close', async () => {
     height,
     steps: Number($('i-steps').value),
     cfg: Number($('i-cfg').value),
-    sampler: $('i-sampler').value.trim() || 'euler_ancestral',
+    sampler: $('i-sampler').value || 'euler_ancestral',
+    scheduler: $('i-scheduler').value || 'normal',
     prefix: $('i-prefix').value.trim(),
     negative: $('i-negative').value.trim(),
     freeAfter: $('i-free').checked,
+    reviewTags: $('i-review').checked,
     adult: {
       forceTags: $('i-force').value.trim(),
       blockTags: $('i-block').value.trim(),
@@ -982,17 +1177,8 @@ dlgImage.addEventListener('close', async () => {
     }
   };
   if (draftWorkflow !== undefined) image.workflow = draftWorkflow;
-  try {
-    state.settings = await api.saveSettings({ image });
-  } catch (e) {
-    dlgImage.returnValue = '';
-    dlgImage.showModal();
-    return ui.toast(`저장하지 못했습니다 — ${e.message}`);
-  }
-  // 🎨 버튼이 생기거나 사라지도록 다시 그립니다.
-  if (!state.run) paintThread();
-  ui.toast(image.enabled ? '이미지 설정을 저장했습니다 — 답변 아래 🎨 그리기로 그려 보세요' : '이미지 설정을 저장했습니다');
-});
+  return image;
+}
 
 /* ---------------- 대신 쓰기 ---------------- */
 
@@ -1330,6 +1516,64 @@ dlgCast.addEventListener('close', async () => {
   ui.toast(names.length ? `함께 등장: ${names.join(', ')}` : '함께 등장하는 인물을 모두 뺐습니다');
 });
 
+/* ---------------- 그림 크게 보기 ---------------- */
+
+const dlgLightbox = $('dlg-lightbox');
+let lightbox = { links: [], at: 0 };
+
+function paintLightbox() {
+  const { links, at } = lightbox;
+  const link = links[at];
+  if (!link) return;
+  const img = link.querySelector('img');
+  $('lb-img').src = link.href;
+  $('lb-prompt').textContent = img?.title || '';
+  $('lb-prompt').title = img?.title || '';
+  $('lb-original').href = link.href;
+  $('lb-count').textContent = links.length > 1 ? `${at + 1} / ${links.length}` : '';
+  $('lb-prev').hidden = links.length < 2;
+  $('lb-next').hidden = links.length < 2;
+}
+
+function stepLightbox(step) {
+  const n = lightbox.links.length;
+  if (n < 2) return;
+  lightbox.at = (lightbox.at + step + n) % n;
+  paintLightbox();
+}
+
+/** 대화에 있는 그림을 화면 순서대로 모아, 누른 그림부터 넘겨 볼 수 있게 엽니다. */
+function openLightbox(link) {
+  const links = [...document.querySelectorAll('#messages a.img-open')];
+  lightbox = { links, at: Math.max(0, links.indexOf(link)) };
+  paintLightbox();
+  dlgLightbox.showModal();
+}
+
+document.getElementById('messages').addEventListener('click', (e) => {
+  const link = e.target.closest('a.img-open');
+  // Ctrl·Shift·가운데 클릭은 브라우저 기본 동작(새 탭·새 창)을 그대로 둡니다.
+  if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  openLightbox(link);
+});
+
+$('lb-close').addEventListener('click', () => dlgLightbox.close());
+$('lb-prev').addEventListener('click', () => stepLightbox(-1));
+$('lb-next').addEventListener('click', () => stepLightbox(1));
+// 그림 바깥(어두운 배경)을 누르면 닫습니다.
+dlgLightbox.addEventListener('click', (e) => {
+  if (e.target === dlgLightbox || e.target.classList.contains('lb-figure')) dlgLightbox.close();
+});
+dlgLightbox.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); stepLightbox(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1); }
+});
+dlgLightbox.addEventListener('close', () => {
+  lightbox = { links: [], at: 0 };
+  $('lb-img').removeAttribute('src');
+});
+
 /* ---------------- 메시지 편집 ---------------- */
 
 document.getElementById('messages').addEventListener('click', async (e) => {
@@ -1340,15 +1584,26 @@ document.getElementById('messages').addEventListener('click', async (e) => {
   const msg = state.chat.messages.find((m) => m.id === mid);
   if (!msg) return;
 
-  if (btn.dataset.act === 'draw') return drawScene(state.chat, msg, turn);
+  if (btn.dataset.act === 'draw') {
+    return drawScene(state.chat, msg, turn, { review: state.settings.image?.reviewTags !== false });
+  }
   if (btn.dataset.act.startsWith('img-')) {
     const imgId = btn.closest('[data-img]')?.dataset.img;
     const img = msg.images?.find((x) => x.id === imgId);
     if (!img) return;
-    if (btn.dataset.act === 'img-redraw') return drawScene(state.chat, msg, turn, { prompt: img.prompt, random: true });
+    if (btn.dataset.act === 'img-redraw') {
+      return drawScene(state.chat, msg, turn, { prompt: img.prompt, negative: img.negative, random: true });
+    }
     if (btn.dataset.act === 'img-edit') {
-      const edited = window.prompt('그림 태그 (쉼표로 구분). 품질 태그·필터는 저장 시 다시 적용됩니다.', img.prompt);
-      if (edited?.trim()) drawScene(state.chat, msg, turn, { prompt: edited.trim(), random: true });
+      const chat = state.chat;
+      const edited = await askTags({
+        prompt: img.prompt || '',
+        negative: img.negative || '',
+        checkpoint: img.checkpoint || state.settings.image?.checkpoint || ''
+      });
+      if (!edited) return;
+      const live = document.querySelector(`#thread [data-mid="${mid}"]`);
+      drawScene(chat, msg, state.chat === chat && live ? live : turn, { ...edited, random: true });
       return;
     }
     if (btn.dataset.act === 'img-del') {
@@ -1612,22 +1867,116 @@ dlgChar.addEventListener('close', async () => {
 
 const dlgPersona = $('dlg-persona');
 
+// 수정 중인 페르소나 id. null 이면 아래 칸은 새 페르소나를 만드는 데 씁니다.
+let editingPersonaId = null;
+// 칸에 올라와 있는 특징 목록.
+let draftTraits = [];
+
+const GENDER_PRESETS = ['', '여성', '남성'];
+
+function setGender(value = '') {
+  const preset = GENDER_PRESETS.includes(value);
+  $('p-gender').value = preset ? value : 'custom';
+  $('p-gender-custom').value = preset ? '' : value;
+  $('p-gender-custom').hidden = preset;
+}
+
+const readGender = () =>
+  $('p-gender').value === 'custom' ? $('p-gender-custom').value.trim() : $('p-gender').value;
+
+$('p-gender').addEventListener('change', () => {
+  const custom = $('p-gender').value === 'custom';
+  $('p-gender-custom').hidden = !custom;
+  if (custom) $('p-gender-custom').focus();
+});
+
+function paintTraits() {
+  $('p-traits').innerHTML = draftTraits
+    .map((t, i) => `<li class="trait-item"><span>${ui.escapeHtml(t)}</span>` +
+      `<button type="button" data-trait="${i}" aria-label="${ui.escapeHtml(t)} 빼기">✕</button></li>`)
+    .join('');
+}
+
+/** 입력칸의 글을 특징으로 더합니다. 쉼표·줄바꿈으로 여러 개를 한 번에 넣어도 나눠서 들어갑니다. */
+function addTraits() {
+  const input = $('p-trait-input');
+  const items = input.value.split(/[,\n]/).map((t) => t.trim()).filter(Boolean);
+  for (const t of items) if (!draftTraits.includes(t)) draftTraits.push(t);
+  input.value = '';
+  paintTraits();
+}
+
+$('p-trait-add').addEventListener('click', addTraits);
+$('p-trait-input').addEventListener('keydown', (e) => {
+  // 한글 조합 중 Enter 는 글자 확정이므로 넘깁니다.
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  addTraits();
+});
+$('p-traits').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-trait]');
+  if (!btn) return;
+  draftTraits.splice(Number(btn.dataset.trait), 1);
+  paintTraits();
+});
+
+/** 아래 입력칸을 페르소나 하나로 채웁니다. 비우면 새 페르소나를 만드는 상태로 돌아갑니다. */
+function fillPersonaForm(p = null) {
+  editingPersonaId = p?.id || null;
+  $('p-name').value = p?.name || '';
+  $('p-age').value = p?.age || '';
+  setGender(p?.gender || '');
+  $('p-description').value = p?.description || '';
+  $('p-trait-input').value = '';
+  draftTraits = [...(p?.traits || [])];
+  paintTraits();
+  $('p-form-title').textContent = p ? `'${p.name}' 수정` : '새 페르소나';
+  $('p-add').textContent = p ? '저장' : '페르소나 추가';
+  $('p-add').classList.toggle('send-btn', Boolean(p));
+  $('p-add').classList.toggle('ghost-btn', !p);
+  $('p-edit-cancel').hidden = !p;
+  showSeeds(null);
+  seedNote('');
+}
+
 $('btn-personas').addEventListener('click', () => {
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
+  fillPersonaForm(null);
   dlgPersona.showModal();
 });
+
+$('p-edit-cancel').addEventListener('click', () => fillPersonaForm(null));
 
 $('p-add').addEventListener('click', async () => {
   const name = $('p-name').value.trim();
   if (!name) return ui.toast('이름을 입력해 주세요');
-  await api.createPersona({ name, description: $('p-description').value.trim() });
-  $('p-name').value = '';
-  $('p-description').value = '';
-  showSeeds(null);
-  seedNote('');
+  // 입력칸에 적어 두고 추가를 안 누른 특징도 함께 넣습니다.
+  if ($('p-trait-input').value.trim()) addTraits();
+  const body = {
+    name,
+    gender: readGender(),
+    age: $('p-age').value.trim(),
+    description: $('p-description').value.trim(),
+    traits: draftTraits
+  };
+  const editing = editingPersonaId;
+  try {
+    if (editing) await api.updatePersona(editing, body);
+    else await api.createPersona(body);
+  } catch (e) {
+    return ui.toast(`저장하지 못했습니다 — ${e.message}`);
+  }
   state.personas = await api.personas();
+  fillPersonaForm(null);
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
   paintChatPersona();
+  paintChatSub();
+  if (editing) {
+    // 이 페르소나를 쓰는 대화라면 다음 답변부터 바뀐 내용이 들어갑니다.
+    if (state.chat && !state.run) paintThread();
+    refreshContext();
+    ui.toast(`'${name}' 을(를) 고쳤습니다 — 다음 답변부터 반영됩니다`);
+  }
 });
 
 /* --- 랜덤 페르소나 --- */
@@ -1642,6 +1991,9 @@ function showSeeds(seeds, fields) {
   ui.renderSeedChips(seedDraft, seedFields);
   $('p-seed-actions').hidden = !seedDraft;
   if (seedDraft?.name) $('p-name').value = seedDraft.name;
+  // 성별·나이대는 따로 칸이 있으니 굴린 값을 바로 옮겨 둡니다.
+  if (seedDraft?.gender) setGender(seedDraft.gender);
+  if (seedDraft?.age) $('p-age').value = seedDraft.age;
 }
 
 const seedNote = (text = '') => { $('p-seed-note').textContent = text; };
@@ -1694,12 +2046,22 @@ $('p-write').addEventListener('click', async () => {
 $('persona-list').addEventListener('click', async (e) => {
   const use = e.target.closest('[data-use]');
   const del = e.target.closest('[data-del]');
+  const edit = e.target.closest('[data-edit]');
+  if (edit) {
+    const p = state.personas.find((x) => x.id === edit.dataset.edit);
+    if (!p) return;
+    fillPersonaForm(p);
+    $('p-name').focus();
+    $('p-form-title').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
   if (use) {
     state.settings = await api.saveSettings({ activePersonaId: use.dataset.use });
     ui.toast('사용할 페르소나를 바꿨습니다');
   } else if (del) {
     if (!confirm('이 페르소나를 삭제할까요?')) return;
     await api.deletePersona(del.dataset.del);
+    if (editingPersonaId === del.dataset.del) fillPersonaForm(null);
     state.personas = await api.personas();
   } else return;
   ui.renderPersonaList(state.personas, state.settings.activePersonaId);
@@ -1951,7 +2313,55 @@ $('s-preset-delete').addEventListener('click', () => {
   showPreset(draftPresets[0].id);
 });
 
-$('btn-settings').addEventListener('click', async () => {
+/* ---------- 설정 탭 ---------- */
+
+const SETTINGS_TABS = [...$('s-tabs').querySelectorAll('[data-tab]')].map((t) => t.dataset.tab);
+
+/** 마지막으로 본 탭. 다시 열 때 그 탭으로 엽니다. 브라우저에 저장 못 해도 동작에는 지장 없습니다. */
+function lastSettingsTab() {
+  try {
+    const tab = localStorage.getItem('settingsTab');
+    return SETTINGS_TABS.includes(tab) ? tab : SETTINGS_TABS[0];
+  } catch {
+    return SETTINGS_TABS[0];
+  }
+}
+
+function showSettingsTab(tab) {
+  if (!SETTINGS_TABS.includes(tab)) tab = SETTINGS_TABS[0];
+  for (const btn of $('s-tabs').querySelectorAll('[data-tab]')) {
+    const on = btn.dataset.tab === tab;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-selected', String(on));
+    btn.tabIndex = on ? 0 : -1;
+    // 좁은 화면에서는 탭이 가로로 흐르므로, 고른 탭이 가려져 있으면 보이는 곳으로 당깁니다.
+    if (on) btn.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+  for (const pane of dlgSettings.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== tab;
+  closeCombo();
+  try { localStorage.setItem('settingsTab', tab); } catch { /* 저장 못 해도 괜찮습니다 */ }
+}
+
+$('s-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-tab]');
+  if (btn) showSettingsTab(btn.dataset.tab);
+});
+
+// 탭 목록 안에서는 화살표로 옮겨 다닙니다.
+$('s-tabs').addEventListener('keydown', (e) => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const now = SETTINGS_TABS.indexOf($('s-tabs').querySelector('.is-on')?.dataset.tab);
+  const next = SETTINGS_TABS[(now + step + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+  showSettingsTab(next);
+  $('s-tabs').querySelector(`[data-tab="${next}"]`).focus();
+});
+
+$('btn-settings').addEventListener('click', () => openSettings());
+
+/** 설정 창을 엽니다. 모든 탭의 입력칸을 지금 설정으로 채운 뒤 tab 을 보여 줍니다. */
+async function openSettings(tab = lastSettingsTab()) {
   // 내장 틀 원본이 비어 있으면 설정을 다시 읽어 둡니다. 없으면 '가져오기' 가 헛돕니다.
   if (!state.settings.builtinTemplates?.length) {
     state.settings = await api.settings().catch(() => state.settings);
@@ -1976,8 +2386,16 @@ $('btn-settings').addEventListener('click', async () => {
   $('s-atopk').value = s.assistant.params.topK ?? 0;
   $('s-arepeat').value = s.assistant.params.repeatPenalty ?? 1;
   $('s-amaxtokens').value = s.assistant.params.maxTokens;
+  fillImageSheet();
+  fillDevSheet();
+  showSettingsTab(tab);
   dlgSettings.showModal();
-});
+  // 창이 뜨기 전에는 스크롤이 먹지 않으므로, 연 뒤에 고른 탭을 한 번 더 보이게 합니다.
+  // 좁은 화면에서는 가로로 스크롤되는 탭 줄 자체가 첫 포커스를 받아 테두리가 생기므로, 고른 탭에 포커스를 둡니다.
+  const current = $('s-tabs').querySelector('.is-on');
+  current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  current?.focus({ preventScroll: true });
+}
 
 $('s-provider').addEventListener('change', (e) => {
   stashProvider();
@@ -2049,6 +2467,7 @@ $('s-import-file').addEventListener('change', async (e) => {
     api.settings(), api.characters(), api.personas()
   ]);
   applyDev(state.settings.dev);
+  paintAdultRules();
   ui.renderCharacterList(state.characters);
   paintModelBadge();
   await refreshChatList();
@@ -2076,28 +2495,51 @@ $('s-reset-template').addEventListener('click', () => {
   ui.toast(`기본 내용을 가져왔습니다 — ${pick.name}`);
 });
 
+/** 서버가 거부한 이유를 보고, 고칠 칸이 있는 탭을 짐작합니다. */
+const tabForError = (message = '') =>
+  /ComfyUI|워크플로/.test(message) ? 'image' : /엔진 주소/.test(message) ? 'engine' : null;
+
 dlgSettings.addEventListener('close', async () => {
-  if (dlgSettings.returnValue !== 'save') return;
+  if (dlgSettings.returnValue !== 'save') {
+    // 테마·표기법은 고르는 즉시 미리 보여 주므로, 저장하지 않고 닫으면 원래대로 돌립니다.
+    applyDev(state.settings.dev);
+    if (!state.run) paintThread();
+    return;
+  }
   stashProvider();
   stashPreset();
+  const wasImageOn = Boolean(state.settings.image?.enabled);
+  let imageOn;
   try {
-    state.settings = await saveSettingsFromSheet();
+    const body = settingsFromSheet();
+    imageOn = body.image.enabled;
+    state.settings = await api.saveSettings(body);
   } catch (e) {
     // 저장이 거부되면 입력한 그대로 창을 다시 열어 고칠 수 있게 합니다.
     dlgSettings.returnValue = '';
     dlgSettings.showModal();
+    const tab = tabForError(e.message);
+    if (tab) showSettingsTab(tab);
     ui.toast(`저장하지 못했습니다 — ${e.message}`);
     return;
   }
+  removedProviders = [];
+  applyDev(state.settings.dev);
+  paintAdultRules();
   paintModelBadge();
   paintChatPreset();
   await refreshChatList();
   refreshContext();
-  ui.toast('설정을 저장했습니다');
+  // 🎨 버튼과 표기법이 바뀌었을 수 있어 다시 그립니다.
+  if (!state.run) paintThread();
+  ui.toast(imageOn && !wasImageOn
+    ? '설정을 저장했습니다 — 답변 아래 🎨 그리기로 장면을 그려 보세요'
+    : '설정을 저장했습니다');
 });
 
-function saveSettingsFromSheet() {
-  return api.saveSettings({
+/** 모든 탭의 입력을 한 번에 저장할 요청 본문으로 모읍니다. */
+function settingsFromSheet() {
+  return {
     activeProvider: $('s-provider').value,
     historyLimit: Number($('s-history').value),
     askModeOnNewChat: $('s-ask-mode').checked,
@@ -2120,19 +2562,21 @@ function saveSettingsFromSheet() {
         topK: Number($('s-atopk').value),
         repeatPenalty: Number($('s-arepeat').value)
       }
-    }
-  });
+    },
+    removeProviders: removedProviders,
+    image: readImageSheet(),
+    dev: readDevSheet()
+  };
 }
 
 enhanceSelects();
 ui.watchScroll();
 boot().catch((e) => ui.showError(`앱을 시작하지 못했습니다 — ${e.message}`));
 
-/* ---------------- 개발자 설정 ---------------- */
+/* ---------------- 화면·개발자 탭, 엔진 추가 ---------------- */
 
-const dlgDev = $('dlg-dev');
 let draftDev = null;
-let draftDevProviders = null;
+// 엔진 추가·삭제는 엔진 탭의 draftProviders 에 바로 반영하고, 지운 것은 저장할 때 서버에 알립니다.
 let removedProviders = [];
 
 const THEME_FIELDS = {
@@ -2145,7 +2589,7 @@ const MARKUP_FIELDS = {
 };
 
 function paintDevProviders() {
-  const list = Object.entries(draftDevProviders);
+  const list = Object.entries(draftProviders);
   $('d-provider-list').innerHTML = list
     .map(([key, cfg]) => `<li class="persona-row">
       <span class="grow">
@@ -2186,11 +2630,12 @@ $('d-hidden-models').addEventListener('click', async (e) => {
 
 function fillDevSheet() {
   draftDev = structuredClone(state.settings.dev);
-  draftDevProviders = structuredClone(state.settings.providers);
   removedProviders = [];
 
   for (const [id, key] of Object.entries(MARKUP_FIELDS)) $(id).checked = Boolean(draftDev.markup[key]);
   $('d-particle').checked = Boolean(draftDev.particleFix);
+  $('d-adult-cloud').checked = draftDev.adultCloud === true;
+  paintAdultCloudRow(draftDev.adultCloud === true);
   for (const [id, key] of Object.entries(THEME_FIELDS)) $(id).value = draftDev.theme[key];
   $('d-fontsize').value = draftDev.theme.fontSize;
   $('d-fontsans').value = draftDev.theme.fontSans;
@@ -2207,12 +2652,36 @@ function readDevSheet() {
   theme.fontSize = Number($('d-fontsize').value);
   theme.fontSans = $('d-fontsans').value.trim();
   theme.fontSerif = $('d-fontserif').value.trim();
-  return { particleFix: $('d-particle').checked, markup, theme };
+  return { particleFix: $('d-particle').checked, adultCloud: $('d-adult-cloud').checked, markup, theme };
 }
 
-$('btn-open-dev').addEventListener('click', () => {
-  fillDevSheet();
-  dlgDev.showModal();
+/**
+ * 성인 모드 클라우드 허용 칸은 평소에 숨겨 둡니다. 켜져 있거나 경고를 확인했을 때만 보입니다.
+ * 끄고 저장하면 다음에 열 때 다시 숨겨집니다.
+ */
+function paintAdultCloudRow(shown) {
+  $('d-adult-cloud-row').hidden = !shown;
+  $('d-adult-cloud-unlock').hidden = shown;
+}
+
+const dlgAdultCloud = $('dlg-adult-cloud');
+
+$('d-adult-cloud-unlock').addEventListener('click', () => {
+  $('ac-agree').checked = false;
+  $('ac-confirm').disabled = true;
+  dlgAdultCloud.returnValue = '';
+  dlgAdultCloud.showModal();
+});
+
+$('ac-agree').addEventListener('change', () => {
+  $('ac-confirm').disabled = !$('ac-agree').checked;
+});
+
+dlgAdultCloud.addEventListener('close', () => {
+  if (dlgAdultCloud.returnValue !== 'unlock' || !$('ac-agree').checked) return;
+  $('d-adult-cloud').checked = true;
+  paintAdultCloudRow(true);
+  ui.toast('설정 창에서 저장을 눌러야 반영됩니다');
 });
 
 // 색을 고르는 즉시 화면에 반영해 결과를 바로 볼 수 있게 합니다.
@@ -2246,7 +2715,7 @@ $('d-p-add').addEventListener('click', () => {
   const baseUrl = $('d-p-baseurl').value.trim();
   if (!label || !baseUrl) return ui.toast('이름과 주소를 입력해 주세요');
   const key = `custom_${Date.now().toString(36)}`;
-  draftDevProviders[key] = {
+  draftProviders[key] = {
     label,
     type: $('d-p-type').value,
     builtin: false,
@@ -2258,17 +2727,25 @@ $('d-p-add').addEventListener('click', () => {
   $('d-p-baseurl').value = '';
   $('d-p-apikey').value = '';
   paintDevProviders();
-  ui.toast('저장을 눌러야 반영됩니다');
+  paintProviderOptions();
+  ui.toast('추가했습니다 — 위의 사용할 엔진에서 고를 수 있고, 저장을 눌러야 반영됩니다');
 });
 
 $('d-provider-list').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-del-provider]');
   if (!btn) return;
   const key = btn.dataset.delProvider;
-  if (!confirm(`'${draftDevProviders[key].label}' 엔진을 삭제할까요?`)) return;
-  delete draftDevProviders[key];
+  if (!confirm(`'${draftProviders[key].label}' 엔진을 삭제할까요?`)) return;
+  delete draftProviders[key];
   removedProviders.push(key);
   paintDevProviders();
+  // 지운 엔진을 보고 있었다면 남은 엔진으로 옮깁니다. 입력 중이던 값은 버립니다.
+  if (shownProvider === key) {
+    const next = draftProviders[state.settings.activeProvider] ? state.settings.activeProvider : 'lmstudio';
+    fillProviderBox(next);
+  } else {
+    paintProviderOptions();
+  }
 });
 
 const dlgSystem = $('dlg-system');
@@ -2301,30 +2778,6 @@ $('sys-copy').addEventListener('click', async () => {
   ui.toast(await ui.copyText($('sys-text').textContent) ? '복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
 });
 
-$('d-cancel').addEventListener('click', () => {
-  applyDev(state.settings.dev);
-  paintThread();
-  dlgDev.close('cancel');
-});
-
-dlgDev.addEventListener('close', async () => {
-  if (dlgDev.returnValue !== 'save') return;
-  try {
-    state.settings = await api.saveSettings({
-      dev: readDevSheet(),
-      providers: draftDevProviders,
-      removeProviders: removedProviders
-    });
-  } catch (e) {
-    dlgDev.returnValue = '';
-    dlgDev.showModal();
-    ui.toast(`저장하지 못했습니다 — ${e.message}`);
-    return;
-  }
-  applyDev(state.settings.dev);
-  paintModelBadge();
-  ui.toast('개발자 설정을 저장했습니다');
-});
 
 /* ---------------- 통신 로그 ---------------- */
 

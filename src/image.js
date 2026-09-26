@@ -30,6 +30,8 @@ export const IMAGE_DEFAULTS = () => ({
   workflow: null,
   // 그린 뒤 ComfyUI 가 잡고 있는 VRAM 을 풀어 LLM 이 쓰게 합니다. 같은 PC 에서 돌릴 때 켭니다.
   freeAfter: true,
+  // 🎨 그리기 때 LLM 이 만든 태그를 먼저 보여 주고, 확인(수정)한 뒤에 ComfyUI 로 보냅니다.
+  reviewTags: true,
   // 성인 대화에만 적용되는, 사용자가 고칠 수 있는 필터.
   adult: {
     forceTags: 'adult',
@@ -143,7 +145,7 @@ function userBlockMatcher(list) {
  * 최종 프롬프트를 조립합니다.
  * @returns {{ prompt, negative, removed: string[] } | { blocked: string[] }}
  */
-export function composePrompt({ cfg, sceneTags, appearance = [], adult = false }) {
+export function composePrompt({ cfg, sceneTags, sceneNegative = [], appearance = [], adult = false }) {
   let tags = splitTags([cfg.prefix, adult ? cfg.adult?.forceTags : '', appearance.join(', '), sceneTags.join(', ')]
     .filter(Boolean).join(', '));
 
@@ -158,7 +160,8 @@ export function composePrompt({ cfg, sceneTags, appearance = [], adult = false }
   const bad = coreViolations(tags);
   if (bad.length) return { blocked: bad };
 
-  const negative = splitTags([cfg.negative, CORE_NEGATIVE, adult ? cfg.adult?.extraNegative : '']
+  // 설정의 네거티브와 고정 네거티브는 늘 붙고, 장면마다 만든(또는 사람이 고친) 부정 태그가 뒤에 옵니다.
+  const negative = splitTags([cfg.negative, CORE_NEGATIVE, adult ? cfg.adult?.extraNegative : '', sceneNegative.join(', ')]
     .filter(Boolean).join(', ')).join(', ');
   return { prompt: tags.join(', '), negative, removed };
 }
@@ -172,7 +175,10 @@ export function composePrompt({ cfg, sceneTags, appearance = [], adult = false }
 export const IMAGE_PROMPT_SYSTEM = `You convert a role-play scene into Danbooru tags for an anime SDXL image model (Illustrious / NoobAI).
 
 Output rules:
-- Output ONLY English Danbooru tags separated by commas, on one line. 15 to 35 tags.
+- Output exactly two lines and nothing else:
+  Tags: <15 to 35 English Danbooru tags, comma-separated>
+  Negative: <0 to 12 English Danbooru tags for things that must NOT appear in this scene, comma-separated>
+- Negative tags are scene-specific: wrong number of people, wrong time or place, wrong clothing, props that are not there. Do not repeat generic quality tags such as lowres or bad anatomy.
 - No sentences, no explanations, no numbering, no quotes, no Korean.
 - Do not continue the story and do not reply to the characters.
 
@@ -192,11 +198,13 @@ Mina: *우산을 받아 들며 웃는다.* "고마워. 사실 좀 추웠거든."
 
 Tags:`;
 
-const EXAMPLE_ANSWER = '1girl, adult, short silver hair, blue eyes, white blouse, smile, holding umbrella, standing, rain, wet hair, city street, night, streetlight, pov, looking at viewer, upper body';
+const EXAMPLE_ANSWER = 'Tags: 1girl, adult, short silver hair, blue eyes, white blouse, smile, holding umbrella, standing, rain, wet hair, city street, night, streetlight, pov, looking at viewer, upper body\n' +
+  'Negative: 2girls, 1boy, multiple girls, daytime, sunlight, indoors, closed umbrella';
 
 /** 태그를 못 받았을 때 한 번 더 보내는 말. */
 export const IMAGE_RETRY_PROMPT =
-  'That was not a tag list. Reply again with ONLY comma-separated English Danbooru tags for the same scene. Nothing else.';
+  'That was not a tag list. Reply again for the same scene with exactly two lines: "Tags: ..." and "Negative: ...", ' +
+  'each a comma-separated list of English Danbooru tags. Nothing else.';
 
 /** 장면 요청. 예시 한 쌍 뒤에 실제 장면을 같은 모양으로 붙입니다. */
 export function buildImageMessages({ cast, scene, userName }) {
@@ -223,15 +231,34 @@ export function buildImageMessages({ cast, scene, userName }) {
  * 'Tags:' 머리, 코드 블록, 목록 표시를 걷어내고, 한글이 섞인 조각이나 문장처럼 긴 조각은 버립니다.
  */
 export function parseSceneTags(text = '') {
-  let body = text.replace(/```\w*\n?/g, '').trim();
-  // 설명을 먼저 쓰고 'Tags:' 뒤에 태그를 적는 모델이 있습니다. 그 뒤만 봅니다.
-  const marker = /(?:^|\n)\s*(?:tags?|prompt|태그)\s*[:：]\s*/i.exec(body);
-  if (marker) body = body.slice(marker.index + marker[0].length);
+  return parseSceneOutput(text).tags;
+}
+
+/** 목록 한 줄을 태그 배열로. 목록 표시·따옴표를 걷어내고 한글이나 문장 조각은 버립니다. */
+function cleanTagList(body, max = 50) {
   return splitTags(body)
     // 목록 표시(- , 1. , 2) )만 걷어냅니다. 1girl 의 1 은 태그의 일부입니다.
     .map((t) => t.replace(/^(?:[-*•]\s*|\d+[.)]\s+)/, '').replace(/["'`]/g, '').replace(/\.$/, '').trim())
     .filter((t) => t && t.length <= 80 && !/[가-힣]/.test(t) && t.split(' ').length <= 8)
-    .slice(0, 50);
+    .slice(0, max);
+}
+
+/**
+ * 모델 출력에서 그릴 태그와 부정 태그를 나눠 추립니다.
+ * 'Negative:' 줄 뒤는 부정 태그, 그 앞은 그릴 태그입니다. 부정 줄이 없으면 부정 태그는 비어 있습니다.
+ */
+export function parseSceneOutput(text = '') {
+  let body = text.replace(/```\w*\n?/g, '').trim();
+  let negative = [];
+  const neg = /(?:^|\n)\s*(?:negative(?:\s*(?:tags?|prompt))?|neg|부정\s*태그)\s*[:：]\s*/i.exec(body);
+  if (neg) {
+    negative = cleanTagList(body.slice(neg.index + neg[0].length).split('\n')[0], 20);
+    body = body.slice(0, neg.index);
+  }
+  // 설명을 먼저 쓰고 'Tags:' 뒤에 태그를 적는 모델이 있습니다. 그 뒤만 봅니다.
+  const marker = /(?:^|\n)\s*(?:tags?|prompt|태그)\s*[:：]\s*/i.exec(body);
+  if (marker) body = body.slice(marker.index + marker[0].length);
+  return { tags: cleanTagList(body), negative };
 }
 
 /** 오류 안내에 붙일 모델 응답 앞부분. 무엇이 문제였는지 보이게 합니다. */
@@ -283,6 +310,26 @@ export async function listCheckpoints(baseUrl) {
   const spec = json?.CheckpointLoaderSimple?.input?.required?.ckpt_name;
   const list = Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options;
   return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+}
+
+/** ComfyUI 에 연결하지 못했을 때 보여 줄 흔한 샘플러·스케줄러. 실제 목록은 연결 확인 때 받아 옵니다. */
+export const COMMON_SAMPLERS = [
+  'euler', 'euler_ancestral', 'heun', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive',
+  'dpmpp_2s_ancestral', 'dpmpp_sde', 'dpmpp_2m', 'dpmpp_2m_sde', 'dpmpp_3m_sde', 'ddim', 'uni_pc', 'lcm'
+];
+export const COMMON_SCHEDULERS = ['normal', 'karras', 'exponential', 'sgm_uniform', 'simple', 'ddim_uniform', 'beta'];
+
+/** KSampler 가 받는 샘플러·스케줄러 목록. 못 받으면 빈 배열입니다. */
+export async function listSamplers(baseUrl) {
+  const res = await comfyFetch(baseUrl, '/object_info/KSampler');
+  if (!res.ok) return { samplers: [], schedulers: [] };
+  const json = await res.json().catch(() => null);
+  const req = json?.KSampler?.input?.required || {};
+  const pick = (spec) => {
+    const list = Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options;
+    return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+  };
+  return { samplers: pick(req.sampler_name), schedulers: pick(req.scheduler) };
 }
 
 /** ComfyUI 가 거부한 이유를 사람이 읽을 말로. */

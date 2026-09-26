@@ -55,6 +55,7 @@
   <footer class="rail-foot">
     <button id="btn-personas" class="foot-btn">내 페르소나</button>
     <button id="btn-settings" class="foot-btn">설정</button>
+    <button id="btn-logout" class="foot-btn foot-btn-quiet" title="로그아웃">로그아웃</button>
   </footer>
 </aside>
 
@@ -163,9 +164,31 @@
       <p class="field-hint">대화에서 {{user}}로 불릴 나 자신입니다. 여러 개를 두고 골라 쓸 수 있습니다.</p>
       <ul id="persona-list" class="persona-list"></ul>
       <div class="divider"></div>
+      <h3 id="p-form-title" class="sheet-sub">새 페르소나</h3>
       <div class="grid-2">
         <label class="field"><span>이름</span><input id="p-name" placeholder="나"></label>
-        <label class="field"><span>소개</span><input id="p-description" placeholder="평범한 대학생. 호기심이 많다."></label>
+        <label class="field"><span>나이</span><input id="p-age" placeholder="예: 20대 중반, 27세"></label>
+      </div>
+      <div class="field"><span>성별</span>
+        <span class="model-row">
+          <select id="p-gender">
+            <option value="">정하지 않음</option>
+            <option value="여성">여성</option>
+            <option value="남성">남성</option>
+            <option value="custom">직접 입력</option>
+          </select>
+          <input id="p-gender-custom" class="grow" placeholder="예: 논바이너리" hidden>
+        </span>
+      </div>
+      <label class="field"><span>소개</span>
+        <textarea id="p-description" rows="3" placeholder="평범한 대학생. 호기심이 많다."></textarea>
+      </label>
+      <div class="field"><span>특징 <small class="field-hint">— 한 항목씩 추가합니다. 대화에 목록으로 들어갑니다</small></span>
+        <ul id="p-traits" class="trait-list"></ul>
+        <span class="model-row">
+          <input id="p-trait-input" class="grow" placeholder="예: 커피 없이는 못 산다 · 왼손잡이 · 고양이 알레르기">
+          <button id="p-trait-add" class="ghost-btn" type="button">추가</button>
+        </span>
       </div>
 
       <div class="seed-box">
@@ -175,7 +198,7 @@
         </div>
         <label class="check-row">
           <input id="p-adult" type="checkbox">
-          <span>성인 페르소나 — 태그가 별도 풀에서 나오고, 문장 만들기는 로컬(LM Studio) 엔진으로만 보냅니다.</span>
+          <span>성인 페르소나 — 태그가 별도 풀에서 나오고, <span id="p-adult-rule">문장 만들기는 로컬(LM Studio) 엔진으로만 보냅니다.</span></span>
         </label>
         <ul id="p-seeds" class="seed-chips" hidden></ul>
         <div id="p-seed-actions" class="seed-actions" hidden>
@@ -184,7 +207,10 @@
         </div>
       </div>
 
-      <button id="p-add" class="ghost-btn" type="button">페르소나 추가</button>
+      <span class="model-row">
+        <button id="p-add" class="ghost-btn" type="button">페르소나 추가</button>
+        <button id="p-edit-cancel" class="ghost-btn" type="button" hidden>편집 취소</button>
+      </span>
     </div>
     <div class="sheet-foot">
       <span class="spacer"></span>
@@ -268,103 +294,270 @@
 </dialog>
 
 <!-- 설정 -->
-<dialog id="dlg-settings" class="sheet">
+<dialog id="dlg-settings" class="sheet sheet-settings">
   <form method="dialog" class="sheet-inner">
     <h2 class="sheet-title">설정</h2>
-    <div class="sheet-body">
-      <label class="field"><span>사용할 엔진</span>
-        <select id="s-provider">
-          <option value="lmstudio">LM Studio (로컬)</option>
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="gemini">Google Gemini</option>
-        </select>
-      </label>
-
-      <div class="provider-box">
-        <label class="field"><span>서버 주소</span><input id="s-baseurl" spellcheck="false"></label>
-        <label class="field" id="s-key-field"><span>API 키</span>
-          <span class="model-row">
-            <input id="s-apikey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-...">
-            <button id="s-key-toggle" class="ghost-btn" type="button" aria-pressed="false">보기</button>
-          </span>
+    <div class="settings-layout">
+      <nav id="s-tabs" class="settings-nav" role="tablist" aria-label="설정 분류" aria-orientation="vertical">
+        <button type="button" class="settings-tab" role="tab" data-tab="engine" aria-controls="pane-engine">엔진</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="generation" aria-controls="pane-generation">응답 생성</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="mode" aria-controls="pane-mode">대화 모드</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="assistant" aria-controls="pane-assistant">어시스턴트</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="image" aria-controls="pane-image">이미지</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="display" aria-controls="pane-display">화면</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="dev" aria-controls="pane-dev">개발자</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="backup" aria-controls="pane-backup">백업/복원</button>
+      </nav>
+      <div class="sheet-body settings-pane" id="pane-engine" data-pane="engine" role="tabpanel" hidden>
+        <label class="field"><span>사용할 엔진</span>
+          <select id="s-provider">
+            <option value="lmstudio">LM Studio (로컬)</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
         </label>
-        <label class="field"><span>모델</span>
-          <span class="model-row">
-            <span class="combo">
-              <input id="s-model" spellcheck="false" autocomplete="off" placeholder="모델 이름"
-                     role="combobox" aria-expanded="false" aria-controls="model-list">
-              <div id="model-list" class="combo-list" role="listbox" hidden></div>
+
+        <div class="provider-box">
+          <label class="field"><span>서버 주소</span><input id="s-baseurl" spellcheck="false"></label>
+          <label class="field" id="s-key-field"><span>API 키</span>
+            <span class="model-row">
+              <input id="s-apikey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-...">
+              <button id="s-key-toggle" class="ghost-btn" type="button" aria-pressed="false">보기</button>
             </span>
-            <button id="s-fetch-models" class="ghost-btn" type="button">불러오기</button>
+          </label>
+          <label class="field"><span>모델</span>
+            <span class="model-row">
+              <span class="combo">
+                <input id="s-model" spellcheck="false" autocomplete="off" placeholder="모델 이름"
+                       role="combobox" aria-expanded="false" aria-controls="model-list">
+                <div id="model-list" class="combo-list" role="listbox" hidden></div>
+              </span>
+              <button id="s-fetch-models" class="ghost-btn" type="button">불러오기</button>
+            </span>
+          </label>
+          <p id="s-model-msg" class="field-hint"></p>
+          <label class="field"><span>컨텍스트 길이 (토큰)</span>
+            <input id="s-context" type="number" min="1024" max="2000000" step="1024" placeholder="16384">
+          </label>
+          <p class="field-hint">모델이 한 번에 받는 양입니다. LM Studio 는 모델을 올릴 때 정한 <b>Context Length</b> 와 같게 맞추세요.
+          이 한도 안에서 최근 대화부터 채워 보내고, 넘치는 옛 대화는 잘라 냅니다.</p>
+        </div>
+        <div class="divider"></div>
+        <h3 class="sheet-sub">엔진 추가</h3>
+        <p class="field-hint">Ollama, vLLM, llama.cpp, OpenRouter 등 OpenAI 호환 서버를 붙일 수 있습니다.</p>
+        <ul id="d-provider-list" class="persona-list"></ul>
+        <div class="grid-2">
+          <label class="field"><span>이름</span><input id="d-p-label" placeholder="Ollama"></label>
+          <label class="field"><span>형식</span>
+            <select id="d-p-type">
+              <option value="openai">OpenAI 호환</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="gemini">Gemini</option>
+            </select>
+          </label>
+        </div>
+        <label class="field"><span>서버 주소</span><input id="d-p-baseurl" spellcheck="false" placeholder="http://localhost:11434/v1"></label>
+        <label class="field"><span>API 키 — 로컬 서버면 비워 두세요</span><input id="d-p-apikey" type="password" spellcheck="false"></label>
+        <button id="d-p-add" class="ghost-btn" type="button">엔진 추가</button>
+        <div class="divider"></div>
+        <h3 class="sheet-sub">감춰 둔 모델</h3>
+        <p class="field-hint">쓰려고 했으나 "없는 모델"이라고 거부당한 것들입니다. 목록에서 자동으로 빠집니다. 계정 상태가 바뀌었다면 지우고 다시 시도해 보세요.</p>
+        <ul id="d-hidden-models" class="persona-list"></ul>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-generation" data-pane="generation" role="tabpanel" hidden>
+        <div class="grid-4">
+          <label class="field"><span>온도 <b id="v-temp"></b></span><input id="s-temp" type="range" min="0" max="2" step="0.05"></label>
+          <label class="field"><span>top_k</span><input id="s-topk" type="number" min="0" max="200" step="1"></label>
+          <label class="field"><span>반복 억제</span><input id="s-repeat" type="number" min="1" max="1.5" step="0.01"></label>
+          <label class="field"><span>응답 최대 길이</span><input id="s-maxtokens" type="number" min="64" max="32000" step="64"></label>
+          <label class="field" title="토큰 한도가 먼저 적용되고, 여유가 있어도 이 개수를 넘겨 보내지 않습니다"><span>최대 메시지 수</span><input id="s-history" type="number" min="4" max="400" step="2"></label>
+        </div>
+        <p class="field-hint">top_k 는 LM Studio·Anthropic·Gemini 에만 전달됩니다. OpenAI 는 이 값을 받지 않습니다.<br>
+        Anthropic 은 온도 상한이 1 이라, 1 을 넘겨 두면 1 로 잘라 보냅니다. LM Studio·Gemini 는 2 까지 받습니다.<br>
+        반복 억제는 로컬 엔진에만 전달됩니다. 같은 말이 되풀이되면 1.15~1.2 까지 올려 보세요. 1 은 억제 없음입니다.</p>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-mode" data-pane="mode" role="tabpanel" hidden>
+        <label class="field"><span>대화 모드</span>
+          <span class="preset-row">
+            <select id="s-preset"></select>
+            <button id="s-preset-new" class="ghost-btn" type="button">새로 만들기</button>
+            <button id="s-preset-rename" class="ghost-btn" type="button">이름 바꾸기</button>
+            <button id="s-preset-delete" class="ghost-btn danger" type="button">삭제</button>
           </span>
         </label>
-        <p id="s-model-msg" class="field-hint"></p>
-        <label class="field"><span>컨텍스트 길이 (토큰)</span>
-          <input id="s-context" type="number" min="1024" max="2000000" step="1024" placeholder="16384">
+        <label class="check-row">
+          <input id="s-ask-mode" type="checkbox">
+          <span>새 대화를 시작할 때 모드를 물어보기</span>
         </label>
-        <p class="field-hint">모델이 한 번에 받는 양입니다. LM Studio 는 모델을 올릴 때 정한 <b>Context Length</b> 와 같게 맞추세요.
-        이 한도 안에서 최근 대화부터 채워 보내고, 넘치는 옛 대화는 잘라 냅니다.</p>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="grid-4">
-        <label class="field"><span>온도 <b id="v-temp"></b></span><input id="s-temp" type="range" min="0" max="2" step="0.05"></label>
-        <label class="field"><span>top_k</span><input id="s-topk" type="number" min="0" max="200" step="1"></label>
-        <label class="field"><span>반복 억제</span><input id="s-repeat" type="number" min="1" max="1.5" step="0.01"></label>
-        <label class="field"><span>응답 최대 길이</span><input id="s-maxtokens" type="number" min="64" max="32000" step="64"></label>
-        <label class="field" title="토큰 한도가 먼저 적용되고, 여유가 있어도 이 개수를 넘겨 보내지 않습니다"><span>최대 메시지 수</span><input id="s-history" type="number" min="4" max="400" step="2"></label>
-      </div>
-      <p class="field-hint">top_k 는 LM Studio·Anthropic·Gemini 에만 전달됩니다. OpenAI 는 이 값을 받지 않습니다.<br>
-      Anthropic 은 온도 상한이 1 이라, 1 을 넘겨 두면 1 로 잘라 보냅니다. LM Studio·Gemini 는 2 까지 받습니다.<br>
-      반복 억제는 로컬 엔진에만 전달됩니다. 같은 말이 되풀이되면 1.15~1.2 까지 올려 보세요. 1 은 억제 없음입니다.</p>
-
-      <label class="field"><span>대화 모드</span>
-        <span class="preset-row">
-          <select id="s-preset"></select>
-          <button id="s-preset-new" class="ghost-btn" type="button">새로 만들기</button>
-          <button id="s-preset-rename" class="ghost-btn" type="button">이름 바꾸기</button>
-          <button id="s-preset-delete" class="ghost-btn danger" type="button">삭제</button>
+        <label class="check-row">
+          <input id="s-preset-adult" type="checkbox">
+          <span>성인 전용 모드 — <span id="s-preset-adult-rule">로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.</span></span>
+        </label>
+        <label class="field"><span>시스템 프롬프트</span>
+          <textarea id="s-template" rows="14" spellcheck="false"></textarea>
+        </label>
+        <p class="field-hint">{{char}} {{user}} {{description}} {{personality}} {{speech}} {{scenario}} {{persona}} 자리에 캐릭터 정보가 들어갑니다. 비어 있는 항목은 줄째로 빠집니다. {{char}} 가 한 번도 없는 모드에는 캐릭터 블록이 맨 뒤에 자동으로 붙습니다.</p>
+        <span class="model-row">
+          <select id="s-template-source" title="어떤 기본 모드의 내용을 가져올지"></select>
+          <button id="s-reset-template" class="ghost-btn" type="button">가져오기</button>
         </span>
-      </label>
-      <label class="check-row">
-        <input id="s-ask-mode" type="checkbox">
-        <span>새 대화를 시작할 때 모드를 물어보기</span>
-      </label>
-      <label class="check-row">
-        <input id="s-preset-adult" type="checkbox">
-        <span>성인 전용 모드 — 로컬(LM Studio) 엔진으로만 보냅니다. 외부 API 로는 전송되지 않습니다.</span>
-      </label>
-      <label class="field"><span>시스템 프롬프트</span>
-        <textarea id="s-template" rows="14" spellcheck="false"></textarea>
-      </label>
-      <p class="field-hint">{{char}} {{user}} {{description}} {{personality}} {{speech}} {{scenario}} {{persona}} 자리에 캐릭터 정보가 들어갑니다. 비어 있는 항목은 줄째로 빠집니다. {{char}} 가 한 번도 없는 모드에는 캐릭터 블록이 맨 뒤에 자동으로 붙습니다.</p>
-      <span class="model-row">
-        <select id="s-template-source" title="어떤 기본 모드의 내용을 가져올지"></select>
-        <button id="s-reset-template" class="ghost-btn" type="button">가져오기</button>
-      </span>
-      <p class="field-hint">지금 편집 중인 모드의 내용을 고른 기본 모드 원본으로 덮어씁니다. 저장을 눌러야 확정됩니다.</p>
-
-      <div class="divider"></div>
-
-      <label class="field"><span>어시스턴트 모드 프롬프트</span>
-        <textarea id="s-assistant-prompt" rows="6" spellcheck="false"></textarea>
-      </label>
-      <div class="grid-4">
-        <label class="field"><span>온도 <b id="v-atemp"></b></span><input id="s-atemp" type="range" min="0" max="2" step="0.05"></label>
-        <label class="field"><span>top_k</span><input id="s-atopk" type="number" min="0" max="200" step="1"></label>
-        <label class="field"><span>반복 억제</span><input id="s-arepeat" type="number" min="1" max="1.5" step="0.01"></label>
-        <label class="field"><span>응답 최대 길이</span><input id="s-amaxtokens" type="number" min="64" max="32000" step="64"></label>
+        <p class="field-hint">지금 편집 중인 모드의 내용을 고른 기본 모드 원본으로 덮어씁니다. 저장을 눌러야 확정됩니다.</p>
       </div>
-      <p class="field-hint">어시스턴트 모드는 캐릭터와 페르소나를 쓰지 않습니다. 이 프롬프트와 대화 내용만 보냅니다.</p>
+      <div class="sheet-body settings-pane" id="pane-assistant" data-pane="assistant" role="tabpanel" hidden>
+        <label class="field"><span>어시스턴트 모드 프롬프트</span>
+          <textarea id="s-assistant-prompt" rows="6" spellcheck="false"></textarea>
+        </label>
+        <div class="grid-4">
+          <label class="field"><span>온도 <b id="v-atemp"></b></span><input id="s-atemp" type="range" min="0" max="2" step="0.05"></label>
+          <label class="field"><span>top_k</span><input id="s-atopk" type="number" min="0" max="200" step="1"></label>
+          <label class="field"><span>반복 억제</span><input id="s-arepeat" type="number" min="1" max="1.5" step="0.01"></label>
+          <label class="field"><span>응답 최대 길이</span><input id="s-amaxtokens" type="number" min="64" max="32000" step="64"></label>
+        </div>
+        <p class="field-hint">어시스턴트 모드는 캐릭터와 페르소나를 쓰지 않습니다. 이 프롬프트와 대화 내용만 보냅니다.</p>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-image" data-pane="image" role="tabpanel" hidden>
+        <label class="check-row">
+          <input id="i-enabled" type="checkbox">
+          <span>장면 그리기 켜기 — 답변 아래에 <b>🎨 그리기</b> 버튼이 생깁니다</span>
+        </label>
+
+        <label class="field"><span>ComfyUI 주소</span>
+          <span class="model-row">
+            <input id="i-baseurl" spellcheck="false" placeholder="http://127.0.0.1:8188">
+            <button id="i-check" class="ghost-btn" type="button">연결 확인</button>
+          </span>
+        </label>
+        <p id="i-status" class="field-hint">Docker 로 돌린다면 PC 주소(예: http://192.168.0.10:8188)를 쓰고, compose 의 LOCAL_ENGINE_HOSTS 에 그 IP 를 넣어 주세요.</p>
+
+        <label class="field"><span>체크포인트 <small class="field-hint">— 기본 워크플로에서 씁니다</small></span>
+          <input id="i-checkpoint" list="i-ckpts" spellcheck="false" placeholder="연결 확인을 누르면 목록이 나옵니다">
+          <datalist id="i-ckpts"></datalist>
+        </label>
+
+        <div class="grid-4">
+          <label class="field"><span>크기</span>
+            <select id="i-size">
+              <option value="832x1216">세로 832×1216</option>
+              <option value="1216x832">가로 1216×832</option>
+              <option value="1024x1024">정사각 1024</option>
+            </select>
+          </label>
+          <label class="field"><span>스텝</span><input id="i-steps" type="number" min="1" max="150"></label>
+          <label class="field"><span>CFG</span><input id="i-cfg" type="number" min="0" max="30" step="0.5"></label>
+          <label class="field"><span>샘플러</span><select id="i-sampler"></select></label>
+          <label class="field"><span>스케줄러</span><select id="i-scheduler"></select></label>
+        </div>
+        <p id="i-lists-note" class="field-hint">샘플러·스케줄러는 흔히 쓰는 목록입니다. 연결 확인을 누르면 ComfyUI 가 실제로 지원하는 목록으로 바뀝니다.</p>
+
+        <label class="field"><span>앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small></span>
+          <textarea id="i-prefix" rows="2" spellcheck="false"></textarea></label>
+        <label class="field"><span>네거티브</span><textarea id="i-negative" rows="2" spellcheck="false"></textarea></label>
+
+        <div class="field"><span>워크플로</span></div>
+        <div class="seed-head">
+          <span id="i-workflow-status" class="field-hint grow"></span>
+          <button id="i-workflow-upload" class="ghost-btn" type="button">워크플로 올리기</button>
+          <button id="i-workflow-reset" class="ghost-btn" type="button">기본으로</button>
+          <input id="i-workflow-file" type="file" accept=".json,application/json" hidden>
+        </div>
+        <p class="field-hint">
+          ComfyUI 에서 <b>Save (API Format)</b> 으로 내보낸 JSON 을 올리면 그대로 씁니다. 값 칸에 아래 자리표시자를 적어 두면 앱이 채웁니다.<br>
+          <code>{{prompt}}</code> <code>{{negative}}</code> <code>{{seed}}</code> <code>{{width}}</code> <code>{{height}}</code>
+          <code>{{steps}}</code> <code>{{cfg}}</code> <code>{{sampler}}</code> <code>{{scheduler}}</code> <code>{{checkpoint}}</code>
+        </p>
+
+        <label class="check-row">
+          <input id="i-free" type="checkbox">
+          <span>그린 뒤 ComfyUI 메모리 비우기 — LLM 과 같은 GPU 를 쓸 때 켜 두세요. 다음 그림은 모델을 다시 올리느라 조금 늦게 시작합니다</span>
+        </label>
+        <label class="check-row">
+          <input id="i-review" type="checkbox">
+          <span>그리기 전에 태그 검토하기 — 🎨 그리기를 누르면 AI 가 만든 태그를 먼저 보여 주고, 확인·수정한 뒤에 그립니다</span>
+        </label>
+
+        <div class="divider"></div>
+        <h3 class="sheet-sub">성인 대화 필터</h3>
+        <p class="field-hint">성인 모드 대화에서 그릴 때만 적용됩니다. 쉼표로 구분하고, <code>*</code> 는 아무 글자나로 봅니다 (예: <code>*blood*</code>).</p>
+        <label class="field"><span>항상 붙일 태그</span><input id="i-force" spellcheck="false" placeholder="adult"></label>
+        <label class="field"><span>지울 태그 <small class="field-hint">— 장면 태그에 섞여 나오면 빼고 그립니다</small></span>
+          <textarea id="i-block" rows="2" spellcheck="false" placeholder="gore, *blood*, vomit"></textarea></label>
+        <label class="field"><span>더할 네거티브</span><textarea id="i-extra-neg" rows="2" spellcheck="false"></textarea></label>
+        <details class="core-block">
+          <summary>고정 차단 목록 — 모든 대화에 적용, 수정할 수 없습니다</summary>
+          <p class="field-hint">
+            미성년으로 읽힐 수 있는 표현입니다. 그림 태그에 하나라도 나오면 빼고 그리는 대신 <b>그리지 않습니다</b>.
+            다른 태그만으로도 어려 보이는 그림이 나올 수 있어서입니다. 일반 대화에도 적용되고, 아래 네거티브도 늘 함께 붙습니다.
+          </p>
+          <p id="i-core-terms" class="core-terms"></p>
+          <p id="i-core-neg" class="core-terms"></p>
+        </details>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-display" data-pane="display" role="tabpanel" hidden>
+        <h3 class="sheet-sub">메시지 표시 방식</h3>
+        <p class="field-hint">모델이 내놓은 글을 화면에서 어떻게 꾸밀지 정합니다. 저장된 원문은 바뀌지 않습니다.</p>
+        <label class="check-row"><input id="d-mk-asterisk" type="checkbox"><span><code>*별표*</code> 를 묘사로 표시</span></label>
+        <label class="check-row"><input id="d-mk-paren" type="checkbox"><span><code>(괄호)</code> 를 묘사로 표시</span></label>
+        <label class="check-row"><input id="d-mk-speaker" type="checkbox"><span>줄 맨 앞의 <code>이름:</code> 을 화자 라벨로</span></label>
+        <label class="check-row"><input id="d-mk-quote" type="checkbox"><span><code>"따옴표"</code> 안을 대사로 강조</span></label>
+        <div class="divider"></div>
+        <h3 class="sheet-sub">테마</h3>
+        <div class="theme-grid">
+          <label class="swatch"><input id="d-bg" type="color"><span>배경</span></label>
+          <label class="swatch"><input id="d-panel" type="color"><span>패널</span></label>
+          <label class="swatch"><input id="d-line" type="color"><span>선</span></label>
+          <label class="swatch"><input id="d-text" type="color"><span>글자</span></label>
+          <label class="swatch"><input id="d-muted" type="color"><span>흐린 글자</span></label>
+          <label class="swatch"><input id="d-accent" type="color"><span>강조</span></label>
+        </div>
+        <div class="grid-2">
+          <label class="field short"><span>글자 크기</span><input id="d-fontsize" type="number" min="12" max="22" step="1"></label>
+          <label class="field"><span>본문 글꼴</span><input id="d-fontsans" spellcheck="false"></label>
+        </div>
+        <label class="field"><span>제목·이름 글꼴</span><input id="d-fontserif" spellcheck="false"></label>
+        <p class="field-hint">CSS font-family 값을 그대로 씁니다. 설치된 글꼴이나 이미 불러온 웹폰트만 적용됩니다.</p>
+        <button id="d-theme-reset" class="ghost-btn" type="button">기본 테마로</button>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-dev" data-pane="dev" role="tabpanel" hidden>
+        <h3 class="sheet-sub">프롬프트</h3>
+        <label class="check-row">
+          <input id="d-particle" type="checkbox">
+          <span>한국어 조사 자동 교정 — <code>{{char}}가</code> 를 이름의 받침에 맞춰 "유하린이 / 루나가" 로 고칩니다</span>
+        </label>
+        <div class="divider"></div>
+        <h3 class="sheet-sub">성인 모드 엔진 제한</h3>
+        <p class="field-hint">성인 모드 대화와 성인 페르소나 생성은 기본적으로 로컬 주소의 엔진(LM Studio 등)으로만 보냅니다.</p>
+        <button id="d-adult-cloud-unlock" class="ghost-btn danger" type="button">클라우드 엔진 제한 풀기…</button>
+        <label id="d-adult-cloud-row" class="check-row" hidden>
+          <input id="d-adult-cloud" type="checkbox">
+          <span>클라우드(외부 API) 엔진에서도 성인 모드 사용 — 끄고 저장하면 다시 잠기고, 이 항목도 숨겨집니다</span>
+        </label>
+        <div class="divider"></div>
+        <h3 class="sheet-sub">진단</h3>
+        <p class="field-hint">이 대화에서 실제로 모델에 보내는 시스템 프롬프트 전문을 봅니다. 캐릭터 설정이 제대로 들어갔는지, 비어 있는 항목이 어떻게 빠졌는지 확인할 수 있습니다.</p>
+        <button id="d-show-system" class="ghost-btn" type="button">시스템 프롬프트 열기</button>
+        <p class="field-hint">엔진과 주고받은 통신 기록입니다. 응답이 실패했을 때 어떤 요청이 어떤 상태 코드로 거부됐는지 여기서 확인할 수 있습니다. 대화 내용(시스템 프롬프트·메시지)은 담지 않습니다.</p>
+        <button id="d-show-logs" class="ghost-btn" type="button">통신 로그 열기</button>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-backup" data-pane="backup" role="tabpanel" hidden>
+        <h3 class="sheet-sub">백업 내려받기</h3>
+        <p class="field-hint">캐릭터·페르소나·대화와 설정(샘플링 값·대화 모드·어시스턴트 프롬프트·테마·표기법)을 JSON 파일 하나로 받습니다.
+        엔진 주소와 API 키는 담기지 않습니다.</p>
+        <span class="model-row">
+          <a href="/api/export" download class="ghost-btn as-link">백업 내려받기</a>
+        </span>
+        <div class="divider"></div>
+        <h3 class="sheet-sub">백업 불러오기</h3>
+        <p class="field-hint">내려받은 백업 파일을 지금 데이터에 합칩니다. 이미 있는 항목은 건너뛰고, 설정까지 덮어쓸지는 불러올 때 따로 묻습니다.
+        불러오면 이 창에서 저장하지 않은 입력은 버려집니다.</p>
+        <span class="model-row">
+          <button id="s-import" class="ghost-btn" type="button">백업 불러오기</button>
+        </span>
+        <input id="s-import-file" type="file" accept=".json,application/json" hidden>
+      </div>
     </div>
     <div class="sheet-foot">
-      <a href="/api/export" download class="ghost-btn as-link">백업 내려받기</a>
-      <button id="s-import" class="ghost-btn" type="button" title="내려받은 백업 파일을 지금 데이터에 합칩니다">백업 불러오기</button>
-      <input id="s-import-file" type="file" accept=".json,application/json" hidden>
-      <button id="btn-open-image" class="ghost-btn" type="button">이미지 설정</button>
-      <button id="btn-open-dev" class="ghost-btn" type="button">개발자 설정</button>
+      <span id="s-foot-note" class="field-hint">저장을 누르면 모든 탭의 변경이 한꺼번에 반영됩니다.</span>
       <span class="spacer"></span>
       <button id="s-cancel" class="ghost-btn" type="button">취소</button>
       <button id="s-save" value="save" class="send-btn" type="submit">저장</button>
@@ -397,167 +590,32 @@
   </form>
 </dialog>
 
-<!-- 이미지 (ComfyUI) -->
-<dialog id="dlg-image" class="sheet">
+<!-- 성인 모드 클라우드 허용 경고 -->
+<dialog id="dlg-adult-cloud" class="sheet">
   <form method="dialog" class="sheet-inner">
-    <h2 class="sheet-title">이미지 설정 — ComfyUI 장면 그리기</h2>
+    <h2 class="sheet-title">클라우드 엔진에서 성인 모드를 쓰기 전에</h2>
     <div class="sheet-body">
+      <p class="field-hint is-warn">이 제한은 사고를 막으려고 걸어 둔 것입니다. 아래 내용을 읽고 직접 판단해 주세요.</p>
+      <ul class="warn-list">
+        <li><b>대화 전체가 외부 회사 서버로 전송됩니다.</b> 시스템 프롬프트, 캐릭터·페르소나 설정, 주고받은 메시지가
+          OpenAI · Anthropic · Google · Ollama 등 선택한 엔진의 회사로 넘어갑니다. 회사 정책에 따라 일정 기간 저장되고,
+          정책 위반 여부를 가리기 위해 사람이 검토할 수 있습니다.</li>
+        <li><b>대부분의 클라우드 서비스는 이용 약관으로 성적인 콘텐츠 생성을 제한합니다.</b> 요청이 거부될 수 있고,
+          반복되면 API 키나 계정이 정지될 수 있습니다. 쓰는 서비스의 약관을 직접 확인하고, 그 책임은 사용하는 사람이 집니다.</li>
+        <li><b>거부된 요청에도 요금이 나갈 수 있습니다.</b></li>
+        <li>켜면 성인 대화의 답변뿐 아니라 요약·기억 정리, 대신 쓰기, 장면 그리기의 태그 변환, 성인 페르소나 문장 만들기도
+          선택한 클라우드 엔진으로 나갑니다.</li>
+        <li>성인 모드의 절대 규칙(등장인물은 모두 성인, 실존 인물 금지)과 그림의 고정 차단 목록은 그대로 적용됩니다.</li>
+      </ul>
       <label class="check-row">
-        <input id="i-enabled" type="checkbox">
-        <span>장면 그리기 켜기 — 답변 아래에 <b>🎨 그리기</b> 버튼이 생깁니다</span>
+        <input id="ac-agree" type="checkbox">
+        <span>위 내용을 이해했고, 내가 쓰는 서비스의 이용 약관을 직접 확인하겠습니다.</span>
       </label>
-
-      <label class="field"><span>ComfyUI 주소</span>
-        <span class="model-row">
-          <input id="i-baseurl" spellcheck="false" placeholder="http://127.0.0.1:8188">
-          <button id="i-check" class="ghost-btn" type="button">연결 확인</button>
-        </span>
-      </label>
-      <p id="i-status" class="field-hint">Docker 로 돌린다면 PC 주소(예: http://192.168.0.10:8188)를 쓰고, compose 의 LOCAL_ENGINE_HOSTS 에 그 IP 를 넣어 주세요.</p>
-
-      <label class="field"><span>체크포인트 <small class="field-hint">— 기본 워크플로에서 씁니다</small></span>
-        <input id="i-checkpoint" list="i-ckpts" spellcheck="false" placeholder="연결 확인을 누르면 목록이 나옵니다">
-        <datalist id="i-ckpts"></datalist>
-      </label>
-
-      <div class="grid-4">
-        <label class="field"><span>크기</span>
-          <select id="i-size">
-            <option value="832x1216">세로 832×1216</option>
-            <option value="1216x832">가로 1216×832</option>
-            <option value="1024x1024">정사각 1024</option>
-          </select>
-        </label>
-        <label class="field"><span>스텝</span><input id="i-steps" type="number" min="1" max="150"></label>
-        <label class="field"><span>CFG</span><input id="i-cfg" type="number" min="0" max="30" step="0.5"></label>
-        <label class="field"><span>샘플러</span><input id="i-sampler" spellcheck="false" placeholder="euler_ancestral"></label>
-      </div>
-
-      <label class="field"><span>앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small></span>
-        <textarea id="i-prefix" rows="2" spellcheck="false"></textarea></label>
-      <label class="field"><span>네거티브</span><textarea id="i-negative" rows="2" spellcheck="false"></textarea></label>
-
-      <div class="field"><span>워크플로</span></div>
-      <div class="seed-head">
-        <span id="i-workflow-status" class="field-hint grow"></span>
-        <button id="i-workflow-upload" class="ghost-btn" type="button">워크플로 올리기</button>
-        <button id="i-workflow-reset" class="ghost-btn" type="button">기본으로</button>
-        <input id="i-workflow-file" type="file" accept=".json,application/json" hidden>
-      </div>
-      <p class="field-hint">
-        ComfyUI 에서 <b>Save (API Format)</b> 으로 내보낸 JSON 을 올리면 그대로 씁니다. 값 칸에 아래 자리표시자를 적어 두면 앱이 채웁니다.<br>
-        <code>{{prompt}}</code> <code>{{negative}}</code> <code>{{seed}}</code> <code>{{width}}</code> <code>{{height}}</code>
-        <code>{{steps}}</code> <code>{{cfg}}</code> <code>{{sampler}}</code> <code>{{scheduler}}</code> <code>{{checkpoint}}</code>
-      </p>
-
-      <label class="check-row">
-        <input id="i-free" type="checkbox">
-        <span>그린 뒤 ComfyUI 메모리 비우기 — LLM 과 같은 GPU 를 쓸 때 켜 두세요. 다음 그림은 모델을 다시 올리느라 조금 늦게 시작합니다</span>
-      </label>
-
-      <div class="divider"></div>
-      <h3 class="sheet-sub">성인 대화 필터</h3>
-      <p class="field-hint">성인 모드 대화에서 그릴 때만 적용됩니다. 쉼표로 구분하고, <code>*</code> 는 아무 글자나로 봅니다 (예: <code>*blood*</code>).</p>
-      <label class="field"><span>항상 붙일 태그</span><input id="i-force" spellcheck="false" placeholder="adult"></label>
-      <label class="field"><span>지울 태그 <small class="field-hint">— 장면 태그에 섞여 나오면 빼고 그립니다</small></span>
-        <textarea id="i-block" rows="2" spellcheck="false" placeholder="gore, *blood*, vomit"></textarea></label>
-      <label class="field"><span>더할 네거티브</span><textarea id="i-extra-neg" rows="2" spellcheck="false"></textarea></label>
-      <details class="core-block">
-        <summary>고정 차단 목록 — 모든 대화에 적용, 수정할 수 없습니다</summary>
-        <p class="field-hint">
-          미성년으로 읽힐 수 있는 표현입니다. 그림 태그에 하나라도 나오면 빼고 그리는 대신 <b>그리지 않습니다</b>.
-          다른 태그만으로도 어려 보이는 그림이 나올 수 있어서입니다. 일반 대화에도 적용되고, 아래 네거티브도 늘 함께 붙습니다.
-        </p>
-        <p id="i-core-terms" class="core-terms"></p>
-        <p id="i-core-neg" class="core-terms"></p>
-      </details>
     </div>
     <div class="sheet-foot">
       <span class="spacer"></span>
-      <button id="i-cancel" class="ghost-btn" type="button">취소</button>
-      <button value="save" class="send-btn" type="submit">저장</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- 개발자 설정 -->
-<dialog id="dlg-dev" class="sheet">
-  <form method="dialog" class="sheet-inner">
-    <h2 class="sheet-title">개발자 설정</h2>
-    <div class="sheet-body">
-
-      <h3 class="sheet-sub">메시지 표시 방식</h3>
-      <p class="field-hint">모델이 내놓은 글을 화면에서 어떻게 꾸밀지 정합니다. 저장된 원문은 바뀌지 않습니다.</p>
-      <label class="check-row"><input id="d-mk-asterisk" type="checkbox"><span><code>*별표*</code> 를 묘사로 표시</span></label>
-      <label class="check-row"><input id="d-mk-paren" type="checkbox"><span><code>(괄호)</code> 를 묘사로 표시</span></label>
-      <label class="check-row"><input id="d-mk-speaker" type="checkbox"><span>줄 맨 앞의 <code>이름:</code> 을 화자 라벨로</span></label>
-      <label class="check-row"><input id="d-mk-quote" type="checkbox"><span><code>"따옴표"</code> 안을 대사로 강조</span></label>
-
-      <div class="divider"></div>
-
-      <h3 class="sheet-sub">프롬프트</h3>
-      <label class="check-row">
-        <input id="d-particle" type="checkbox">
-        <span>한국어 조사 자동 교정 — <code>{{char}}가</code> 를 이름의 받침에 맞춰 "유하린이 / 루나가" 로 고칩니다</span>
-      </label>
-
-      <div class="divider"></div>
-
-      <h3 class="sheet-sub">테마</h3>
-      <div class="theme-grid">
-        <label class="swatch"><input id="d-bg" type="color"><span>배경</span></label>
-        <label class="swatch"><input id="d-panel" type="color"><span>패널</span></label>
-        <label class="swatch"><input id="d-line" type="color"><span>선</span></label>
-        <label class="swatch"><input id="d-text" type="color"><span>글자</span></label>
-        <label class="swatch"><input id="d-muted" type="color"><span>흐린 글자</span></label>
-        <label class="swatch"><input id="d-accent" type="color"><span>강조</span></label>
-      </div>
-      <div class="grid-2">
-        <label class="field short"><span>글자 크기</span><input id="d-fontsize" type="number" min="12" max="22" step="1"></label>
-        <label class="field"><span>본문 글꼴</span><input id="d-fontsans" spellcheck="false"></label>
-      </div>
-      <label class="field"><span>제목·이름 글꼴</span><input id="d-fontserif" spellcheck="false"></label>
-      <p class="field-hint">CSS font-family 값을 그대로 씁니다. 설치된 글꼴이나 이미 불러온 웹폰트만 적용됩니다.</p>
-      <button id="d-theme-reset" class="ghost-btn" type="button">기본 테마로</button>
-
-      <div class="divider"></div>
-
-      <h3 class="sheet-sub">엔진 추가</h3>
-      <p class="field-hint">Ollama, vLLM, llama.cpp, OpenRouter 등 OpenAI 호환 서버를 붙일 수 있습니다.</p>
-      <ul id="d-provider-list" class="persona-list"></ul>
-      <div class="grid-2">
-        <label class="field"><span>이름</span><input id="d-p-label" placeholder="Ollama"></label>
-        <label class="field"><span>형식</span>
-          <select id="d-p-type">
-            <option value="openai">OpenAI 호환</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Gemini</option>
-          </select>
-        </label>
-      </div>
-      <label class="field"><span>서버 주소</span><input id="d-p-baseurl" spellcheck="false" placeholder="http://localhost:11434/v1"></label>
-      <label class="field"><span>API 키 — 로컬 서버면 비워 두세요</span><input id="d-p-apikey" type="password" spellcheck="false"></label>
-      <button id="d-p-add" class="ghost-btn" type="button">엔진 추가</button>
-
-      <div class="divider"></div>
-
-      <h3 class="sheet-sub">진단</h3>
-      <p class="field-hint">이 대화에서 실제로 모델에 보내는 시스템 프롬프트 전문을 봅니다. 캐릭터 설정이 제대로 들어갔는지, 비어 있는 항목이 어떻게 빠졌는지 확인할 수 있습니다.</p>
-      <button id="d-show-system" class="ghost-btn" type="button">시스템 프롬프트 열기</button>
-      <p class="field-hint">엔진과 주고받은 통신 기록입니다. 응답이 실패했을 때 어떤 요청이 어떤 상태 코드로 거부됐는지 여기서 확인할 수 있습니다. 대화 내용(시스템 프롬프트·메시지)은 담지 않습니다.</p>
-      <button id="d-show-logs" class="ghost-btn" type="button">통신 로그 열기</button>
-
-      <div class="divider"></div>
-
-      <h3 class="sheet-sub">감춰 둔 모델</h3>
-      <p class="field-hint">쓰려고 했으나 "없는 모델"이라고 거부당한 것들입니다. 목록에서 자동으로 빠집니다. 계정 상태가 바뀌었다면 지우고 다시 시도해 보세요.</p>
-      <ul id="d-hidden-models" class="persona-list"></ul>
-
-    </div>
-    <div class="sheet-foot">
-      <span class="spacer"></span>
-      <button id="d-cancel" class="ghost-btn" type="button">취소</button>
-      <button value="save" class="send-btn" type="submit">저장</button>
+      <button value="cancel" class="ghost-btn" type="submit">취소</button>
+      <button id="ac-confirm" value="unlock" class="send-btn" type="submit" disabled>제한 풀기</button>
     </div>
   </form>
 </dialog>
@@ -600,6 +658,54 @@
       <button value="close" class="send-btn" type="submit">닫기</button>
     </div>
   </form>
+</dialog>
+
+<!-- 그림 태그 검토·고치기 -->
+<dialog id="dlg-tags" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title" id="tg-title">그릴 태그 확인</h2>
+    <div class="sheet-body">
+      <p id="tg-hint" class="field-hint"></p>
+      <label class="field"><span>태그 <small class="field-hint">— 그릴 것. 쉼표로 구분합니다</small></span>
+        <textarea id="tg-text" rows="6" spellcheck="false"></textarea>
+      </label>
+      <p id="tg-removed" class="field-hint is-warn" hidden></p>
+      <label class="field"><span>부정 태그 <small class="field-hint">— 그림에 나오면 안 되는 것</small></span>
+        <textarea id="tg-negative" rows="4" spellcheck="false"></textarea>
+      </label>
+      <div id="tg-model-row" hidden>
+        <label class="field"><span>모델 <small class="field-hint">— 이번 그림에 쓸 체크포인트</small></span>
+          <select id="tg-checkpoint"></select>
+        </label>
+        <p id="tg-model-note" class="field-hint"></p>
+      </div>
+      <p class="field-hint">앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.</p>
+    </div>
+    <div class="sheet-foot">
+      <label id="tg-skip-row" class="check-row">
+        <input id="tg-skip" type="checkbox">
+        <span>다음부터 검토하지 않고 바로 그리기</span>
+      </label>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost-btn" type="submit">취소</button>
+      <button id="tg-ok" value="draw" class="send-btn" type="submit">그리기</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 그림 크게 보기 -->
+<dialog id="dlg-lightbox" class="lightbox" aria-label="그림 크게 보기">
+  <button id="lb-close" class="lb-btn lb-close" type="button" aria-label="닫기">✕</button>
+  <button id="lb-prev" class="lb-btn lb-nav lb-prev" type="button" aria-label="이전 그림">‹</button>
+  <button id="lb-next" class="lb-btn lb-nav lb-next" type="button" aria-label="다음 그림">›</button>
+  <figure class="lb-figure">
+    <img id="lb-img" alt="장면 그림">
+    <figcaption class="lb-caption">
+      <span id="lb-count" class="lb-count"></span>
+      <span id="lb-prompt" class="lb-prompt"></span>
+      <a id="lb-original" class="lb-link" target="_blank" rel="noopener">원본 새 탭에서 열기</a>
+    </figcaption>
+  </figure>
 </dialog>
 
 <div id="toast" class="toast" popover="manual" role="status" hidden></div>

@@ -19,7 +19,12 @@ src/
   persona-seeds.js         랜덤 페르소나 씨앗 표 (POOLS, CONFLICTS) 와 굴리기
   persona-gen.js           씨앗 → 소개 문단 프롬프트, 후처리, 모델 없이 쓰는 대체 문장
   character-gen.js         줄글 → 캐릭터 시트 프롬프트, 라벨 파서
+  auth.js                  로그인 — 비밀번호 해시, 세션, requireAuth / requireOwner
+  security.js              SSRF 허용 목록, 키 마스킹, 요청 제한, 같은 출처 확인
+scripts/
+  user.js                  계정 만들기·지우기·비밀번호 바꾸기 (npm run user)
 public/
+  login.html               로그인 페이지. 앱 스크립트를 읽지 않는 독립 페이지
   index.html               전체 마크업 (사이드바, 대화창, 다이얼로그 다섯 개)
   styles.css               전체 스타일. CSS 변수로 테마 관리
   js/
@@ -168,7 +173,7 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 | Gemini | 모델 목록 페이지네이션 (`pageToken`) | 최대 5쪽까지 수집, `supportedGenerationMethods`가 없어도 통과(문서 예제 기준) |
 | Gemini | `google_search` 도구는 Gemma 모델에서 거부됨 | 지원 여부는 `supportsWebSearch()`가 판단, 실패 시 `geminiError()`가 원인을 풀어서 안내 |
 | LM Studio 등 로컬 | `repeat_penalty`, `top_k`를 안 보내면 반복 루프가 잘 남 | `lmstudio()` 래퍼가 항상 포함 (OpenAI 본사에는 안 보냄) |
-| 공통 | 성인 틀은 로컬 엔진에서만 허용 | `isLocalUrl()` (서버: `server.js`, 클라이언트: `app.js`에 각각 구현 — 판정 규칙이 동일해야 함) |
+| 공통 | 성인 틀은 기본적으로 로컬 엔진에서만 허용 | `adultAllowed()` = `isLocalUrl()` 또는 `settings.dev.adultCloud` (서버: `server.js`, 클라이언트: `app.js`에 각각 구현 — 판정 규칙이 동일해야 함) |
 
 ### `isOpenAiHost()` 버그 이력
 
@@ -197,7 +202,8 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 요청 하나가 처리되는 순서:
 
 1. `assistant` 모드인지에 따라 시스템 프롬프트·파라미터·사고/검색 설정을 분기 (`s.assistant.*` vs 프리셋).
-2. 성인 틀이면 `isLocalUrl(config.baseUrl)` 확인 — 아니면 400.
+2. 성인 틀이면 `adultAllowed(config)` 확인 — 로컬 주소도 아니고 `dev.adultCloud` 도 꺼져 있으면 400.
+   `dev.adultCloud` 는 설정 창 개발자 탭의 경고 창을 거쳐야 켜지고, 백업 불러오기로는 옮겨 오지 않습니다.
 3. `makeThoughtStripper({ onThought })` 생성. 생각을 껐으면 `onThought`를 안 넘겨서 사고 조각이
    버려지게 합니다 (일부 엔진은 꺼도 사고를 보내므로 서버에서 한 번 더 막음).
 4. `streamChat()`으로 어댑터 실행. 청크마다:
@@ -271,7 +277,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET/PUT | `/api/settings` | 설정 조회/저장. 응답에 `builtinTemplates`, `webSearchCapable` 등 읽기 전용 필드 포함 |
+| GET/PUT | `/api/settings` | 설정 조회/저장. 응답에 `builtinTemplates`, `webSearchCapable` 등 읽기 전용 필드 포함. 설정 창은 모든 탭(엔진·이미지·dev 포함)을 PUT 한 번으로 보내므로, 엔진·ComfyUI 주소 검사를 먼저 끝내고 하나라도 거부되면 아무것도 바꾸지 않습니다 |
 | GET | `/api/models?provider=` | 모델 목록 (엔진별 필터·페이지네이션 적용됨) |
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
@@ -282,7 +288,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
 | POST | `/api/chats/:id/facts/extract` | `{ auto }` 최근 대화에서 사실을 뽑아 `chat.facts` 에 추가·수정·삭제. auto 는 답변 4개 이상 쌓였을 때만. 새 generate 요청이 오면 멈춤 |
 | POST | `/api/chats/:id/impersonate` | `{ hint }` 대신 쓰기. 내 다음 차례 초안을 SSE 로 흘려보내고 `done` 에 정리된 `draft`. 저장하지 않음 |
-| POST | `/api/chats/:id/messages/:mid/image` | `{ prompt?, random? }` 장면 그리기. SSE 로 `stage`·`prompt`·`done{image, images}`. prompt 를 주면 LLM 을 건너뜀 |
+| POST | `/api/chats/:id/messages/:mid/image` | `{ prompt?, negative?, checkpoint?, random?, review? }` 장면 그리기. SSE 로 `stage`·`prompt`·`done{image, images}`. prompt 를 주면 LLM 을 건너뜀. checkpoint 는 그 한 장에만 쓰는 모델(설정은 그대로)이고 `image.checkpoint` 에 남김 |
 | DELETE | `/api/chats/:id/messages/:mid/images/:imgId` | 그림 삭제 |
 | GET | `/api/images/:chatId/:file` | 그림 파일 |
 | GET | `/api/image/checkpoints?baseUrl=` | ComfyUI 연결 확인 + 체크포인트 목록 |
@@ -388,9 +394,13 @@ http.createServer((req, res) => {
 
 그다음 서버를 띄우고 `curl`로 실제 API처럼 호출합니다.
 
+로그인이 켜져 있으면 `curl` 이 전부 401 을 받습니다. 테스트할 때는 `AUTH_DISABLED=1` 로 끄세요.
+`HOST` 가 기본값(`127.0.0.1`)일 때만 먹습니다. 로그인 자체를 시험할 때는 끄지 말고 쿠키를 씁니다
+(`curl -c jar -d '{"name":..,"password":..}' .../api/login` 뒤로 `-b jar`).
+
 ```bash
 node mock-something.mjs &
-PORT=5199 node server.js &
+AUTH_DISABLED=1 PORT=5199 node server.js &
 sleep 2
 curl -s -X PUT http://127.0.0.1:5199/api/settings -d '{"providers":{"lmstudio":{"baseUrl":"http://localhost:1234/v1", ...}}}'
 curl -s -N -X POST http://127.0.0.1:5199/api/chats/$ID/generate -d '{}'
@@ -426,7 +436,7 @@ docker compose up -d
 4. `src/store.js`의 `defaultSettings().providers`에 기본 항목 추가 (`label`, `type`, `baseUrl`, `model`, `unavailableModels: []`).
 5. 성인 틀·웹 검색을 지원한다면 `supportsWebSearch()`, `isLocalUrl()` 판정에 반영.
 
-이미 OpenAI/Anthropic/Gemini 형식 중 하나를 따르는 서비스라면, 개발자 설정의 **엔진 추가**로
+이미 OpenAI/Anthropic/Gemini 형식 중 하나를 따르는 서비스라면, 설정 창 엔진 탭의 **엔진 추가**로
 코드 수정 없이 붙일 수 있습니다 (`type` 필드로 세 형식 중 하나를 고르는 방식).
 
 ## 12. 새 대화 모드 추가하기
@@ -462,8 +472,8 @@ docker compose up -d
 `POST /api/personas/generate` 는 엔진 미설정·주소 거부·키 없음·모델 오류·빈 응답을 전부
 `fallbackDescription()` 으로 흡수해 **200 으로** 돌려줍니다 (`fallback: true`, `reason` 포함).
 페르소나를 만드는 중에 오류 창을 띄우는 것보다, 밋밋하더라도 문장이 들어가는 쪽이 낫기 때문입니다.
-`adult: true` 로 호출하면 대화의 성인 프리셋과 같은 규칙(`isLocalUrl`)을 한 번 더 검사합니다 —
-로컬이 아니면 모델을 부르지 않고 바로 `fallback: true` 로 빠집니다. 씨앗을 굴리기만 하는
+`adult: true` 로 호출하면 대화의 성인 프리셋과 같은 규칙(`adultAllowed`)을 한 번 더 검사합니다 —
+허용되지 않은 엔진이면 모델을 부르지 않고 바로 `fallback: true` 로 빠집니다. 씨앗을 굴리기만 하는
 `/api/personas/roll` 은 모델을 안 부르므로 이 검사가 필요 없습니다.
 
 `maxTokens` 는 설정값과 무관하게 700 으로 잘라 둡니다 — 한 문단이면 충분한데 4096 을 주면

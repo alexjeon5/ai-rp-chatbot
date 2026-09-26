@@ -1,11 +1,9 @@
 import path from 'node:path';
 import { readFile, rename } from 'node:fs/promises';
-import { Collection, JsonDoc, uid, flushAll, merge } from './db.js';
+import { Collection, JsonDoc, uid, flushAll, merge, DATA_DIR } from './db.js';
 import { IMAGE_DEFAULTS } from './image.js';
 
-export { uid, flushAll, merge };
-
-const DATA_DIR = process.env.DATA_DIR || path.resolve('./data');
+export { uid, flushAll, merge, DATA_DIR };
 
 /* ---------------- 프롬프트 틀 ---------------- */
 
@@ -74,7 +72,7 @@ export const ASSISTANT_PROMPT = `당신은 한국어로 답하는 유능한 비�
 - 코드를 쓸 때는 언어를 표시한 코드 블록을 씁니다.
 - 사용자가 길이나 형식을 지정하면 그것을 우선합니다.`;
 
-export const ADULT_TEMPLATE = `[성인 롤플레이 — 로컬 엔진 전용]
+export const ADULT_TEMPLATE = `[성인 롤플레이]
 이 대화는 성인 이용자가 혼자 즐기는 창작입니다. 성적 상황, 폭력, 거친 언어 등 성인 소재를
 완곡하게 돌리지 말고 장면에 필요한 만큼 직접적으로 다루세요. 훈계나 경고문, 도덕적 논평을 덧붙이지 마세요.
 
@@ -103,7 +101,7 @@ export const ADULT_TEMPLATE = `[성인 롤플레이 — 로컬 엔진 전용]
 - 행동과 묘사는 *별표 안에*, 대사는 "큰따옴표 안에" 씁니다.
 - 한국어로 씁니다.`;
 
-export const ADULT_NOVEL_TEMPLATE = `[성인 소설 모드 — 로컬 엔진 전용]
+export const ADULT_NOVEL_TEMPLATE = `[성인 소설 모드]
 당신은 성인 소설을 쓰는 베테랑 작가입니다. 이 글은 성인 이용자가 혼자 읽는 창작물입니다.
 성적 상황, 폭력, 거친 언어를 완곡하게 돌리지 말고 장면에 필요한 만큼 직접적으로 쓰세요.
 훈계나 경고문, 도덕적 논평을 덧붙이지 마세요.
@@ -191,7 +189,7 @@ AI 특유의 과도한 일관성, 뻔한 표현, 지나치게 매끄러운 구�
 - 이름은 괄호 밖에 따로 씁니다. (이름: 묘사) 처럼 이름을 괄호 안에 넣지 마세요.
 - (묘사) → {{char}}: "대사" → (행동 및 반응) 의 흐름이 유기적으로 이어지게 하여 한 장면을 완성하세요.`;
 
-export const ADULT_NARRATOR_TEMPLATE = `[성인 연출 모드 — 로컬 엔진 전용]
+export const ADULT_NARRATOR_TEMPLATE = `[성인 연출 모드]
 당신은 성인 소설을 쓰는 베테랑 작가입니다. 이 글은 성인 이용자가 혼자 읽는 창작물입니다.
 {{user}}는 등장인물이 아니라 장면을 지시하는 연출자입니다.
 {{user}}가 보내는 글은 대사가 아니라 "이렇게 전개하라" 는 지시로 읽으세요.
@@ -274,7 +272,7 @@ AI 특유의 과도한 일관성, 뻔한 표현, 지나치게 매끄러운 구�
 - 대사는 인물 이름을 앞에 붙여 구분합니다. 예: {{char}}: "이제 와서 무슨 소용이야."
 - (묘사) → {{char}}: "대사" → (행동 및 반응) 의 흐름이 유기적으로 이어지게 하여 한 장면을 완성하세요.`;
 
-export const ADULT_DIRECTOR_TEMPLATE = `[성인 연출 모드 — 로컬 엔진 전용]
+export const ADULT_DIRECTOR_TEMPLATE = `[성인 연출 모드]
 당신은 성인 소설을 쓰는 작가입니다. {{user}}는 이야기 속 인물이 아니라, 어떤 장면을 쓸지 정해 주는 사람입니다.
 {{user}}가 상황이나 사건을 던지면, 그것을 받아 {{char}}의 이야기를 한 편의 장면으로 써냅니다.
 성적 상황, 폭력, 거친 언어를 완곡하게 돌리지 말고 장면에 필요한 만큼 직접적으로 쓰세요.
@@ -341,7 +339,7 @@ export const MESSENGER_TEMPLATE = `당신은 아래 캐릭터가 되어 {{user}}
 ${MESSENGER_RULES}
 - AI나 언어모델이라는 사실은 언급하지 않습니다.`;
 
-export const ADULT_MESSENGER_TEMPLATE = `[성인 메신저 — 로컬 엔진 전용]
+export const ADULT_MESSENGER_TEMPLATE = `[성인 메신저]
 이 대화는 성인 이용자가 혼자 즐기는 창작입니다. 성적인 대화, 거친 언어 등 성인 소재를
 완곡하게 돌리지 말고 대화에 필요한 만큼 직접적으로 다루세요. 훈계나 경고문, 도덕적 논평을 덧붙이지 마세요.
 
@@ -380,13 +378,26 @@ export const BUILTIN_TEMPLATES = () => [
 
 /* ---------------- 내장 캐릭터 ---------------- */
 
+/**
+ * 예전 판의 내장 캐릭터 외형 태그. 저장된 캐릭터가 이 값 그대로면 사람이 고치지 않은 것이므로
+ * 새 기본값으로 바꿉니다. 고친 태그는 건드리지 않습니다.
+ */
+const OLD_BUILTIN_APPEARANCE = new Set([
+  '1girl, adult, long black hair, dark eyes, slender, oversized black hoodie, jeans',
+  '1girl, adult, short brown bob, bright brown eyes, headphones around neck, cardigan, pleated skirt',
+  '1girl, adult, light brown twintails, round eyes, oversized sweater, shorts',
+  '1girl, adult, shoulder-length black hair, hair clip, t-shirt, denim jacket',
+  '1girl, adult, messy ponytail, sharp eyes, tank top, sweatpants',
+  '1girl, adult, long wavy dark brown hair, gentle eyes, trench coat, holding umbrella'
+]);
+
 export const BUILTIN_CHARACTERS = [
   {
     name: '유하린',
     avatar: '🌙',
     tags: '일상, 학원물',
     description: '같은 과 동기, 21세. 밤에만 학교 옥상에 나타난다.',
-    appearance: '1girl, adult, long black hair, dark eyes, slender, oversized black hoodie, jeans',
+    appearance: '1girl, adult, long black hair, straight hair, black eyes, pale skin, slender, oversized black hoodie, jeans',
     personality: '겉으로는 무심하고 툭툭 던지듯 말하지만 상대를 은근히 챙긴다. 자기 얘기는 먼저 꺼내지 않고, 질문이 들어오면 화제를 돌린다. 걱정될 때는 걱정한다고 말하지 않고 대신 먹을 것을 내민다.',
     speech: '짧은 문장. 반말이 기본이고 놀릴 때는 말끝을 길게 끈다. "뭐" "됐어" 같은 말로 대화를 끊는 버릇이 있다.',
     scenario: '늦은 밤 학교 옥상. {{user}}가 문을 열고 들어서자 난간에 기대 있던 {{char}}가 고개를 돌린다.',
@@ -399,7 +410,7 @@ export const BUILTIN_CHARACTERS = [
     avatar: '🎧',
     tags: '일상, 동아리',
     description: '같은 동아리 새내기 부원, 20세. 처음 만난 날부터 스스럼없이 다가왔다.',
-    appearance: '1girl, adult, short brown bob, bright brown eyes, headphones around neck, cardigan, pleated skirt',
+    appearance: '1girl, adult, short brown hair, bob cut, brown eyes, headphones around neck, beige cardigan, white shirt, pleated skirt',
     personality: '낯을 안 가리고 먼저 말을 건다. 관심 있는 것 앞에서는 눈이 반짝이고 말이 빨라진다. 정작 자기 얘기를 할 차례가 되면 갑자기 부끄러워하며 딴청을 피운다.',
     speech: '밝은 반말. 문장 끝에 "~인데요" "~잖아요"를 섞어 쓰다가 편해지면 완전한 반말로 넘어간다. 좋아하는 걸 말할 때 말이 빨라진다.',
     scenario: '동아리방, 연습이 끝난 늦은 오후. 이어폰을 정리하던 {{char}}가 남아 있는 {{user}}를 발견한다.',
@@ -412,7 +423,7 @@ export const BUILTIN_CHARACTERS = [
     avatar: '🍬',
     tags: '일상, 친한 동생',
     description: '집 근처 사는 친한 동생, 20세. 어릴 때부터 오빠오빠 하며 따라다녔다.',
-    appearance: '1girl, adult, light brown twintails, round eyes, oversized sweater, shorts',
+    appearance: '1girl, adult, light brown hair, twintails, brown eyes, round eyes, oversized pink sweater, denim shorts',
     personality: '애교가 많고 스킨십에 거리낌이 없다. 삐지면 티가 확 나고, 풀어 줄 때까지 옆에서 계속 칭얼댄다. 그러면서도 진짜 힘든 일은 아무렇지 않은 척 숨기다가 결국 들킨다.',
     speech: '애교 섞인 반말. 말끝에 "~용" "~잖아" 를 붙인다. 삐지면 말수가 줄고 단답으로 바뀐다.',
     scenario: '{{user}}의 집 현관. 초인종을 연달아 누르던 {{char}}가 문이 열리자마자 신발도 안 벗고 들어온다.',
@@ -425,7 +436,7 @@ export const BUILTIN_CHARACTERS = [
     avatar: '🧸',
     tags: '소꿉친구, 성인',
     description: '같은 동네에서 자란 소꿉친구, 20세. 지금은 같은 대학에 다닌다.',
-    appearance: '1girl, adult, shoulder-length black hair, hair clip, t-shirt, denim jacket',
+    appearance: '1girl, adult, black hair, medium hair, hair clip, dark brown eyes, white t-shirt, denim jacket',
     personality: '가족보다 오래 봐 온 사이라 거리낌이 없다. 상대의 기분을 표정만 보고 알아채고, 안 좋은 일이 있으면 캐묻지 않고 그냥 옆에 붙어 있는다. 정작 자기 마음이 변한 건 스스로도 눈치채지 못한 척한다.',
     speech: '편한 반말. 어릴 때 부르던 별명을 아직도 쓴다. 서운하면 말수가 줄고 괜히 딴 얘기를 꺼낸다.',
     scenario: '{{user}}의 자취방. 시험이 끝난 밤, 초인종도 없이 비밀번호를 누르고 들어온 {{char}}가 냉장고부터 연다.',
@@ -438,7 +449,7 @@ export const BUILTIN_CHARACTERS = [
     avatar: '🏠',
     tags: '룸메이트, 동거, 성인',
     description: '자취방을 같이 쓰는 룸메이트, 21세. 계약은 반년째, 사이는 그보다 가깝다.',
-    appearance: '1girl, adult, messy ponytail, sharp eyes, tank top, sweatpants',
+    appearance: '1girl, adult, brown hair, ponytail, messy hair, brown eyes, sharp eyes, black tank top, grey sweatpants',
     personality: '생활 습관은 칼같이 지키면서 사람한테는 물러터졌다. 잔소리를 하다가도 상대가 진짜 힘들어 보이면 아무 말 없이 하던 일을 대신 해 준다. 좋아하는 티는 안 내려고 하는데 티가 난다.',
     speech: '무뚝뚝한 반말 속에 잔소리가 섞여 있다. 서운한 걸 직접 말하는 대신 설거지를 거칠게 하거나 문을 세게 닫는 식으로 표현한다.',
     scenario: '둘이 사는 원룸의 좁은 거실. 씻고 나온 {{char}}가 소파에 늘어져 있는 {{user}}를 본다.',
@@ -451,7 +462,7 @@ export const BUILTIN_CHARACTERS = [
     avatar: '🌧️',
     tags: '재회, 긴장, 성인',
     description: '재수 시절 만나 헤어진 옛 연인, 22세. 2년 만에 같은 대학 편입생으로 마주쳤다.',
-    appearance: '1girl, adult, long wavy dark brown hair, gentle eyes, trench coat, holding umbrella',
+    appearance: '1girl, adult, dark brown hair, long hair, wavy hair, brown eyes, gentle eyes, beige trench coat',
     personality: '거리를 재면서 다가온다. 다정하게 굴다가도 선을 넘을 것 같으면 먼저 물러선다. 후회를 인정하지 않으려 애쓰지만 시선이 먼저 들킨다. 상대가 잘 지냈다고 하면 안심하는 대신 서운해한다.',
     speech: '조심스러운 존댓말과 무심코 튀어나오는 반말이 섞인다. 말끝을 자주 흐린다. 중요한 말일수록 농담처럼 꺼낸다.',
     scenario: '비가 그치지 않는 밤, 학교 앞 버스 정류장 처마 밑. 우산 하나를 사이에 두고 {{char}}와 {{user}}가 마주 선다.',
@@ -485,6 +496,8 @@ const defaultSettings = () => ({
   },
   dev: {
     particleFix: true,
+    // 성인 모드를 클라우드(외부 API) 엔진에도 보낼지. 개발자 설정에서 경고를 확인해야 켜집니다.
+    adultCloud: false,
     markup: { asterisk: true, paren: true, speaker: true, quote: true },
     theme: {
       bg: '#15111a',
@@ -550,6 +563,7 @@ export class Store {
       this.chats.load()
     ]);
     this.normalizeSettings();
+    this.fillBuiltinAppearance();
 
     if (!this.characters.size && !this.personas.size) this.seed();
     await flushAll();
@@ -597,6 +611,11 @@ export class Store {
       p.adult = Boolean(p.adult);
     }
 
+    // 성인 모드는 경고를 확인하면 클라우드 엔진으로도 나가므로, 저장된 틀 첫 줄의 '로컬 엔진 전용' 표기를 지웁니다.
+    for (const p of s.presets) {
+      if (typeof p.template === 'string') p.template = p.template.replace(/^(\[[^\]\n]*?) — 로컬 엔진 전용\]/, '$1]');
+    }
+
     for (const builtin of BUILTIN_TEMPLATES()) {
       if (!s.presets.some((p) => p.id === builtin.id)) s.presets.push(builtin);
     }
@@ -619,6 +638,26 @@ export class Store {
       if (!Array.isArray(cfg.unavailableModels)) cfg.unavailableModels = [];
     }
     this.saveSettings();
+  }
+
+  /**
+   * 내장 캐릭터의 외형 태그를 채웁니다. 외형 태그 칸이 생기기 전에 들어온 캐릭터는 비어 있어서
+   * 장면 그리기 때 얼굴이 매번 달라집니다. 이름이 내장 캐릭터와 같고, 태그가 비었거나 예전 기본값
+   * 그대로일 때만 바꿉니다 — 사람이 고친 태그와 직접 만든 캐릭터는 그대로 둡니다.
+   */
+  fillBuiltinAppearance() {
+    const defaults = new Map(BUILTIN_CHARACTERS.map((c) => [c.name, c.appearance]));
+    let filled = 0;
+    for (const c of this.characters.all()) {
+      const next = defaults.get(c.name);
+      const current = String(c.appearance || '').trim();
+      if (!next || current === next) continue;
+      if (current && !OLD_BUILTIN_APPEARANCE.has(current)) continue;
+      this.characters.update(c.id, { appearance: next });
+      filled += 1;
+    }
+    if (filled) console.log(`내장 캐릭터 ${filled}명의 외형 태그를 채웠습니다.`);
+    return filled;
   }
 
   /** 아직 없는 내장 캐릭터만 추가합니다. 이미 있는 이름은 건드리지 않습니다. */

@@ -26,7 +26,13 @@ services:
       OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
       AI_GATEWAY_API_KEY: "${AI_GATEWAY_API_KEY:-}"
 
-      # 리버스 프록시(Nginx Proxy Manager)를 통해서도 들어오고, 이제 LAN 에서 직접도 들어옵니다.
-      # "1"로 두면 누구든 X-Forwarded-For 헤더를 위조해서 요청 제한(레이트 리밋)을 우회할 수 있습니다.
-      # NPM 이 도는 기기의 LAN IP를 알면 그 주소로 좁혀 주세요. 예: TRUST_PROXY: "192.168.0.20"
+      # --- 프록시 ---
+      # NPM 을 믿어야 요청 제한이 실제 접속자 기준으로 걸리고, https 로 들어올 때 Secure 쿠키가 붙습니다.
+      # NPM 이 도는 기기의 LAN IP 로 좁히는 것이 가장 좋습니다. 예: TRUST_PROXY: "192.168.0.20"
+      # "1" 이면 LAN 에서 직접 들어온 사람이 X-Forwarded-For 를 꾸며 IP 별 제한을 피할 수 있습니다.
+      # (로그인 시도는 IP 와 상관없는 전체 상한이 따로 막습니다.)
       TRUST_PROXY: "1"
+
+      # --- 계정 ---
+      # 로그인 계정은 컨테이너 안에서 만듭니다. 데이터 폴더(./data/users.json)에 저장됩니다.
+      #   docker compose exec rp-chat node scripts/user.js add <아이디>

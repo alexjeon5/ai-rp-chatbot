@@ -9,7 +9,8 @@ import { makeThoughtStripper, looksRepetitive } from './src/sanitize.js';
 import { planContext, contextLimitOf, estimateTokens, nextRatio } from './src/context.js';
 import {
   IMAGE_DEFAULTS, DEFAULT_WORKFLOW, looksLikeWorkflow, fillWorkflow, composePrompt, splitTags,
-  IMAGE_PROMPT_SYSTEM, IMAGE_RETRY_PROMPT, buildImageMessages, parseSceneTags, previewOutput, seedOf,
+  IMAGE_PROMPT_SYSTEM, IMAGE_RETRY_PROMPT, buildImageMessages, parseSceneOutput, previewOutput, seedOf,
+  listSamplers, COMMON_SAMPLERS, COMMON_SCHEDULERS,
   listCheckpoints, renderImage,
   freeMemory, CORE_BLOCK_TERMS, CORE_NEGATIVE
 } from './src/image.js';
@@ -29,37 +30,87 @@ import {
 import {
   isLocalUrl, checkBaseUrl, resolveApiKey, maskProviders, rateLimit, sameOrigin
 } from './src/security.js';
+import { createAuth } from './src/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5173;
 const HOST = process.env.HOST || '127.0.0.1';
 
 await store.load();
+const auth = await createAuth({ host: HOST });
 
 const app = express();
 
 // 리버스 프록시(Nginx Proxy Manager) 뒤에 있으면 켭니다.
 // 켜야 요청 제한이 프록시 IP 하나가 아니라 실제 접속자 기준으로 걸립니다.
-if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+//
+// 환경변수는 늘 문자열이라, "1" 을 그대로 넘기면 Express 는 이를 홉 수가 아니라 주소 "1" 로 읽고
+// 아무도 믿지 않습니다. 숫자만 있으면 숫자로 바꿔 넘깁니다. 주소(예: "192.168.0.20")는 그대로 둡니다.
+const trustProxy = (process.env.TRUST_PROXY || '').trim();
+if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
 // 백업 불러오기는 대화가 쌓이면 수십 MB 가 되므로 그 경로만 한도를 넉넉히 둡니다.
 const jsonBody = express.json({ limit: '2mb' });
 const importBody = express.json({ limit: '64mb' });
 app.use((req, res, next) => (req.path === '/api/import' ? importBody : jsonBody)(req, res, next));
+
+/* ---------------- 로그인 ---------------- */
+
+// 쿠키를 보고 req.user 를 채웁니다. 이 줄 아래의 모든 곳에서 누가 보낸 요청인지 알 수 있습니다.
+app.use(auth.attachUser);
+// 로그인하지 않았으면 첫 화면 대신 로그인 페이지로 보냅니다.
+app.use(auth.pageGate);
 app.use('/api', sameOrigin);
+
+// 로그인 시도는 IP 기준으로 셉니다. IP 를 속이는 경우는 auth.js 의 전체 실패 상한이 막습니다.
+const loginLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  message: '로그인 시도가 너무 잦습니다. 15분 뒤에 다시 시도해 주세요.'
+});
+app.post('/api/login', loginLimit, (req, res) => auth.login(req, res).catch((e) => {
+  console.error(e);
+  if (!res.headersSent) res.status(500).json({ error: '로그인을 처리하지 못했습니다.' });
+}));
+app.post('/api/logout', auth.logout);
+
+// 여기부터 /api 는 전부 로그인해야 쓸 수 있습니다. 위 두 경로만 예외입니다.
+app.use('/api', auth.requireAuth);
+app.get('/api/me', auth.me);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 밖으로 요청을 내보내는 경로만 제한합니다. 화면 조작은 막지 않습니다.
+// 로그인한 뒤라 사용자 기준으로 셉니다. 헤더를 속여 IP 를 바꿔도 제한을 피할 수 없습니다.
+const byUser = (req) => req.user && `user:${req.user.id}`;
 const generateLimit = rateLimit({
   windowMs: 60_000,
   max: 30,
-  message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.'
+  message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.',
+  keyOf: byUser
 });
 const modelsLimit = rateLimit({
   windowMs: 60_000,
   max: 20,
-  message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.'
+  message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.',
+  keyOf: byUser
 });
+
+/**
+ * 주인만 바꿀 수 있는 설정 항목을 멤버의 요청에서 걸러 냅니다.
+ * 설정 창은 모든 탭을 한 번에 보내므로, 거절하지 않고 조용히 빼야 멤버도 나머지 설정을 저장할 수 있습니다.
+ *   providers / removeProviders : 엔진 주소와 API 키
+ *   image                       : ComfyUI 주소
+ *   dev.adultCloud              : 성인 대화를 클라우드 엔진으로 보내는 허용 (막히는 건 주인의 API 키)
+ */
+function ownerFieldsOnly(req, res, next) {
+  if (req.user?.role === 'owner' || !req.body) return next();
+  delete req.body.providers;
+  delete req.body.removeProviders;
+  delete req.body.image;
+  if (req.body.dev) delete req.body.dev.adultCloud;
+  next();
+}
 
 /** 엔진 설정을 쓸 때는 항상 이걸 거칩니다. 환경변수 키가 우선 적용됩니다. */
 function engineConfig(providerKey) {
@@ -69,6 +120,14 @@ function engineConfig(providerKey) {
 }
 
 const settings = () => store.settings;
+
+/**
+ * 성인 대화를 이 엔진으로 보내도 되는지. 기본은 로컬 엔진만 허용합니다.
+ * 개발자 설정에서 경고를 확인하고 클라우드 허용을 켜 두면 외부 API 로도 보냅니다.
+ */
+const adultAllowed = (config) =>
+  isLocalUrl(config?.baseUrl || '') || settings().dev?.adultCloud === true;
+
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
   console.error(e);
   if (!res.headersSent) res.status(500).json({ error: e.message });
@@ -94,7 +153,9 @@ function settingsPayload() {
     // 내장 틀의 원본 내용. 설정에서 '기본 내용 가져오기' 로 되돌릴 때 씁니다.
     builtinTemplates: BUILTIN_TEMPLATES(),
     // 그림 필터 중 고칠 수 없는 부분(모든 대화에 적용). 이미지 설정 창에 읽기 전용으로 보여 줍니다.
-    imageCore: { blockTerms: CORE_BLOCK_TERMS, negative: CORE_NEGATIVE }
+    imageCore: { blockTerms: CORE_BLOCK_TERMS, negative: CORE_NEGATIVE },
+    // ComfyUI 에 연결하기 전 이미지 탭의 샘플러·스케줄러 목록. 연결 확인을 누르면 실제 목록으로 바뀝니다.
+    imageLists: { samplers: COMMON_SAMPLERS, schedulers: COMMON_SCHEDULERS }
   };
 }
 
@@ -117,7 +178,7 @@ function applyImageSettings(s, body) {
   for (const k of ['checkpoint', 'sampler', 'scheduler', 'prefix', 'negative']) {
     if (typeof body[k] === 'string') next[k] = body[k].slice(0, 4000);
   }
-  for (const k of ['enabled', 'freeAfter']) if (typeof body[k] === 'boolean') next[k] = body[k];
+  for (const k of ['enabled', 'freeAfter', 'reviewTags']) if (typeof body[k] === 'boolean') next[k] = body[k];
   if (body.workflow === null) next.workflow = null;
   else if (body.workflow !== undefined) {
     if (!looksLikeWorkflow(body.workflow)) {
@@ -134,9 +195,23 @@ function applyImageSettings(s, body) {
   return null;
 }
 
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', ownerFieldsOnly, (req, res) => {
   const s = store.settings;
   const body = req.body || {};
+
+  // 설정 창은 모든 탭을 한 번에 보냅니다. 거부할 값이 하나라도 있으면 아무것도 바꾸지 않도록 먼저 검사합니다.
+  for (const [key, cfg] of Object.entries(body.providers || {})) {
+    if (cfg?.baseUrl === undefined) continue;
+    const verdict = checkBaseUrl(String(cfg.baseUrl));
+    if (!verdict.ok) {
+      return res.status(400).json({ error: `'${key}' 엔진 주소를 쓸 수 없습니다.\n${verdict.reason}` });
+    }
+  }
+  if (body.image && typeof body.image === 'object') {
+    const problem = applyImageSettings(s, body.image);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+
   Object.assign(s, {
     activeProvider: body.activeProvider ?? s.activeProvider,
     activePersonaId: body.activePersonaId ?? s.activePersonaId,
@@ -159,15 +234,6 @@ app.put('/api/settings', (req, res) => {
   }
   if (body.params) Object.assign(s.params, body.params);
   if (body.providers) {
-    // 주소를 먼저 전부 검사합니다. 하나라도 걸리면 아무것도 저장하지 않습니다.
-    for (const [key, cfg] of Object.entries(body.providers)) {
-      if (cfg?.baseUrl === undefined) continue;
-      const verdict = checkBaseUrl(String(cfg.baseUrl));
-      if (!verdict.ok) {
-        return res.status(400).json({ error: `'${key}' 엔진 주소를 쓸 수 없습니다.\n${verdict.reason}` });
-      }
-    }
-
     for (const [key, cfg] of Object.entries(body.providers)) {
       if (s.providers[key]) {
         // 이 기록은 서버가 실제 오류를 보고 쌓는 것이라, 클라이언트 사본으로 덮지 않습니다.
@@ -213,12 +279,9 @@ app.put('/api/settings', (req, res) => {
   }
   if (typeof body.memory?.autoSummarize === 'boolean') s.memory.autoSummarize = body.memory.autoSummarize;
   if (typeof body.memory?.autoFacts === 'boolean') s.memory.autoFacts = body.memory.autoFacts;
-  if (body.image && typeof body.image === 'object') {
-    const problem = applyImageSettings(s, body.image);
-    if (problem) return res.status(400).json({ error: problem });
-  }
   if (body.dev) {
     if (typeof body.dev.particleFix === 'boolean') s.dev.particleFix = body.dev.particleFix;
+    if (typeof body.dev.adultCloud === 'boolean') s.dev.adultCloud = body.dev.adultCloud;
     if (body.dev.markup) Object.assign(s.dev.markup, body.dev.markup);
     if (body.dev.theme) Object.assign(s.dev.theme, body.dev.theme);
   }
@@ -243,26 +306,27 @@ app.get('/api/models', modelsLimit, wrap(async (req, res) => {
 /* ---------------- 통신 로그 ---------------- */
 
 /** 대화 내용은 담지 않습니다 — 요청 대상 주소·상태 코드·걸린 시간·오류 메시지뿐입니다. */
-app.get('/api/logs', (req, res) => res.json({ logs: listLogs() }));
-app.delete('/api/logs', (req, res) => { clearLogs(); res.json({ ok: true }); });
+app.get('/api/logs', auth.requireOwner, (req, res) => res.json({ logs: listLogs() }));
+app.delete('/api/logs', auth.requireOwner, (req, res) => { clearLogs(); res.json({ ok: true }); });
 
 /* ---------------- 캐릭터 / 페르소나 ---------------- */
 
 /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
-function crud(name, collection, fields, { beforeRemove } = {}) {
+function crud(name, collection, fields, { beforeRemove, normalize = (x) => x } = {}) {
   app.get(`/api/${name}`, (req, res) => res.json(collection.all()));
 
   app.post(`/api/${name}`, (req, res) => {
     const draft = {};
     for (const f of fields) draft[f] = req.body?.[f] ?? '';
-    if (!draft.name?.trim()) return res.status(400).json({ error: '이름을 입력해 주세요.' });
-    res.json(collection.add(draft));
+    if (!String(draft.name ?? '').trim()) return res.status(400).json({ error: '이름을 입력해 주세요.' });
+    res.json(collection.add(normalize(draft)));
   });
 
   app.put(`/api/${name}/:id`, (req, res) => {
     const patch = {};
     for (const f of fields) if (f in (req.body || {})) patch[f] = req.body[f];
-    const item = collection.update(req.params.id, patch);
+    if ('name' in patch && !String(patch.name ?? '').trim()) return res.status(400).json({ error: '이름을 입력해 주세요.' });
+    const item = collection.update(req.params.id, normalize(patch));
     if (!item) return res.status(404).json({ error: '없는 항목입니다.' });
     res.json(item);
   });
@@ -302,7 +366,23 @@ function detachCharacter(character) {
 }
 
 crud('characters', store.characters, CHARACTER_FIELDS, { beforeRemove: detachCharacter });
-crud('personas', store.personas, ['name', 'description']);
+/**
+ * 페르소나 값 정리. 성별·나이는 짧은 글, 특징은 한 줄짜리 항목 목록입니다.
+ * 들어온 칸만 고쳐서 돌려주므로 PUT 에서 일부만 보내도 됩니다.
+ */
+const PERSONA_FIELDS = ['name', 'description', 'gender', 'age', 'traits'];
+function normalizePersona(p) {
+  const out = { ...p };
+  for (const k of ['name', 'description', 'gender', 'age']) {
+    if (k in out) out[k] = String(out[k] ?? '').slice(0, k === 'description' ? 4000 : 80);
+  }
+  if ('traits' in out) {
+    const list = Array.isArray(out.traits) ? out.traits : String(out.traits || '').split('\n');
+    out.traits = list.map((t) => String(t).replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean).slice(0, 30);
+  }
+  return out;
+}
+crud('personas', store.personas, PERSONA_FIELDS, { normalize: normalizePersona });
 
 /* ---------------- 랜덤 페르소나 ---------------- */
 
@@ -322,7 +402,7 @@ app.post('/api/personas/roll', (req, res) => {
 /**
  * 2단계 — 씨앗 태그를 모델에 넘겨 소개 문단을 받습니다.
  * 엔진이 없거나 실패하면 태그만으로 만든 문장을 대신 돌려줍니다 (fallback: true).
- * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 로컬 엔진으로만 나갑니다.
+ * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 기본은 로컬 엔진으로만 나갑니다.
  */
 app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
   const s = settings();
@@ -343,8 +423,8 @@ app.post('/api/personas/generate', generateLimit, wrap(async (req, res) => {
   const verdict = checkBaseUrl(config.baseUrl);
   if (!verdict.ok) return bail(verdict.reason);
   if (!config.apiKey && !isLocalUrl(config.baseUrl)) return bail(`${config.label} API 키가 비어 있습니다.`);
-  // 대화의 성인 프리셋과 같은 규칙: 외부 API 로는 성인 태그를 내보내지 않습니다.
-  if (adult && !isLocalUrl(config.baseUrl)) {
+  // 대화의 성인 프리셋과 같은 규칙: 클라우드 허용을 켜지 않았다면 외부 API 로는 성인 태그를 내보내지 않습니다.
+  if (adult && !adultAllowed(config)) {
     return bail(`성인 페르소나 생성은 로컬 엔진으로만 가능합니다. 지금 선택된 엔진은 로컬 주소가 아닙니다 (${config.label}).`);
   }
 
@@ -775,19 +855,15 @@ app.post('/api/chats/:id/generate', generateLimit, wrap(async (req, res) => {
   if (assistant) {
     system = s.assistant.systemPrompt;
     params = s.assistant.params;
-    webSearch = Boolean(s.assistant.webSearch);
+    // 웹 검색은 '켜 두면 되는 엔진에서만 쓴다' 는 선호입니다. 화면도 못 하는 엔진에서는 꺼진 것으로 보여 주므로,
+    // 검색을 켜 둔 채 Ollama 처럼 못 하는 엔진으로 바꿨다면 막지 않고 검색 없이 답합니다.
+    webSearch = Boolean(s.assistant.webSearch) && supportsWebSearch(provider, config);
     thinking = Boolean(s.assistant.thinking) && mode !== 'continue';
     system = withThinking(system, thinking);
-    if (webSearch && !supportsWebSearch(provider, config)) {
-      return res.status(400).json({
-        error: `웹 검색을 지원하지 않는 엔진입니다 (${config.label}).\n` +
-          '검색을 지원하는 엔진(Gemini, Anthropic, OpenAI 검색 모델)으로 바꾸거나 웹 검색을 꺼 주세요.'
-      });
-    }
   } else {
     const ctx = rpContext(chat);
     if (!ctx) return res.status(400).json({ error: '이 대화의 캐릭터가 삭제되었습니다.' });
-    if (ctx.preset.adult && !isLocalUrl(config.baseUrl)) {
+    if (ctx.preset.adult && !adultAllowed(config)) {
       return res.status(400).json({ error: adultBlocked(ctx.preset, config) });
     }
     system = ctx.system;
@@ -957,7 +1033,7 @@ app.post('/api/chats/:id/summarize', generateLimit, wrap(async (req, res) => {
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
   const problem = engineProblem(config, provider)
-    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    || (ctx.preset.adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
   if (problem) {
     // 자동 요약은 조용히 넘어갑니다. 대화 자체는 막지 않습니다.
     if (auto) return reply({ skipped: true, reason: problem });
@@ -1027,7 +1103,7 @@ app.post('/api/chats/:id/impersonate', generateLimit, wrap(async (req, res) => {
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
   const problem = engineProblem(config, provider)
-    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    || (ctx.preset.adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
   if (problem) return res.status(400).json({ error: problem });
 
   // 로컬 엔진이 한 번에 하나만 처리하므로, 뒤에서 돌던 기억 정리는 미룹니다.
@@ -1095,11 +1171,16 @@ function removeImageFile(chatId, file) {
 }
 
 /** ComfyUI 에 연결해 체크포인트 목록을 받아 봅니다. 설정 창의 '연결 확인'. query: baseUrl */
-app.get('/api/image/checkpoints', modelsLimit, wrap(async (req, res) => {
+app.get('/api/image/checkpoints', auth.requireOwner, modelsLimit, wrap(async (req, res) => {
   const baseUrl = String(req.query.baseUrl || settings().image?.baseUrl || '').trim();
   const verdict = checkBaseUrl(baseUrl);
   if (!baseUrl || !verdict.ok) return res.status(400).json({ error: verdict.reason || 'ComfyUI 주소를 입력해 주세요.' });
-  res.json({ checkpoints: await listCheckpoints(baseUrl) });
+  // 샘플러 목록은 덤입니다. 못 받아도 체크포인트 확인은 성공으로 칩니다.
+  const [checkpoints, lists] = await Promise.all([
+    listCheckpoints(baseUrl),
+    listSamplers(baseUrl).catch(() => ({ samplers: [], schedulers: [] }))
+  ]);
+  res.json({ checkpoints, ...lists });
 }));
 
 /** 그린 그림 파일. 대화 id 와 파일 이름을 엄격히 검사해 data/images 밖으로 못 나가게 합니다. */
@@ -1124,13 +1205,22 @@ app.delete('/api/chats/:id/messages/:mid/images/:imgId', (req, res) => {
 
 /**
  * 메시지 하나의 장면을 그립니다. 진행 단계를 SSE 로 알려 줍니다.
- * body: { prompt?, random? }
+ * body: { prompt?, negative?, checkpoint?, random?, review? }
  *   prompt  사람이 고친 태그. 주면 LLM 을 건너뛰고 이걸로 그립니다 (필터는 그대로 적용)
+ *   negative 사람이 고친 부정 태그. 설정의 네거티브·고정 네거티브는 여기에 늘 더해집니다
+ *   checkpoint 이번 한 장만 쓸 체크포인트 ('태그 고쳐 그리기'). 설정의 체크포인트는 바꾸지 않습니다
  *   random  시드를 무작위로. 기본은 캐릭터마다 고정 시드
+ *   review  태그까지만 만들어 { done, review: { prompt, negative, removed } } 로 돌려주고 그리지 않습니다.
+ *           사람이 확인·수정한 태그를 prompt 로 다시 보내면 그때 그립니다.
  */
 app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, res) => {
   const s = settings();
   const cfg = { ...IMAGE_DEFAULTS(), ...(s.image || {}) };
+  const picked = typeof req.body?.checkpoint === 'string' ? req.body.checkpoint.trim() : '';
+  if (picked) {
+    if (picked.length > 300 || /[\u0000-\u001f]/.test(picked)) return res.status(400).json({ error: '체크포인트 이름이 올바르지 않습니다.' });
+    cfg.checkpoint = picked;
+  }
   const chat = store.chats.get(req.params.id);
   const msg = chat?.messages.find((m) => m.id === req.params.mid);
   if (!msg) return res.status(404).json({ error: '없는 메시지입니다.' });
@@ -1146,12 +1236,12 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
   const adult = Boolean(ctx.preset.adult);
   const typed = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
 
-  // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 로컬 엔진으로만.
+  // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 기본적으로 로컬 엔진으로만.
   const provider = s.activeProvider;
   const config = engineConfig(provider);
   if (!typed) {
     const problem = engineProblem(config, provider)
-      || (adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+      || (adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
     if (problem) return res.status(400).json({ error: problem });
   }
 
@@ -1178,6 +1268,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
   try {
     // 1) 장면 → 태그
     let sceneTags;
+    let sceneNegative = typeof req.body?.negative === 'string' ? splitTags(req.body.negative) : [];
     if (typed) {
       sceneTags = splitTags(typed);
     } else {
@@ -1205,7 +1296,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
       };
       const messages = buildImageMessages({ cast, scene, userName: ctx.persona?.name || '사용자' });
       let raw = await ask(messages, 0.4);
-      sceneTags = parseSceneTags(raw);
+      ({ tags: sceneTags, negative: sceneNegative } = parseSceneOutput(raw));
       if (!sceneTags.length) {
         // 태그 대신 문장을 썼으면 그 답을 보여 주며 한 번 더 요청합니다.
         stage('prompt', '태그 형식이 아니라 한 번 더 요청하는 중');
@@ -1215,7 +1306,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
           { role: 'assistant', content: raw.trim() || '(no answer)' },
           { role: 'user', content: IMAGE_RETRY_PROMPT }
         ], 0.2);
-        sceneTags = parseSceneTags(raw);
+        ({ tags: sceneTags, negative: sceneNegative } = parseSceneOutput(raw));
       }
       if (!sceneTags.length) {
         return fail('모델이 태그를 쓰지 못했습니다. 다시 누르거나, 그림이 하나라도 있으면 "태그 고쳐 그리기" 로 직접 적어 주세요.\n' +
@@ -1225,12 +1316,17 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
 
     // 2) 조립·필터. 등장인물이 한 명이면 외형 태그를 앞에 확실히 박아 둡니다.
     const appearance = ctx.cast.length ? [] : splitTags(ctx.character.appearance || '');
-    const composed = composePrompt({ cfg, sceneTags, appearance, adult });
+    const composed = composePrompt({ cfg, sceneTags, sceneNegative, appearance, adult });
     if (composed.blocked) {
       return fail(`미성년으로 읽힐 수 있는 표현이 있어 그리지 않았습니다: ${composed.blocked.join(', ')}\n` +
         '이 차단은 설정에서 끌 수 없습니다. 캐릭터 외형 태그나 장면을 확인해 주세요.');
     }
     send({ prompt: composed.prompt, removed: composed.removed });
+    if (req.body?.review) {
+      finished = true;
+      send({ done: true, review: { prompt: composed.prompt, negative: composed.negative, removed: composed.removed } });
+      return res.end();
+    }
 
     // 3) ComfyUI
     const seed = req.body?.random
@@ -1257,7 +1353,7 @@ app.post('/api/chats/:id/messages/:mid/image', generateLimit, wrap(async (req, r
     const file = `${id}${Date.now().toString(36)}.${ext}`.toLowerCase();
     await mkdir(imageDir(chat.id), { recursive: true });
     await writeFile(path.join(imageDir(chat.id), file), buffer);
-    const image = { id, file, prompt: composed.prompt, seed, at: Date.now() };
+    const image = { id, file, prompt: composed.prompt, negative: composed.negative, checkpoint: cfg.checkpoint, seed, at: Date.now() };
     msg.images = [...(msg.images || []), image];
     while (msg.images.length > IMAGES_PER_MESSAGE) removeImageFile(chat.id, msg.images.shift().file);
     store.chats.save(chat.id);
@@ -1317,7 +1413,7 @@ app.post('/api/chats/:id/facts/extract', generateLimit, wrap(async (req, res) =>
   const provider = req.body?.provider || s.activeProvider;
   const config = engineConfig(provider);
   const problem = engineProblem(config, provider)
-    || (ctx.preset.adult && !isLocalUrl(config.baseUrl) ? adultBlocked(ctx.preset, config) : null);
+    || (ctx.preset.adult && !adultAllowed(config) ? adultBlocked(ctx.preset, config) : null);
   if (problem) {
     if (auto) return reply({ skipped: true, reason: problem });
     return res.status(400).json({ error: problem });
@@ -1407,7 +1503,7 @@ app.post('/api/chats/:id/save-character', (req, res) => {
 });
 
 /** 감춰 둔 모델 기록을 지웁니다. 계정 상태가 바뀌었을 때 씁니다. */
-app.delete('/api/providers/:key/unavailable', (req, res) => {
+app.delete('/api/providers/:key/unavailable', auth.requireOwner, (req, res) => {
   const cfg = settings().providers[req.params.key];
   if (!cfg) return res.status(404).json({ error: '없는 엔진입니다.' });
   const count = (cfg.unavailableModels || []).length;
@@ -1505,7 +1601,7 @@ function importItems(collection, list, clean, { signature, remap } = {}) {
 }
 
 const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str(c[f])));
-const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description)]);
+const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description), str(p.gender), str(p.age), p.traits || []]);
 
 const cleanCharacter = (raw) => {
   if (!str(raw.name).trim()) return null;
@@ -1514,7 +1610,13 @@ const cleanCharacter = (raw) => {
 
 const cleanPersona = (raw) => {
   if (!str(raw.name).trim()) return null;
-  return { name: str(raw.name), description: str(raw.description) };
+  return normalizePersona({
+    name: str(raw.name),
+    description: str(raw.description),
+    gender: str(raw.gender),
+    age: str(raw.age),
+    traits: Array.isArray(raw.traits) ? raw.traits.filter((t) => typeof t === 'string') : []
+  });
 };
 
 const cleanSources = (list) => list.filter(isObj)
@@ -1566,7 +1668,8 @@ const cleanChat = (raw) => {
   return chat;
 };
 
-app.post('/api/import', (req, res) => {
+// 지금은 데이터를 모두가 같이 쓰므로, 설정까지 덮을 수 있는 불러오기는 주인만 합니다.
+app.post('/api/import', auth.requireOwner, (req, res) => {
   const body = req.body || {};
   const data = body.data;
   if (!isObj(data)) return res.status(400).json({ error: '백업 파일 형식이 아닙니다.' });
@@ -1615,9 +1718,12 @@ app.post('/api/import', (req, res) => {
     }
     const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
     if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
+    // 성인 모드 클라우드 허용은 경고를 직접 보고 켜야 하므로 백업에서 옮겨 오지 않습니다.
+    const adultCloud = s.dev.adultCloud;
     for (const key of ['params', 'assistant', 'dev', 'memory']) {
       if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
     }
+    s.dev.adultCloud = adultCloud;
     result.settings = true;
   }
   store.saveSettings();
