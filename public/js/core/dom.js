@@ -2,6 +2,9 @@
 
 export const $ = (id) => document.getElementById(id);
 
+/** id 로 찾은 요소에 이벤트를 겁니다. */
+export const on = (id, type, fn) => $(id).addEventListener(type, fn);
+
 /** 화면에 끼워 넣을 글을 HTML 로 해석되지 않게 바꿉니다. */
 export const esc = (t = '') =>
   String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

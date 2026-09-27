@@ -373,7 +373,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 ("이 주석부터 저 주석까지" 방식으로 자르는 구간에 다른 함수가 들어 있었음). 이 파일을 고칠 때는:
 
 ```bash
-# 모든 모듈이 쓰는 ui.* 가 export 되는지, $('id') 로 찾는 DOM id 가 index.html 에 다 있는지 확인
+# 모든 모듈이 쓰는 ui.* 가 export 되는지, $('id') · on('id', …) 로 찾는 DOM id 가 index.html 에 다 있는지 확인
 node -e "
 const fs = require('fs'), path = require('path');
 const files = [];
@@ -386,7 +386,7 @@ const used = new Set(), ids = new Set();
 for (const f of files) {
   const src = fs.readFileSync(f, 'utf8');
   for (const m of src.matchAll(/\bui\.(\w+)/g)) if (m[1] !== 'js') used.add(m[1]);
-  for (const m of src.matchAll(/[$][(]'([\w-]+)'[)]/g)) ids.add(m[1]);
+  for (const m of src.matchAll(/(?:[$][(]|\bon[(])'([\w-]+)'/g)) ids.add(m[1]);
 }
 console.log('빠진 export:', [...used].filter((n) => !exported.has(n)).join(', ') || '없음');
 console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + '\"')).join(', ') || '없음');

@@ -1,7 +1,7 @@
 /** 가운데 대화 화면: 열기·닫기, 상단 줄(모드·페르소나·⋯ 메뉴), 대화 그리기, 메시지 도구. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc, setHidden } from '../core/dom.js';
+import { $, esc, setHidden, on } from '../core/dom.js';
 import { menuKeys } from '../core/menu.js';
 
 // 대화가 열려 있을 때만 보이는 상단 버튼들
@@ -13,13 +13,13 @@ export class ChatView {
     this.app = app;
     this.state = app.state;
 
-    $('chat-preset').addEventListener('change', (e) => this.changePreset(e.target.value));
-    $('chat-persona').addEventListener('change', (e) => this.changePersona(e.target.value));
-    $('messages').addEventListener('click', (e) => this.onTool(e));
+    on('chat-preset', 'change', (e) => this.changePreset(e.target.value));
+    on('chat-persona', 'change', (e) => this.changePersona(e.target.value));
+    on('messages', 'click', (e) => this.onTool(e));
 
-    $('btn-chat-menu').addEventListener('click', () => this.toggleMenu());
+    on('btn-chat-menu', 'click', () => this.toggleMenu());
     // 항목을 고르면 닫습니다. 각 항목의 동작은 아래 버튼별 처리기가 맡습니다.
-    $('chat-menu').addEventListener('click', (e) => {
+    on('chat-menu', 'click', (e) => {
       if (e.target.closest('.sel-item')) this.toggleMenu(false);
     });
     $('chat-menu').parentElement.addEventListener('keydown', (e) => {
@@ -29,11 +29,11 @@ export class ChatView {
       });
     });
     const withChat = (fn) => () => { if (this.state.chat) fn(this.state.chat); };
-    $('btn-delete-chat').addEventListener('click', withChat((chat) => app.list.remove(chat.id)));
-    $('btn-archive-chat').addEventListener('click', withChat((chat) => app.list.setArchived(chat.id, !chat.archivedAt)));
-    $('btn-rename').addEventListener('click', withChat((chat) => app.list.rename(chat.id)));
-    $('btn-save-character').addEventListener('click', () => this.saveCharacter());
-    $('btn-new-chat').addEventListener('click', () => {
+    on('btn-delete-chat', 'click', withChat((chat) => app.list.remove(chat.id)));
+    on('btn-archive-chat', 'click', withChat((chat) => app.list.setArchived(chat.id, !chat.archivedAt)));
+    on('btn-rename', 'click', withChat((chat) => app.list.rename(chat.id)));
+    on('btn-save-character', 'click', () => this.saveCharacter());
+    on('btn-new-chat', 'click', () => {
       const chat = this.state.chat;
       // 1회성 캐릭터는 목록에 없어도 되므로, 목록이 비었는지는 그다음에 봅니다.
       if (chat?.character) app.newChat.start({ inline: { ...chat.character } });
@@ -42,8 +42,8 @@ export class ChatView {
       else ui.toast('왼쪽에서 캐릭터를 골라 주세요');
     });
     const sidebar = $('sidebar');
-    $('btn-open-sidebar').addEventListener('click', () => sidebar.classList.add('open'));
-    $('btn-close-sidebar').addEventListener('click', () => sidebar.classList.remove('open'));
+    on('btn-open-sidebar', 'click', () => sidebar.classList.add('open'));
+    on('btn-close-sidebar', 'click', () => sidebar.classList.remove('open'));
   }
 
   async open(id) {

@@ -1,7 +1,7 @@
 /** 설정 창의 화면·개발자 탭: 테마, 표기법, 엔진 추가·삭제, 감춘 모델, 성인 클라우드 허용, 진단 창. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 import { applyTheme } from './theme.js';
 
 const THEME_FIELDS = { 'd-bg': 'bg', 'd-panel': 'panel', 'd-line': 'line', 'd-text': 'text', 'd-muted': 'muted', 'd-accent': 'accent' };
@@ -25,7 +25,7 @@ export class DevSettings {
     // 엔진 추가·삭제는 엔진 탭의 draftProviders 에 바로 반영하고, 지운 것은 저장할 때 서버에 알립니다.
     this.removedProviders = [];
 
-    $('d-hidden-models').addEventListener('click', async (e) => {
+    on('d-hidden-models', 'click', async (e) => {
       const btn = e.target.closest('[data-clear]');
       if (!btn) return;
       const { cleared } = await api.clearUnavailable(btn.dataset.clear);
@@ -44,13 +44,13 @@ export class DevSettings {
         app.view.paintThread();
       });
     }
-    $('d-theme-reset').addEventListener('click', () => {
+    on('d-theme-reset', 'click', () => {
       this.draft.theme = { ...DEFAULT_THEME };
       this.paintTheme();
       applyTheme(this.read());
     });
-    $('d-p-add').addEventListener('click', () => this.addProvider());
-    $('d-provider-list').addEventListener('click', (e) => this.removeProvider(e));
+    on('d-p-add', 'click', () => this.addProvider());
+    on('d-provider-list', 'click', (e) => this.removeProvider(e));
     this.bindDiagnostics();
   }
 
@@ -159,13 +159,13 @@ export class DevSettings {
 
   bindAdultCloud() {
     const dlg = $('dlg-adult-cloud');
-    $('d-adult-cloud-unlock').addEventListener('click', () => {
+    on('d-adult-cloud-unlock', 'click', () => {
       $('ac-agree').checked = false;
       $('ac-confirm').disabled = true;
       dlg.returnValue = '';
       dlg.showModal();
     });
-    $('ac-agree').addEventListener('change', () => { $('ac-confirm').disabled = !$('ac-agree').checked; });
+    on('ac-agree', 'change', () => { $('ac-confirm').disabled = !$('ac-agree').checked; });
     dlg.addEventListener('close', () => {
       if (dlg.returnValue !== 'unlock' || !$('ac-agree').checked) return;
       $('d-adult-cloud').checked = true;
@@ -179,7 +179,7 @@ export class DevSettings {
   bindDiagnostics() {
     const { state } = this;
     const dlgSystem = $('dlg-system');
-    $('d-show-system').addEventListener('click', async () => {
+    on('d-show-system', 'click', async () => {
       if (!state.chat) return ui.toast('대화를 먼저 열어 주세요');
       $('sys-text').textContent = '불러오는 중…';
       $('sys-count').textContent = '';
@@ -197,16 +197,16 @@ export class DevSettings {
         $('sys-text').textContent = `불러오지 못했습니다 — ${err.message}`;
       }
     });
-    $('sys-copy').addEventListener('click', async () => {
+    on('sys-copy', 'click', async () => {
       ui.toast(await ui.copyText($('sys-text').textContent) ? '복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
     });
 
-    $('d-show-logs').addEventListener('click', () => {
+    on('d-show-logs', 'click', () => {
       $('dlg-logs').showModal();
       this.loadLogs();
     });
-    $('log-refresh').addEventListener('click', () => this.loadLogs());
-    $('log-clear').addEventListener('click', async () => {
+    on('log-refresh', 'click', () => this.loadLogs());
+    on('log-clear', 'click', async () => {
       if (!confirm('통신 로그를 모두 지울까요?')) return;
       await api.clearLogs();
       this.loadLogs();

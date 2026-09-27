@@ -2,7 +2,7 @@
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { makeCombo } from '../select.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 
 /** 목록으로 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
 function fillChoice(id, list, current) {
@@ -23,19 +23,19 @@ export class ImageSettings {
     // 체크포인트 입력칸. 연결 확인으로 받은 목록에서 고르거나 이름을 직접 적습니다.
     this.checkpoints = [];
 
-    $('i-enabled').addEventListener('change', () => this.paintOptions());
+    on('i-enabled', 'change', () => this.paintOptions());
     this.combo = makeCombo($('i-checkpoint'), {
       items: () => this.checkpoints,
       emptyText: '연결 확인을 누르면 ComfyUI 의 체크포인트 목록이 나옵니다. 이름을 직접 적어도 됩니다.',
       noMatchText: (q) => `'${q}' 와 일치하는 체크포인트가 없습니다. 적은 이름을 그대로 써도 됩니다.`
     });
-    $('i-check').addEventListener('click', () => this.check());
-    $('i-workflow-upload').addEventListener('click', () => {
+    on('i-check', 'click', () => this.check());
+    on('i-workflow-upload', 'click', () => {
       $('i-workflow-file').value = '';
       $('i-workflow-file').click();
     });
-    $('i-workflow-file').addEventListener('change', (e) => this.upload(e.target.files?.[0]));
-    $('i-workflow-reset').addEventListener('click', () => {
+    on('i-workflow-file', 'change', (e) => this.upload(e.target.files?.[0]));
+    on('i-workflow-reset', 'click', () => {
       this.draftWorkflow = null;
       this.paintWorkflowStatus();
     });

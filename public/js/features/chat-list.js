@@ -1,7 +1,7 @@
 /** 사이드바의 대화 목록: 모드 탭, 성인 숨기기, 보관함, 우클릭 메뉴와 대화 관리(이름·보관·삭제). */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $ } from '../core/dom.js';
+import { $, on } from '../core/dom.js';
 import { menuKeys } from '../core/menu.js';
 
 export class ChatList {
@@ -13,18 +13,18 @@ export class ChatList {
     for (const tab of document.querySelectorAll('.mode-tab[data-mode]')) {
       tab.addEventListener('click', () => this.switchMode(tab.dataset.mode));
     }
-    $('btn-new-assistant').addEventListener('click', async () => {
+    on('btn-new-assistant', 'click', async () => {
       const chat = await api.createChat({ kind: 'assistant' });
       await this.refresh();
       await app.view.open(chat.id);
     });
-    $('btn-toggle-adult').addEventListener('click', () => {
+    on('btn-toggle-adult', 'click', () => {
       this.state.hideAdult = !this.state.hideAdult;
       localStorage.setItem('hideAdult', this.state.hideAdult ? '1' : '0');
       this.paintAdultToggle();
       this.paint();
     });
-    $('chat-list').addEventListener('click', (e) => {
+    on('chat-list', 'click', (e) => {
       const view = e.target.closest('[data-archive-view]');
       if (view) {
         this.state.showArchived = view.dataset.archiveView === 'on';
@@ -34,8 +34,8 @@ export class ChatList {
       const btn = e.target.closest('[data-chat]');
       if (btn) app.view.open(btn.dataset.chat);
     });
-    $('chat-list').addEventListener('contextmenu', (e) => this.openRowMenu(e));
-    $('row-menu').addEventListener('click', (e) => {
+    on('chat-list', 'contextmenu', (e) => this.openRowMenu(e));
+    on('row-menu', 'click', (e) => {
       const item = e.target.closest('[data-act]');
       if (!item) return;
       const id = this.rowMenuChatId;
@@ -45,7 +45,7 @@ export class ChatList {
       else if (act === 'archive' || act === 'unarchive') this.setArchived(id, act === 'archive');
       else if (act === 'delete') this.remove(id);
     });
-    $('row-menu').addEventListener('keydown', (e) => menuKeys($('row-menu'), e, (refocus) => this.closeRowMenu(refocus)));
+    on('row-menu', 'keydown', (e) => menuKeys($('row-menu'), e, (refocus) => this.closeRowMenu(refocus)));
     // 목록이 움직이면 메뉴가 엉뚱한 항목 옆에 떠 있게 되므로 닫습니다.
     document.querySelector('.rail-scroll').addEventListener('scroll', () => this.closeRowMenu());
     window.addEventListener('resize', () => this.closeRowMenu());

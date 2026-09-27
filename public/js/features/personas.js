@@ -1,7 +1,7 @@
 /** 내 페르소나 창: 목록(사용·수정·삭제), 아래 입력칸(성별·나이·특징), 랜덤 페르소나. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 
 const GENDER_PRESETS = ['', '여성', '남성'];
 
@@ -18,43 +18,43 @@ export class Personas {
     this.seeds = null;
     this.seedFields = [];
 
-    $('p-gender').addEventListener('change', () => {
+    on('p-gender', 'change', () => {
       const custom = $('p-gender').value === 'custom';
       $('p-gender-custom').hidden = !custom;
       if (custom) $('p-gender-custom').focus();
     });
-    $('p-trait-add').addEventListener('click', () => this.addTraits());
-    $('p-trait-input').addEventListener('keydown', (e) => {
+    on('p-trait-add', 'click', () => this.addTraits());
+    on('p-trait-input', 'keydown', (e) => {
       // 한글 조합 중 Enter 는 글자 확정이므로 넘깁니다.
       if (e.key !== 'Enter' || e.isComposing) return;
       e.preventDefault();
       this.addTraits();
     });
-    $('p-traits').addEventListener('click', (e) => {
+    on('p-traits', 'click', (e) => {
       const btn = e.target.closest('[data-trait]');
       if (!btn) return;
       this.traits.splice(Number(btn.dataset.trait), 1);
       this.paintTraits();
     });
-    $('btn-personas').addEventListener('click', () => {
+    on('btn-personas', 'click', () => {
       this.paintList();
       this.fill(null);
       this.dialog.showModal();
     });
-    $('p-edit-cancel').addEventListener('click', () => this.fill(null));
-    $('p-add').addEventListener('click', () => this.save());
-    $('p-roll').addEventListener('click', () => this.roll());
+    on('p-edit-cancel', 'click', () => this.fill(null));
+    on('p-add', 'click', () => this.save());
+    on('p-roll', 'click', () => this.roll());
     // 성인 여부를 바꾸면 풀이 통째로 달라지므로, 지금 뽑힌 태그는 버리고 다시 시작합니다.
-    $('p-adult').addEventListener('change', () => {
+    on('p-adult', 'change', () => {
       this.showSeeds(null);
       this.seedNote('');
     });
-    $('p-seeds').addEventListener('click', (e) => {
+    on('p-seeds', 'click', (e) => {
       const chip = e.target.closest('[data-key]');
       if (chip) this.roll([chip.dataset.key]);
     });
-    $('p-write').addEventListener('click', () => this.write());
-    $('persona-list').addEventListener('click', (e) => this.onListClick(e));
+    on('p-write', 'click', () => this.write());
+    on('persona-list', 'click', (e) => this.onListClick(e));
   }
 
   paintList() {

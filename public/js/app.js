@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import * as ui from './ui.js';
 import { enhanceSelects } from './select.js';
-import { $ } from './core/dom.js';
+import { $, on } from './core/dom.js';
 import { AppState } from './core/state.js';
 import { applyTheme } from './features/theme.js';
 import { Toolbar } from './features/toolbar.js';
@@ -38,7 +38,7 @@ class App {
       if (!$('chat-menu').hidden && !e.target.closest('.chat-menu')) this.view.toggleMenu(false);
       if (!$('row-menu').hidden && !e.target.closest('#row-menu')) this.list.closeRowMenu();
     });
-    $('btn-logout').addEventListener('click', async () => {
+    on('btn-logout', 'click', async () => {
       if (this.state.run && !confirm('답변을 쓰는 중입니다. 로그아웃하면 여기서 멈춥니다. 계속할까요?')) return;
       await api.logout().catch(() => {});
       location.replace('/login.html');

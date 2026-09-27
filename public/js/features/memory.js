@@ -1,7 +1,7 @@
 /** 기억: 답변 뒤에 도는 자동 기억·요약과, 기억·작가 노트 창. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 
 /** 마지막 기억 확인 뒤로 쌓인 답변 수. 서버와 같은 규칙입니다. */
 const turnsSinceFacts = (chat) => {
@@ -17,7 +17,7 @@ export class Memory {
     /* 창에서 고치는 동안의 사실 목록 사본. 저장을 눌러야 서버에 들어갑니다. */
     this.draftFacts = [];
 
-    $('f-list').addEventListener('input', (e) => {
+    on('f-list', 'input', (e) => {
       const row = e.target.closest('[data-fact]');
       const fact = this.draftFacts.find((f) => f.id === row?.dataset.fact);
       if (!fact) return;
@@ -28,7 +28,7 @@ export class Memory {
         row.querySelector('.fact-tag').textContent = '직접';
       }
     });
-    $('f-list').addEventListener('click', (e) => {
+    on('f-list', 'click', (e) => {
       const row = e.target.closest('[data-fact]');
       const fact = this.draftFacts.find((f) => f.id === row?.dataset.fact);
       if (!fact) return;
@@ -38,14 +38,14 @@ export class Memory {
       this.paintFacts();
       this.paintFactStatus(this.state.chat);
     });
-    $('f-add').addEventListener('click', () => this.addFact());
-    $('f-new').addEventListener('keydown', (e) => {
+    on('f-add', 'click', () => this.addFact());
+    on('f-new', 'keydown', (e) => {
       if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); this.addFact(); }
     });
-    $('f-extract').addEventListener('click', () => this.extractNow());
-    $('btn-memory').addEventListener('click', () => this.open());
-    $('m-cancel').addEventListener('click', () => this.dialog.close('cancel'));
-    $('m-summarize').addEventListener('click', () => this.summarizeNow());
+    on('f-extract', 'click', () => this.extractNow());
+    on('btn-memory', 'click', () => this.open());
+    on('m-cancel', 'click', () => this.dialog.close('cancel'));
+    on('m-summarize', 'click', () => this.summarizeNow());
     this.dialog.addEventListener('close', () => this.save());
   }
 

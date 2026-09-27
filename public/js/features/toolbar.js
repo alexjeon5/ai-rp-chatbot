@@ -1,16 +1,16 @@
 /** 입력창 아래 줄: 엔진 선택기, 모델 이름, 어시스턴트의 웹 검색·생각 토글. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $ } from '../core/dom.js';
+import { $, on } from '../core/dom.js';
 
 export class Toolbar {
   constructor(app) {
     this.app = app;
     this.state = app.state;
-    $('btn-thinking').addEventListener('click', () => this.toggle('thinking', '생각을'));
-    $('btn-websearch').addEventListener('click', () => this.toggle('webSearch', '웹 검색을'));
-    $('quick-provider').addEventListener('change', (e) => this.switchEngine(e));
-    $('active-model').addEventListener('click', () => app.settings.open('engine'));
+    on('btn-thinking', 'click', () => this.toggle('thinking', '생각을'));
+    on('btn-websearch', 'click', () => this.toggle('webSearch', '웹 검색을'));
+    on('quick-provider', 'change', (e) => this.switchEngine(e));
+    on('active-model', 'click', () => app.settings.open('engine'));
   }
 
   async toggle(key, label) {

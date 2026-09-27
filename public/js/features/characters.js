@@ -1,7 +1,7 @@
 /** 캐릭터: 사이드바 목록(내 캐릭터 / 기본 탭)과 캐릭터 창(편집·복사·이번만 쓰기·AI 로 채우기). */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, storage } from '../core/dom.js';
+import { $, storage, on } from '../core/dom.js';
 
 const FIELDS = ['avatar', 'name', 'tags', 'description', 'appearance', 'personality',
   'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'];
@@ -15,27 +15,27 @@ export class Characters {
     this.state = app.state;
     this.dialog = $('dlg-character');
 
-    $('character-list').addEventListener('click', (e) => {
+    on('character-list', 'click', (e) => {
       const btn = e.target.closest('[data-character]');
       if (!btn) return;
       const ch = this.state.characters.find((c) => c.id === btn.dataset.character);
       if (e.shiftKey) this.openDialog(ch);
       else app.newChat.start({ id: ch.id });
     });
-    $('character-list').addEventListener('contextmenu', (e) => {
+    on('character-list', 'contextmenu', (e) => {
       const btn = e.target.closest('[data-character]');
       if (!btn) return;
       e.preventDefault();
       this.openDialog(this.state.characters.find((c) => c.id === btn.dataset.character));
     });
-    $('btn-new-character').addEventListener('click', () => this.openDialog(null));
-    $('char-tabs').addEventListener('click', (e) => {
+    on('btn-new-character', 'click', () => this.openDialog(null));
+    on('char-tabs', 'click', (e) => {
       const btn = e.target.closest('[data-tab]');
       if (!btn) return;
       this.rememberTab(btn.dataset.tab);
       this.paint();
     });
-    $('character-list').addEventListener('click', async (e) => {
+    on('character-list', 'click', async (e) => {
       if (!e.target.closest('[data-seed-builtins]')) return;
       const { added, characters } = await api.seedCharacters();
       this.state.characters = characters;
@@ -43,16 +43,16 @@ export class Characters {
       ui.toast(added ? `기본 캐릭터 ${added}명을 넣었습니다` : '이미 다 들어 있습니다');
     });
 
-    $('c-draft').addEventListener('click', () => this.draft());
-    $('c-once').addEventListener('click', () => {
+    on('c-draft', 'click', () => this.draft());
+    on('c-once', 'click', () => {
       const draft = readSheet();
       if (!draft.name) return ui.toast('이름을 입력해 주세요');
       this.dialog.close('cancel');
       app.newChat.start({ inline: draft });
     });
-    $('c-cancel').addEventListener('click', () => this.dialog.close('cancel'));
+    on('c-cancel', 'click', () => this.dialog.close('cancel'));
     // 칸 내용은 그대로 두고 '새로 만들기' 상태로 바꿉니다. 저장하면 내 캐릭터로 들어갑니다.
-    $('c-copy').addEventListener('click', () => {
+    on('c-copy', 'click', () => {
       this.state.editingCharacterId = null;
       $('char-dlg-title').textContent = '캐릭터 만들기';
       $('c-name').value = `${$('c-name').value.trim()} (내 버전)`;
@@ -61,7 +61,7 @@ export class Characters {
       this.note('복사했습니다. 고친 뒤 저장하면 내 캐릭터에 들어갑니다.');
       $('c-name').focus();
     });
-    $('c-delete').addEventListener('click', () => {
+    on('c-delete', 'click', () => {
       if (!this.state.editingCharacterId) return;
       if (!confirm('이 캐릭터를 삭제할까요? 이미 나눈 대화는 그대로 남습니다.')) return;
       this.dialog.close('delete');

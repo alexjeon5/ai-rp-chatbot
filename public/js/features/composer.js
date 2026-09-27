@@ -1,7 +1,7 @@
 /** 입력창과 답변 받기: 보내기, 다시 받기·이어쓰기, 멈추기, 대신 쓰기, 컨텍스트 게이지. */
 import { api, generate, impersonate } from '../api.js';
 import * as ui from '../ui.js';
-import { $ } from '../core/dom.js';
+import { $, on } from '../core/dom.js';
 
 const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n));
 
@@ -17,11 +17,11 @@ export class Composer {
         this.send();
       }
     });
-    $('btn-send').addEventListener('click', () => this.send());
-    $('btn-regen').addEventListener('click', () => this.run({ mode: 'regenerate' }));
-    $('btn-continue').addEventListener('click', () => this.run({ mode: 'continue' }));
-    $('btn-stop').addEventListener('click', () => this.stop());
-    $('btn-impersonate').addEventListener('click', () => this.draftMyTurn());
+    on('btn-send', 'click', () => this.send());
+    on('btn-regen', 'click', () => this.run({ mode: 'regenerate' }));
+    on('btn-continue', 'click', () => this.run({ mode: 'continue' }));
+    on('btn-stop', 'click', () => this.stop());
+    on('btn-impersonate', 'click', () => this.draftMyTurn());
   }
 
   /** 입력창 높이를 글에 맞춥니다. */

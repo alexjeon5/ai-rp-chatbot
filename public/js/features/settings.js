@@ -2,7 +2,7 @@
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { makeCombo } from '../select.js';
-import { $, storage } from '../core/dom.js';
+import { $, storage, on } from '../core/dom.js';
 import { applyTheme } from './theme.js';
 import { ImageSettings } from './settings-image.js';
 import { DevSettings } from './settings-dev.js';
@@ -43,27 +43,27 @@ export class Settings {
     this.bindPresets();
     this.bindTabs();
 
-    $('btn-settings').addEventListener('click', () => this.open());
-    $('s-temp').addEventListener('input', (e) => { $('v-temp').textContent = e.target.value; });
-    $('s-atemp').addEventListener('input', (e) => { $('v-atemp').textContent = e.target.value; });
-    $('s-cancel').addEventListener('click', () => this.dialog.close('cancel'));
-    $('s-import').addEventListener('click', () => {
+    on('btn-settings', 'click', () => this.open());
+    on('s-temp', 'input', (e) => { $('v-temp').textContent = e.target.value; });
+    on('s-atemp', 'input', (e) => { $('v-atemp').textContent = e.target.value; });
+    on('s-cancel', 'click', () => this.dialog.close('cancel'));
+    on('s-import', 'click', () => {
       $('s-import-file').value = '';
       $('s-import-file').click();
     });
-    $('s-import-file').addEventListener('change', (e) => this.importBackup(e.target.files?.[0]));
+    on('s-import-file', 'change', (e) => this.importBackup(e.target.files?.[0]));
     this.dialog.addEventListener('close', () => this.onClose());
   }
 
   /* ---------------- 엔진 ---------------- */
 
   bindEngine() {
-    $('s-key-toggle').addEventListener('click', () => this.setKeyVisible($('s-apikey').type === 'password'));
-    $('s-provider').addEventListener('change', (e) => {
+    on('s-key-toggle', 'click', () => this.setKeyVisible($('s-apikey').type === 'password'));
+    on('s-provider', 'change', (e) => {
       this.stashProvider();
       this.fillProviderBox(e.target.value);
     });
-    $('s-fetch-models').addEventListener('click', () => this.fetchModels());
+    on('s-fetch-models', 'click', () => this.fetchModels());
   }
 
   /** API 키는 기본으로 가려 두고, 버튼을 눌렀을 때만 보여 줍니다. */
@@ -138,31 +138,31 @@ export class Settings {
   /* ---------------- 대화 모드 ---------------- */
 
   bindPresets() {
-    $('s-preset').addEventListener('change', (e) => {
+    on('s-preset', 'change', (e) => {
       this.stashPreset();
       this.showPreset(e.target.value);
     });
-    $('s-preset-new').addEventListener('click', () => {
+    on('s-preset-new', 'click', () => {
       const name = prompt('새 모드 이름');
       if (!name?.trim()) return;
       this.stashPreset();
       this.draftPresets.push({ id: `p${Date.now().toString(36)}`, name: name.trim(), template: '', adult: false });
       this.showPreset(this.draftPresets[this.draftPresets.length - 1].id);
     });
-    $('s-preset-rename').addEventListener('click', () => {
+    on('s-preset-rename', 'click', () => {
       const p = this.draftPresets.find((x) => x.id === this.shownPreset);
       const name = prompt('모드 이름', p.name);
       if (!name?.trim()) return;
       p.name = name.trim();
       this.paintPresetOptions();
     });
-    $('s-preset-delete').addEventListener('click', () => {
+    on('s-preset-delete', 'click', () => {
       if (this.draftPresets.length < 2) return;
       if (!confirm('이 모드를 삭제할까요?')) return;
       this.draftPresets = this.draftPresets.filter((p) => p.id !== this.shownPreset);
       this.showPreset(this.draftPresets[0].id);
     });
-    $('s-reset-template').addEventListener('click', () => {
+    on('s-reset-template', 'click', () => {
       const pick = (this.state.settings.builtinTemplates || []).find((t) => t.id === $('s-template-source').value);
       if (!pick) return ui.toast('가져올 기본 모드이 없습니다');
       const current = this.draftPresets.find((p) => p.id === this.shownPreset);
@@ -209,12 +209,12 @@ export class Settings {
   /* ---------------- 탭과 스크롤 ---------------- */
 
   bindTabs() {
-    $('s-tabs').addEventListener('click', (e) => {
+    on('s-tabs', 'click', (e) => {
       const btn = e.target.closest('[data-tab]');
       if (btn) this.showTab(btn.dataset.tab);
     });
     // 탭 목록 안에서는 화살표로 옮겨 다닙니다.
-    $('s-tabs').addEventListener('keydown', (e) => {
+    on('s-tabs', 'keydown', (e) => {
       const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
       if (!step) return;
       e.preventDefault();

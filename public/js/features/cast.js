@@ -1,21 +1,21 @@
 /** 등장인물 창: 이 대화에 함께 등장할 다른 캐릭터를 고릅니다 (최대 8명). */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 
 export class CastDialog {
   constructor(app) {
     this.app = app;
     this.state = app.state;
     this.dialog = $('dlg-cast');
-    $('btn-cast').addEventListener('click', () => this.open());
-    $('cast-list').addEventListener('change', () => {
+    on('btn-cast', 'click', () => this.open());
+    on('cast-list', 'change', () => {
       // 서버도 8명에서 자릅니다. 넘기지 못하게 미리 막습니다.
       const boxes = [...$('cast-list').querySelectorAll('input[type=checkbox]')];
       const full = boxes.filter((b) => b.checked).length >= 8;
       for (const b of boxes) b.disabled = full && !b.checked;
     });
-    $('cast-cancel').addEventListener('click', () => this.dialog.close('cancel'));
+    on('cast-cancel', 'click', () => this.dialog.close('cancel'));
     this.dialog.addEventListener('close', () => this.save());
   }
 

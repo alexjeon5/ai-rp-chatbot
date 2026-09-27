@@ -1,7 +1,7 @@
 /** 새 대화: 어떤 모드로 시작할지 묻는 창. 캐릭터 정보도 함께 보여 줍니다. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 import { isLocalUrl } from '../core/state.js';
 
 /** 내장 모드는 설명을 미리 적어 두고, 직접 만든 모드는 내용 첫 줄을 보여 줍니다. */
@@ -27,19 +27,19 @@ export class NewChat {
     // 목록의 캐릭터면 { id }, 이번만 쓰는 캐릭터면 { inline: {...} } 가 담깁니다.
     this.pending = null;
 
-    $('nc-tabs').addEventListener('click', (e) => {
+    on('nc-tabs', 'click', (e) => {
       const tab = e.target.closest('[data-audience]');
       if (tab) this.paintModeTab(tab.dataset.audience);
     });
     // 정보를 보다가 고칠 게 보이면 바로 편집 창으로 넘어갑니다.
-    $('nc-character').addEventListener('click', (e) => {
+    on('nc-character', 'click', (e) => {
       if (!e.target.closest('[data-edit-character]')) return;
       const character = this.pending?.inline || this.state.characters.find((c) => c.id === this.pending?.id);
       this.dialog.close('edit');
       app.characters.openDialog(character);
     });
-    $('nc-cancel').addEventListener('click', () => this.dialog.close('cancel'));
-    $('nc-list').addEventListener('click', (e) => this.pick(e));
+    on('nc-cancel', 'click', () => this.dialog.close('cancel'));
+    on('nc-list', 'click', (e) => this.pick(e));
   }
 
   async startChatWith(target, presetId) {

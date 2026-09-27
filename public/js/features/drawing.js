@@ -1,7 +1,7 @@
 /** 장면 그리기: 진행 표시, 태그 검토·고쳐 그리기 창, 그림 도구, 크게 보기. */
 import { api, drawImage } from '../api.js';
 import * as ui from '../ui.js';
-import { $, esc } from '../core/dom.js';
+import { $, esc, on } from '../core/dom.js';
 
 export class Drawing {
   constructor(app) {
@@ -236,7 +236,7 @@ export class Drawing {
     const dlg = $('dlg-lightbox');
     // 대화에 있는 그림을 화면 순서대로 모아, 누른 그림부터 넘겨 볼 수 있게 엽니다.
     // Ctrl·Shift·가운데 클릭은 브라우저 기본 동작(새 탭·새 창)을 그대로 둡니다.
-    $('messages').addEventListener('click', (e) => {
+    on('messages', 'click', (e) => {
       const link = e.target.closest('a.img-open');
       if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
@@ -245,9 +245,9 @@ export class Drawing {
       this.paintLightbox();
       dlg.showModal();
     });
-    $('lb-close').addEventListener('click', () => dlg.close());
-    $('lb-prev').addEventListener('click', () => this.stepLightbox(-1));
-    $('lb-next').addEventListener('click', () => this.stepLightbox(1));
+    on('lb-close', 'click', () => dlg.close());
+    on('lb-prev', 'click', () => this.stepLightbox(-1));
+    on('lb-next', 'click', () => this.stepLightbox(1));
     // 그림 바깥(어두운 배경)을 누르면 닫습니다.
     dlg.addEventListener('click', (e) => {
       if (e.target === dlg || e.target.classList.contains('lb-figure')) dlg.close();
