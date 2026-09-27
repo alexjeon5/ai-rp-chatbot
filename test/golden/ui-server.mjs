@@ -50,12 +50,16 @@ http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
     return res.end(await readFile(path.join(here, 'ui-scenario.mjs')));
   }
+  // 가려진 창에서는 페이지 타이머가 크게 늦춰지므로, 기다리기는 이 요청으로 합니다.
+  const wait = /^\/sleep\/(\d+)$/.exec(req.url);
+  if (wait) return setTimeout(() => res.end('ok'), Number(wait[1]));
   const m = /^\/result\/([\w-]+)$/.exec(req.url);
   if (m && req.method === 'POST') {
-    let body = '';
-    req.on('data', (c) => (body += c));
+    // 한글이 조각 경계에서 잘리지 않게 바이트를 모았다가 한 번에 씁니다.
+    const parts = [];
+    req.on('data', (c) => parts.push(c));
     req.on('end', async () => {
-      await writeFile(path.join(outDir, `ui-${m[1]}.json`), body);
+      await writeFile(path.join(outDir, `ui-${m[1]}.json`), Buffer.concat(parts));
       res.end('ok');
       console.log(`기록했습니다: ui-${m[1]}.json`);
     });

@@ -8,7 +8,9 @@ const RESULT = 'http://127.0.0.1:5189/result/';
 export async function run(name) {
   const $ = (id) => document.getElementById(id);
   const q = (sel, root = document) => root.querySelector(sel);
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 가려진 창에서는 타이머가 크게 늦춰지므로 ui-server 에 쉬어 달라고 요청해서 기다립니다.
+  const realFetchForSleep = window.fetch.bind(window);
+  const sleep = (ms) => realFetchForSleep(`http://127.0.0.1:5189/sleep/${ms}`).then((r) => r.text());
   const out = [];
 
   /* ---------- 고정: 시각, 물음창, 클립보드, 대화상자 close ---------- */
@@ -97,14 +99,19 @@ export async function run(name) {
     storage: Object.keys(localStorage).sort().map((k) => `${k}=${localStorage.getItem(k)}`)
   });
 
+  // 아직 받고 있거나 쓰고 있다는 표시. 이런 게 보이면 더 기다립니다.
+  const LOADING = /불러오는 중|받는 중|연결하는 중|쓰는 중|요약하는 중|확인하는 중|장면을 읽는 중|그리는 중/;
+  const busyNow = () => inflight > 0 || document.querySelector('.turn-image.is-pending') ||
+    !$('stream-status').hidden || LOADING.test(document.body.innerText);
+
   /** 요청이 끝나고 화면이 멈출 때까지 기다립니다. */
-  async function settle(max = 8000) {
+  async function settle(max = 15000) {
     let last = '';
     let stable = 0;
     for (let t = 0; t < max; t += 120) {
       await sleep(120);
       const now = JSON.stringify(snap());
-      stable = inflight === 0 && now === last ? stable + 1 : 0;
+      stable = !busyNow() && now === last ? stable + 1 : 0;
       last = now;
       if (stable >= 3) return;
     }
@@ -290,7 +297,8 @@ export async function run(name) {
   });
   await step('대화 삭제(⋯ 메뉴)', async () => { click(q('#chat-list [data-chat]')); await settle(); click($('btn-chat-menu')); click($('btn-delete-chat')); });
 
-  const body = JSON.stringify(out, null, 2);
+  // 서버가 백업에 적는 내보낸 시각은 고정되지 않은 실제 시각입니다.
+  const body = JSON.stringify(out, null, 2).replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g, 'DATE');
   await realFetch(RESULT + name, { method: 'POST', body });
   return `${out.length}단계, ${calls.length}요청, 복사 ${copied.length}`;
 }

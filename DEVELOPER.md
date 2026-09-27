@@ -9,12 +9,25 @@
 ## 1. 프로젝트 구조
 
 ```
-server.js                 REST + SSE 엔드포인트. 요청을 받아 store 와 providers 를 연결
+server.js                 부팅만 합니다 — 저장소·로그인을 만들고 createApp 으로 서버를 띄움
 src/
+  http/
+    app.js                 createApp — 미들웨어 순서, 요청 제한, 라우트 클래스 등록
+    helpers.js             wrap / fail / abortOnClose, SSE 를 보내는 EventStream
+    routes/                기능별 라우트 클래스 — settings, library(캐릭터·페르소나), chats,
+                           generation(생성·대신 쓰기·기억), images, backup
+  services/
+    engines.js             Engines — 지금 엔진 설정, 성인 허용 판정, 실패 설명, 한 번에 받는 완성
+    chat-context.js        ChatContext — 대화 한 개의 캐릭터·페르소나·틀·컨텍스트 예산
+    jobs.js                Jobs — 대화별 진행 중 작업(중복 생성 막기, 멈추기)
+    image-files.js         ImageFiles — 그린 그림 파일 저장·삭제
+    records.js             입력값 정리 — SAFE_ID, characterFields, normalizePersona
+    backup.js              Backup — 내려받기·불러오기(합치기)
+  content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
-  store.js                 Store 클래스, 내장 프롬프트 틀, 내장 캐릭터, 설정 기본값
-  prompt.js                시스템 프롬프트 조립, 한국어 조사 교정
-  providers.js             엔진 어댑터 — OpenAI/Anthropic/Gemini 호환, 스트리밍, 모델 목록
+  store.js                 Store 클래스, 설정 기본값
+  prompt.js                시스템 프롬프트 조립 (조사 교정은 public/js/shared/korean.js 를 가져다 씀)
+  providers.js             엔진 클래스 — Engine 을 잇는 OpenAI/LM Studio/Ollama/Vercel/Anthropic/Gemini
   sanitize.js              사고 블록 제거, 반복 출력 감지
   persona-seeds.js         랜덤 페르소나 씨앗 표 (POOLS, CONFLICTS) 와 굴리기
   persona-gen.js           씨앗 → 소개 문단 프롬프트, 후처리, 모델 없이 쓰는 대체 문장
@@ -28,10 +41,17 @@ public/
   index.html               전체 마크업 (사이드바, 대화창, 다이얼로그 다섯 개)
   styles.css               전체 스타일. CSS 변수로 테마 관리
   js/
+    app.js                 진입점 — App 이 상태와 기능 객체를 만들어 잇고 첫 화면을 띄움
     api.js                 서버 호출 얇은 래퍼 + SSE 파서
-    ui.js                  DOM 렌더링 — 목록, 메시지, 마크다운, 조사 교정(서버와 별도 구현)
+    ui.js                  DOM 렌더링 — 목록, 메시지, 알림
+    ui/format.js           표기법·마크다운 렌더러 (formatText, setMarkup)
     select.js              네이티브 select 를 테마에 맞는 드롭다운으로 감싸는 모듈
-    app.js                 상태 관리와 이벤트 바인딩 (가장 큰 파일, 1300줄+)
+    shared/korean.js       {{char}}/{{user}} 치환과 조사 교정 — 서버와 브라우저가 함께 씀
+    core/                  dom($, esc, storage, setHidden), state(AppState), menu(메뉴 키보드)
+    features/              기능별 클래스 — 아래 8절 참고
+test/
+  support/                 결정적 실행(난수·시각 고정), 가짜 엔진·ComfyUI 서버
+  golden/                  동작 기록 테스트 — 9절 참고
 mock-lmstudio.mjs           로컬 통합 테스트용 가짜 OpenAI 호환 서버
 Dockerfile, docker-compose.yml
 ```
@@ -119,7 +139,7 @@ data/
 ```
 
 `chats/<id>.json`에는 `character` 필드가 통째로 박혀 있는 경우가 있습니다 — **1회성 캐릭터**입니다
-(`characterId: null` 대신 `character: {...}`). `server.js`의 `characterOf(chat)`가
+(`characterId: null` 대신 `character: {...}`). `ChatContext.characterOf(chat)`(`src/services/chat-context.js`)가
 `chat.character || store.characters.get(chat.characterId)` 순서로 우선순위를 정합니다.
 
 ---
@@ -135,7 +155,7 @@ data/
   (사용자가 자리표시자를 모르는 프롬프트를 그대로 붙여 넣어도 동작하게 하기 위함).
 - `exampleDialogue`, `notes`는 `# 대화 예시`, `# 추가 설정` 제목을 붙여 맨 뒤에 이어 붙입니다.
 
-### 한국어 조사 교정
+### 한국어 조사 교정 — `public/js/shared/korean.js`
 
 `substitute(text, token, value)`가 `{{char}}`/`{{user}}` 뒤에 붙은 조사를 받침에 맞춥니다.
 
@@ -147,11 +167,11 @@ data/
   조사가 안 붙어서 "유하린로서"로 어색하게 나옵니다.** 내장 틀은 전부 `{{char}}가 되어` 식으로
   피해 갑니다.
 
-### ⚠️ 같은 로직이 두 군데 있습니다
+### 서버와 브라우저가 같은 파일을 씁니다
 
-브라우저가 `src/` 아래 서버 전용 모듈을 못 읽기 때문에, **`public/js/ui.js`에도 같은 조사 교정
-로직이 한 벌 더 있습니다**(`fillNames`, 모드 선택 창의 캐릭터 미리보기가 씀). 한쪽을 고치면
-반드시 다른 쪽도 맞추세요. 두 파일 모두 함수 위에 상호 참조 주석이 달려 있습니다.
+조사 교정은 `public/js/shared/korean.js` 한 곳에만 있습니다. 브라우저는 `src/` 를 못 읽으므로
+공개 폴더에 두고, 서버의 `prompt.js` 가 상대 경로로 가져다 씁니다(`fillVars`). 브라우저 쪽은
+`ui.fillNames` 가 같은 `fillTokens` 를 부릅니다. 이 파일에는 DOM 이나 Node 전용 API 를 쓰지 마세요.
 
 ### `withThinking(system, on)`
 
@@ -162,15 +182,16 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 
 ## 4. 엔진 어댑터 — `src/providers.js`
 
-### 어댑터 계약
+### 엔진 클래스
 
-모든 어댑터는 `async function*`이고 텍스트 조각을 `yield`합니다. `streamChat({ provider, ...opts })`가
-`pickAdapter()`로 알맞은 어댑터를 고릅니다. 내장 어댑터가 없으면(커스텀 엔진) `config.type`
-(`openai`/`anthropic`/`gemini`)을 보고 고릅니다.
+엔진마다 `Engine` 을 이어받은 클래스가 하나씩 있고, `async *chat(opts)` 로 텍스트 조각을 `yield` 하고
+`models()` 로 모델 목록을 돌려줍니다. 공통 부분(`post`, 400 을 읽고 고쳐 다시 보내는 `sendFixing`,
+감춘 모델 거르기 `keep`)은 `Engine` 에 있습니다. `streamChat({ provider, ...opts })` 와 `listModels()` 는
+`engineFor()` 로 클래스를 고르는데, 내장 엔진은 `BUILTIN`, 커스텀 엔진은 `config.type`
+(`openai`/`anthropic`/`gemini`)으로 `BY_TYPE` 에서 찾습니다.
 
-새 엔진을 붙이려면 같은 시그니처의 함수를 하나 쓰고 `ADAPTERS`에 등록하면 됩니다. OpenAI 호환
-서버(Ollama, vLLM, llama.cpp)는 어댑터를 새로 쓸 필요 없이 `lmstudio`/`openaiCompatible`을
-그대로 재사용합니다.
+OpenAI 호환 서버(Ollama, Vercel, vLLM, llama.cpp)는 `OpenAiEngine` 을 이어받아 다른 점만 덮어씁니다
+(`LmStudioEngine` 은 `repeat_penalty`·`top_k` 를 더 붙이고, `OllamaEngine`·`VercelEngine` 은 목록 조회만 다름).
 
 ### 엔진별 함정 — 전부 실제로 겪고 고친 것들입니다
 
@@ -190,8 +211,8 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 | Gemini | 계정에 따라 같은 모델이 404 (`no longer available to new users`) | `readsAsModelGone()`이 감지 → `config.unavailableModels`에 기록해 목록에서 숨김 |
 | Gemini | 모델 목록 페이지네이션 (`pageToken`) | 최대 5쪽까지 수집, `supportedGenerationMethods`가 없어도 통과(문서 예제 기준) |
 | Gemini | `google_search` 도구는 Gemma 모델에서 거부됨 | 지원 여부는 `supportsWebSearch()`가 판단, 실패 시 `geminiError()`가 원인을 풀어서 안내 |
-| LM Studio 등 로컬 | `repeat_penalty`, `top_k`를 안 보내면 반복 루프가 잘 남 | `lmstudio()` 래퍼가 항상 포함 (OpenAI 본사에는 안 보냄) |
-| 공통 | 성인 틀은 기본적으로 로컬 엔진에서만 허용 | `adultAllowed()` = `isLocalUrl()` 또는 `settings.dev.adultCloud` (서버: `server.js`, 클라이언트: `app.js`에 각각 구현 — 판정 규칙이 동일해야 함) |
+| LM Studio 등 로컬 | `repeat_penalty`, `top_k`를 안 보내면 반복 루프가 잘 남 | `LmStudioEngine` 이 항상 포함 (OpenAI 본사에는 안 보냄) |
+| 공통 | 성인 틀은 기본적으로 로컬 엔진에서만 허용 | `adultAllowed()` = `isLocalUrl()` 또는 `settings.dev.adultCloud` (서버: `src/services/engines.js`, 클라이언트: `public/js/core/state.js`에 각각 구현 — 판정 규칙이 동일해야 함) |
 
 ### `isOpenAiHost()` 버그 이력
 
@@ -210,12 +231,12 @@ Gemma 계열은 시스템 프롬프트 맨 앞의 `<|think|>` 토큰이 있을 �
 - Anthropic: 본문 중간에 끼어드는 `content_block_start` 타입 `web_search_tool_result`
 - OpenAI: `delta.annotations[].url_citation`
 
-출처는 본문에 이어 붙이지 않고 `server.js`에서 `send({ sources })`로 별도 SSE 이벤트로 보내며,
+출처는 본문에 이어 붙이지 않고 `generation.js`에서 `send({ sources })`로 별도 SSE 이벤트로 보내며,
 저장 시에도 `msg.sources`에 따로 담습니다 — 다음 턴 프롬프트에 섞여 들어가지 않게 하기 위함입니다.
 
 ---
 
-## 5. 생성 파이프라인 — `server.js` 의 `/api/chats/:id/generate`
+## 5. 생성 파이프라인 — `src/http/routes/generation.js` 의 `/api/chats/:id/generate`
 
 요청 하나가 처리되는 순서:
 
@@ -332,10 +353,10 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 서버 호출을 감싸는 얇은 함수 모음(`api.characters()`, `api.saveSettings()` 등)과
 `generate()` — SSE 응답을 파싱해 `onDelta`/`onThought`/`onSources` 콜백으로 나눠 줍니다.
 
-### `public/js/ui.js`
+### `public/js/ui.js`, `public/js/ui/format.js`
 
-가장 조심해서 고쳐야 할 파일입니다. DOM을 직접 조작하는 렌더 함수들과, **직접 구현한 마크다운
-렌더러**(`renderMarkdown`)가 있습니다. 외부 라이브러리를 안 쓴 이유는 로컬 모델만 켜고
+가장 조심해서 고쳐야 할 파일들입니다. `ui.js` 에는 DOM을 직접 조작하는 렌더 함수들이, `ui/format.js` 에는
+**직접 구현한 마크다운 렌더러**(`renderMarkdown`)와 표기법 처리(`formatText`)가 있습니다. 외부 라이브러리를 안 쓴 이유는 로컬 모델만 켜고
 오프라인으로 쓰는 사용자가 많아서입니다 — CDN에 기대면 그때 마크다운이 통째로 날것으로 보입니다.
 
 렌더링 파이프라인(`formatText`):
@@ -352,21 +373,28 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 ("이 주석부터 저 주석까지" 방식으로 자르는 구간에 다른 함수가 들어 있었음). 이 파일을 고칠 때는:
 
 ```bash
-# app.js 가 쓰는 ui.* 가 전부 export 되는지, $('id') 로 찾는 DOM id 가 index.html 에 다 있는지 확인
+# 모든 모듈이 쓰는 ui.* 가 export 되는지, $('id') 로 찾는 DOM id 가 index.html 에 다 있는지 확인
 node -e "
-const fs = require('fs');
+const fs = require('fs'), path = require('path');
+const files = [];
+const walk = (d) => fs.readdirSync(d).forEach((n) => { const p = path.join(d, n); fs.statSync(p).isDirectory() ? walk(p) : p.endsWith('.js') && files.push(p); });
+walk('public/js');
 const ui = fs.readFileSync('public/js/ui.js', 'utf8');
-const app = fs.readFileSync('public/js/app.js', 'utf8');
 const html = fs.readFileSync('public/index.html', 'utf8');
-const exported = new Set([...ui.matchAll(/export (?:async )?(?:function|const) (\w+)/g)].map((m) => m[1]));
-const used = new Set([...app.matchAll(/ui\.(\w+)/g)].map((m) => m[1]).filter((n) => n !== 'js'));
-const ids = new Set([...app.matchAll(/[$][(]'([\w-]+)'[)]/g)].map((m) => m[1]));
+const exported = new Set([...ui.matchAll(/export (?:async )?(?:function|const) (\w+)|export \{([^}]*)\}/g)].flatMap((m) => m[1] ? [m[1]] : m[2].split(',').map((x) => x.trim())));
+const used = new Set(), ids = new Set();
+for (const f of files) {
+  const src = fs.readFileSync(f, 'utf8');
+  for (const m of src.matchAll(/\bui\.(\w+)/g)) if (m[1] !== 'js') used.add(m[1]);
+  for (const m of src.matchAll(/[$][(]'([\w-]+)'[)]/g)) ids.add(m[1]);
+}
 console.log('빠진 export:', [...used].filter((n) => !exported.has(n)).join(', ') || '없음');
 console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + '\"')).join(', ') || '없음');
 "
 ```
 
 `export async function` 도 잡아야 합니다 — 예전 스니펫은 이걸 놓쳐서 `copyText` 가 빠졌다고 잘못 알렸습니다.
+`thread` 처럼 렌더 함수가 그때그때 만드는 요소의 id 는 index.html 에 없어서 '빠진 id' 로 나와도 괜찮습니다.
 
 ### `public/js/select.js`
 
@@ -384,25 +412,36 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 좁은 버튼(입력창 아래 엔진 선택기)에서 항목이 "LM S…" 처럼 잘리던 문제 때문입니다. `placeList()`가 펼칠 때
 아래가 모자라면 `.is-up`, 오른쪽이 모자라면 `.is-end`(버튼 오른쪽 끝 기준)를 붙입니다.
 
-### `public/js/app.js`
+### `public/js/app.js` 와 `features/`
 
-상태(`state`)와 이벤트 바인딩. 파일이 크니 검색으로 다니세요. 주요 상태:
+`app.js` 는 진입점만 합니다. `App` 이 상태(`AppState`)를 하나 만들고, 기능 객체들에 자기 자신을 넘겨
+만듭니다. 기능끼리는 `app.view.open(id)`, `app.list.refresh()` 처럼 `App` 을 거쳐 서로 부릅니다.
 
-```js
-state = {
-  settings, characters, personas, chats, chat,   // 서버 데이터 캐시
-  abort,                                          // 진행 중인 생성의 AbortController
-  mode,                                           // 'rp' | 'assistant'
-  hideAdult,                                      // 성인 대화 숨김 (localStorage)
-  showArchived,                                   // 대화 목록 대신 보관함을 보는 중
-  pendingCharacter                                // 모드 선택 창에 띄운 캐릭터
-}
-```
+| 필드 | 파일 | 맡는 일 |
+|---|---|---|
+| `state` | `core/state.js` | 서버 데이터 사본(`settings, characters, personas, chats, chat`), 진행 중 생성 `run`, `mode`, `hideAdult`, `showArchived`, 계산 메서드 |
+| `toolbar` | `features/toolbar.js` | 입력창 아래 엔진 선택기, 모델 이름, 웹 검색·생각 토글 |
+| `list` | `features/chat-list.js` | 사이드바 대화 목록, 모드 탭, 보관함, 우클릭 메뉴, 이름 바꾸기·보관·삭제 |
+| `drawing` | `features/drawing.js` | 🎨 장면 그리기, 태그 검토, 그림 크게 보기 |
+| `view` | `features/chat-view.js` | 대화 열기·닫기, 상단 헤더와 ⋯ 메뉴, 메시지 그리기·넘기기·편집 |
+| `composer` | `features/composer.js` | 입력창, 보내기·다시 쓰기·이어 쓰기·멈추기, 대신 쓰기, 컨텍스트 게이지 |
+| `memory` | `features/memory.js` | 기억(설정 기록·요약) 창과 답변 뒤 자동 정리 |
+| `cast` | `features/cast.js` | 함께 등장하는 인물 창 |
+| `newChat` | `features/new-chat.js` | 새 대화 시작과 모드 선택 창 (`MODE_NOTES`) |
+| `characters` | `features/characters.js` | 캐릭터 목록 탭과 캐릭터 창 |
+| `personas` | `features/personas.js` | 페르소나 창과 랜덤 페르소나 |
+| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js` |
 
-대화 목록은 `modeChats()`(지금 모드) → `visibleChats()`(보관 여부로 나눔, 보관함은 보관한 순) →
+`theme.js` 의 `applyTheme(dev)` 는 테마 색·글꼴·파비콘·표기법을 화면에 적용합니다.
+
+**만드는 순서가 동작의 일부입니다.** `#messages` 클릭은 그림 크게 보기(`Drawing`)가 메시지 편집(`ChatView`)보다
+먼저 받아야 하므로 `Drawing` 을 먼저 만듭니다. 생성자 안에서는 이벤트만 걸고 다른 기능을 부르지 마세요 —
+아직 안 만들어진 기능일 수 있습니다.
+
+대화 목록은 `state.modeChats()`(지금 모드) → `visibleChats()`(보관 여부로 나눔, 보관함은 보관한 순) →
 `listedChats()`(성인 숨기기까지 적용한, 실제로 보이는 것) 세 단계로 거릅니다. 이름 바꾸기·보관·삭제는
-`renameChat` / `setArchived` / `removeChat` 이 대화 id 로 처리하고, 상단 ⋯ 메뉴와 목록 우클릭 메뉴가
-둘 다 이 함수들을 부릅니다. 열린 대화가 보관·삭제로 목록에서 빠지면 `openNeighbor` 가 그 자리의 다음 대화를 엽니다.
+`ChatList` 의 `rename` / `setArchived` / `remove` 가 대화 id 로 처리하고, 상단 ⋯ 메뉴와 목록 우클릭 메뉴가
+둘 다 이 메서드들을 부릅니다. 열린 대화가 보관·삭제로 목록에서 빠지면 `openNeighbor` 가 그 자리의 다음 대화를 엽니다.
 
 스크롤은 `ui.watchScroll()`이 "사용자가 직접 위로 올렸는가"만 추적하는 pinned 방식입니다.
 거리 기반 판정은 '응답 생성 중' 막대가 나타나 레이아웃이 바뀌는 순간 밀려나는 버그가 있어
@@ -450,6 +489,39 @@ curl -s -N -X POST http://127.0.0.1:5199/api/chats/$ID/generate -d '{}'
 `node mock-lmstudio.mjs`는 UI만 확인할 때 쓰는 기본 가짜 서버입니다. 모델에 `mock-7b`을
 넣으면 실제 모델 없이 스트리밍 응답을 받을 수 있습니다.
 
+### 동작 기록 테스트 — `test/golden/`
+
+구조를 바꾸는 리팩터링이 **동작을 하나도 바꾸지 않았는지** 확인하는 테스트입니다. 같은 시나리오를
+고치기 전 코드(보통 `git worktree add ../base <커밋>`)와 고친 코드에 똑같이 돌리고, 나온 파일을
+바이트 단위로 비교합니다. 서버는 `test/support/deterministic.mjs` 로 난수·UUID·시각을 고정한 채 뜨고,
+엔진과 ComfyUI 는 `test/support/mock-services.mjs` 가 받은 요청을 기록하며 흉내 냅니다.
+
+```bash
+# API 시나리오 (대화·설정·캐릭터·백업 등), 엔진별 시나리오, 로그인·계정 명령
+node test/golden/run.mjs ../base base.json
+node test/golden/run.mjs . new.json
+node test/golden/run.mjs . eng-new.json scenario-engines.mjs
+node test/golden/auth.mjs . auth-new.json
+cmp base.json new.json
+```
+
+포트는 가짜 서버 5181, 앱 5185(`GOLDEN_MOCK_PORT`, `GOLDEN_APP_PORT` 로 바꿀 수 있음), 로그인 테스트 5186 입니다.
+포트가 다르면 결과 파일의 주소도 달라지므로, 비교할 두 번은 같은 포트로 돌리세요.
+
+화면 동작은 `ui-server.mjs` 로 앱(5187)과 시나리오 서버(5189)를 띄운 뒤, 브라우저에서 그 앱을 열고
+시나리오를 실행합니다. 결과는 `<출력 폴더>/ui-<이름>.json` 으로 저장됩니다.
+
+```bash
+node test/golden/ui-server.mjs . 5187 out
+```
+
+```js
+// http://127.0.0.1:5187 을 연 브라우저 콘솔에서 (먼저 localStorage.clear() 후 새로고침)
+import('http://127.0.0.1:5189/ui-scenario.mjs').then((m) => m.run('new'));
+```
+
+통신 로그 창에는 병렬 요청의 순서와 걸린 시간(ms)이 그대로 찍히므로, 두 결과가 그 부분만 다르면 같은 동작입니다.
+
 ---
 
 ## 10. Docker
@@ -467,10 +539,10 @@ docker compose up -d
 
 ## 11. 새 엔진 추가하기
 
-1. `src/providers.js`에 `async function* myEngine({ config, system, messages, params, signal, ... })`를
-   씁니다. OpenAI 호환이면 새로 쓸 필요 없이 `openaiCompatible`을 재사용하세요.
-2. `ADAPTERS`에 등록.
-3. `listModels()`에 그 엔진의 목록 조회 분기를 추가 (페이지네이션·필터가 있다면 함께).
+1. `src/providers.js`에 `Engine` 을 이어받은 클래스를 만들고 `async *chat(opts)` 와 `models()` 를 씁니다.
+   OpenAI 호환이면 `OpenAiEngine` 을 이어받아 다른 점만 덮어쓰세요 (`OllamaEngine` 참고).
+2. `BUILTIN` 에 등록.
+3. 목록 조회에 페이지네이션·필터가 있다면 `models()` 안에서 함께 처리합니다.
 4. `src/store.js`의 `defaultSettings().providers`에 기본 항목 추가 (`label`, `type`, `baseUrl`, `model`, `unavailableModels: []`).
 5. 성인 틀·웹 검색을 지원한다면 `supportsWebSearch()`, `isLocalUrl()` 판정에 반영.
 
@@ -479,12 +551,12 @@ docker compose up -d
 
 ## 12. 새 대화 모드 추가하기
 
-1. `src/store.js`에 `export const MY_TEMPLATE = \`...\`;` 로 틀 작성.
-2. `BUILTIN_TEMPLATES()` 배열에 `{ id, name, template: MY_TEMPLATE, adult }` 추가.
+1. `src/content/templates.js`에 `export const MY_TEMPLATE = \`...\`;` 로 틀 작성.
+2. 같은 파일의 `BUILTIN_TEMPLATES()` 배열에 `{ id, name, template: MY_TEMPLATE, adult }` 추가.
    **일반/성인 순서를 지키세요** — 일반 항목은 성인 항목보다 배열 앞쪽에 둡니다.
-3. 표기법이 새로운 거라면 (`public/js/ui.js`의) `formatText`/`renderMarkdown`에 반영이 필요할 수
+3. 표기법이 새로운 거라면 (`public/js/ui/format.js`의) `formatText`/`renderMarkdown`에 반영이 필요할 수
    있습니다.
-4. `public/js/app.js`의 `MODE_NOTES`에 모드 선택 창에서 보여줄 한 줄 설명을 추가하면 좋습니다
+4. `public/js/features/new-chat.js`의 `MODE_NOTES`에 모드 선택 창에서 보여줄 한 줄 설명을 추가하면 좋습니다
    (없으면 틀 내용 첫 줄을 대신 보여줍니다).
 
 ---
@@ -517,7 +589,7 @@ docker compose up -d
 `maxTokens` 는 설정값과 무관하게 700 으로 잘라 둡니다 — 한 문단이면 충분한데 4096 을 주면
 로컬 모델이 계속 이어 씁니다.
 
-프런트는 `public/js/app.js` 의 `seedDraft` 하나가 상태 전부입니다. 칩 클릭 → `only` 로 재굴림,
+프런트는 `public/js/features/personas.js` 의 `Personas.seeds` 하나가 상태 전부입니다. 칩 클릭 → `only` 로 재굴림,
 **문장 만들기** → 기존 이름·소개 입력칸을 채움. 저장은 원래의 **페르소나 추가** 버튼이 그대로 합니다.
 
 ## 12-2. 줄글 → 캐릭터 시트
@@ -537,7 +609,7 @@ docker compose up -d
 
 라벨을 늘리려면 `src/character-gen.js` 의 `CHAR_FIELDS` 에 `{ key, label, hint }` 를 추가하면
 프롬프트의 출력 형식과 파서가 함께 따라옵니다. `key` 는 화면 입력칸 id(`c-<key>`)이자
-`server.js` 의 `CHARACTER_FIELDS` 와 같아야 합니다.
+`src/content/characters.js` 의 `CHARACTER_FIELDS` 와 같아야 합니다.
 
 ### 형식이 자주 무너지던 문제와 대응
 
@@ -579,7 +651,7 @@ docker compose up -d
   더 견고합니다.
 - **`GET`과 `PUT`이 같은 모양을 돌려줘야** 저장 후에도 클라이언트가 읽기 전용 필드를 잃지
   않습니다.
-- **조사 교정과 마크다운 렌더러가 서버/클라이언트에 이중으로 존재**하는 이유는 브라우저가
-  `src/`를 못 읽어서입니다. 감안하고 양쪽을 맞춰 고치세요.
-- **`app.js`가 참조하는 DOM id, `ui.*`/`api.*` 이름은 전부 실존해야 합니다.** 어느 한쪽만
+- **서버와 브라우저가 함께 쓰는 코드는 `public/js/shared/` 에 둡니다.** 브라우저가 `src/` 를 못 읽어서
+  예전에는 조사 교정이 두 벌 있었고, 한쪽만 고쳐지는 일이 잦았습니다.
+- **프런트 모듈이 참조하는 DOM id, `ui.*`/`api.*` 이름은 전부 실존해야 합니다.** 어느 한쪽만
   고치면 부팅 자체가 멈춥니다. 8절의 점검 스니펫을 습관적으로 돌리세요.
