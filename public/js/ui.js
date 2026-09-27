@@ -314,12 +314,15 @@ export function renderPersonaList(personas, activeId) {
   ul.innerHTML = personas
     .map(
       (p) => {
-        const meta = [p.gender, p.age, ...(p.traits || [])].map((x) => String(x || '').trim()).filter(Boolean);
+        // 목록에서는 {{user}}/{{char}} 를 읽히는 이름으로 바꿔 보여 줍니다. 긴 글은 CSS 가 두 줄로 줄이고, 전체는 title 로 봅니다.
+        const named = (t) => fillNames(String(t || '').trim(), { user: p.name });
+        const desc = named(p.description) || '소개 없음';
+        const meta = [p.gender, p.age, ...(p.traits || [])].map(named).filter(Boolean).join(' · ');
         return `<li class="persona-row ${p.id === activeId ? 'active' : ''}">
         <span class="grow">
           <div class="p-name">${esc(p.name)}</div>
-          <div class="p-desc">${esc(p.description || '소개 없음')}</div>
-          ${meta.length ? `<div class="p-meta">${meta.map(esc).join(' · ')}</div>` : ''}
+          <div class="p-desc" title="${esc(desc)}">${esc(desc)}</div>
+          ${meta ? `<div class="p-meta" title="${esc(meta)}">${esc(meta)}</div>` : ''}
         </span>
         <button type="button" class="ghost-btn" data-use="${p.id}" ${p.id === activeId ? 'disabled' : ''}>
           ${p.id === activeId ? '사용 중' : '사용'}
