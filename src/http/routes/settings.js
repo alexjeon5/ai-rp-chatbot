@@ -5,7 +5,7 @@ import { checkBaseUrl, maskProviders } from '../../security.js';
 import { DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from '../../content/templates.js';
 import { BUILTIN_CHARACTERS } from '../../content/characters.js';
 import {
-  IMAGE_DEFAULTS, looksLikeWorkflow, CORE_BLOCK_TERMS, CORE_NEGATIVE, COMMON_SAMPLERS, COMMON_SCHEDULERS
+  imageConfig, GEMINI_RATIOS, OPENAI_SIZES, OPENAI_QUALITIES, looksLikeWorkflow, CORE_BLOCK_TERMS, CORE_NEGATIVE, COMMON_SAMPLERS, COMMON_SCHEDULERS
 } from '../../image.js';
 import { wrap, fail } from '../helpers.js';
 
@@ -55,6 +55,8 @@ export class SettingsRoutes {
       ...s,
       // API 키는 브라우저로 내보내지 않습니다. 들어 있는지 여부만 알려 줍니다.
       providers: maskProviders(s.providers),
+      // 예전 설정 파일에는 새로 생긴 항목(gemini 등)이 없어서 기본값을 채워 보냅니다.
+      image: imageConfig(s.image),
       webSearchCapable,
       defaultTemplate: DEFAULT_SYSTEM_TEMPLATE,
       // 내장 틀의 원본 내용. 설정에서 '기본 내용 가져오기' 로 되돌릴 때 씁니다.
@@ -70,8 +72,28 @@ export class SettingsRoutes {
 
   /** 이미지 설정을 검사해 반영합니다. 문제가 있으면 안내 문구를 돌려주고 아무것도 바꾸지 않습니다. */
   applyImage(s, body) {
-    const img = { ...IMAGE_DEFAULTS(), ...(s.image || {}) };
-    const next = { ...img, adult: { ...img.adult } };
+    const next = imageConfig(s.image);
+    if (['comfyui', 'gemini', 'openai'].includes(body.backend)) next.backend = body.backend;
+    if (body.promptStyle === 'tags' || body.promptStyle === 'prose') next.promptStyle = body.promptStyle;
+    // 회사 API 설정: 모델 이름·스타일은 공통, 나머지는 그 회사가 받는 값만.
+    for (const [key, label] of [['gemini', 'Gemini'], ['openai', 'OpenAI']]) {
+      const g = body[key];
+      if (!g || typeof g !== 'object') continue;
+      if (typeof g.model === 'string') {
+        const model = g.model.trim();
+        if (model.length > 200 || /[^\w.\-]/.test(model)) return `${label} 이미지 모델 이름이 올바르지 않습니다.`;
+        next[key].model = model;
+      }
+      if (typeof g.style === 'string') next[key].style = g.style.slice(0, 2000);
+    }
+    if (body.gemini && typeof body.gemini === 'object') {
+      if (['', '1K', '2K', '4K'].includes(body.gemini.imageSize)) next.gemini.imageSize = body.gemini.imageSize;
+      if (GEMINI_RATIOS.includes(body.gemini.aspectRatio)) next.gemini.aspectRatio = body.gemini.aspectRatio;
+    }
+    if (body.openai && typeof body.openai === 'object') {
+      if (OPENAI_SIZES.includes(body.openai.size)) next.openai.size = body.openai.size;
+      if (OPENAI_QUALITIES.includes(body.openai.quality)) next.openai.quality = body.openai.quality;
+    }
     if (typeof body.baseUrl === 'string') {
       const verdict = checkBaseUrl(body.baseUrl.trim());
       if (!verdict.ok) return `ComfyUI 주소를 쓸 수 없습니다.\n${verdict.reason}`;

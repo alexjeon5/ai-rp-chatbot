@@ -437,7 +437,95 @@
         </label>
 
         <!-- 장면 그리기를 켰을 때만 보이는 설정. 꺼 두어도 값은 그대로 저장됩니다 -->
-        <div id="i-options">
+        <div id="i-options" class="stack">
+        <label class="field"><span>그리는 곳</span>
+          <select id="i-backend">
+            <option value="comfyui">ComfyUI (로컬)</option>
+            <option value="gemini">Google Gemini (API)</option>
+            <option value="openai">OpenAI (API)</option>
+          </select>
+        </label>
+
+        <!-- OpenAI 로 그릴 때 -->
+        <div id="i-openai" class="stack" hidden>
+          <p class="field-hint">
+            설정 → 엔진의 <b>OpenAI</b> API 키(또는 <code>OPENAI_API_KEY</code>)를 씁니다. 장면은 대화 엔진이 영어 문장 묘사로 옮겨 보냅니다.
+            그림마다 요금이 나가고, 계정에 따라 OpenAI 콘솔에서 조직 인증(Organization Verification)을 먼저 마쳐야 쓸 수 있습니다.
+          </p>
+          <label class="field"><span>이미지 모델</span>
+            <span class="model-row">
+              <input id="i-omodel" spellcheck="false" placeholder="gpt-image-2.5-flare">
+              <button id="i-omodels" class="ghost-btn" type="button">불러오기</button>
+            </span>
+          </label>
+          <p id="i-ostatus" class="field-hint">불러오기를 누르면 이 키로 쓸 수 있는 이미지 모델이 나옵니다.</p>
+          <div class="grid-2 even">
+            <label class="field"><span>크기</span>
+              <select id="i-osize">
+                <option value="1024x1536">세로 1024×1536</option>
+                <option value="1536x1024">가로 1536×1024</option>
+                <option value="1024x1024">정사각 1024×1024</option>
+                <option value="auto">모델이 고르기</option>
+              </select>
+            </label>
+            <label class="field"><span>품질 <small class="field-hint">— 높을수록 느리고 비쌉니다</small></span>
+              <select id="i-oquality">
+                <option value="auto">자동</option>
+                <option value="low">낮음</option>
+                <option value="medium">보통</option>
+                <option value="high">높음</option>
+              </select>
+            </label>
+          </div>
+          <label class="field"><span>그림 스타일 <small class="field-hint">— 장면 묘사 앞에 붙습니다. 영어로 쓰는 편이 잘 듣습니다</small></span>
+            <textarea id="i-ostyle" rows="3"></textarea></label>
+          <p class="field-hint">부정 프롬프트·시드·스텝은 OpenAI 가 받지 않아 칸이 없습니다. 성인 모드 대화는 개발자 탭에서 클라우드 엔진 제한을 풀기 전에는 OpenAI 로 그리지 않고, 아래 고정 차단 목록은 묘사 문장에도 똑같이 적용됩니다.</p>
+        </div>
+
+        <!-- Gemini 로 그릴 때 -->
+        <div id="i-gemini" class="stack" hidden>
+          <p class="field-hint">
+            설정 → 엔진의 <b>Google Gemini</b> API 키(또는 <code>GEMINI_API_KEY</code>)를 씁니다. 장면은 대화 엔진이 영어 문장 묘사로 옮겨 보냅니다.
+            이미지 모델은 무료 등급에서 쓸 수 없어 결제가 켜진 키가 필요하고, 그림마다 요금이 나갑니다. 모든 그림에 SynthID 워터마크가 들어갑니다.
+          </p>
+          <label class="field"><span>이미지 모델</span>
+            <span class="model-row">
+              <input id="i-gmodel" spellcheck="false" placeholder="gemini-3.1-flash-image">
+              <button id="i-gmodels" class="ghost-btn" type="button">불러오기</button>
+            </span>
+          </label>
+          <p id="i-gstatus" class="field-hint">불러오기를 누르면 이 키로 쓸 수 있는 이미지 모델이 나옵니다.</p>
+          <div class="grid-2 even">
+            <label class="field"><span>비율</span>
+              <select id="i-gratio">
+                <option value="2:3">세로 2:3</option>
+                <option value="3:4">세로 3:4</option>
+                <option value="4:5">세로 4:5</option>
+                <option value="9:16">세로 9:16 (폰 화면)</option>
+                <option value="1:1">정사각 1:1</option>
+                <option value="5:4">가로 5:4</option>
+                <option value="4:3">가로 4:3</option>
+                <option value="3:2">가로 3:2</option>
+                <option value="16:9">가로 16:9</option>
+                <option value="21:9">가로 21:9</option>
+              </select>
+            </label>
+            <label class="field"><span>해상도 <small class="field-hint">— 높을수록 비쌉니다</small></span>
+              <select id="i-gsize">
+                <option value="">모델 기본</option>
+                <option value="1K">1K</option>
+                <option value="2K">2K</option>
+                <option value="4K">4K</option>
+              </select>
+            </label>
+          </div>
+          <label class="field"><span>그림 스타일 <small class="field-hint">— 장면 묘사 앞에 붙습니다. 영어로 쓰는 편이 잘 듣습니다</small></span>
+            <textarea id="i-gstyle" rows="3"></textarea></label>
+          <p class="field-hint">부정 프롬프트·시드·스텝은 Gemini 가 받지 않아 칸이 없습니다. 성인 모드 대화는 개발자 탭에서 클라우드 엔진 제한을 풀기 전에는 Gemini 로 그리지 않고, 아래 고정 차단 목록은 묘사 문장에도 똑같이 적용됩니다.</p>
+        </div>
+
+        <!-- ComfyUI 로 그릴 때 -->
+        <div id="i-comfy" class="stack">
         <label class="field"><span>ComfyUI 주소</span>
           <span class="model-row">
             <input id="i-baseurl" spellcheck="false" placeholder="http://127.0.0.1:8188">
@@ -445,6 +533,14 @@
           </span>
         </label>
         <p id="i-status" class="field-hint">Docker 로 돌린다면 PC 주소(예: http://192.168.0.10:8188)를 쓰고, compose 의 LOCAL_ENGINE_HOSTS 에 그 IP 를 넣어 주세요.</p>
+
+        <label class="field"><span>프롬프트 방식</span>
+          <select id="i-pstyle">
+            <option value="tags">태그 — SDXL 애니메 계열 (Illustrious · NoobAI · Pony)</option>
+            <option value="prose">문장 묘사 — Z-Image · Flux 등</option>
+          </select>
+        </label>
+        <p id="i-pstyle-note" class="field-hint"></p>
 
         <label class="field"><span>체크포인트 <small class="field-hint">— 기본 워크플로에서 씁니다</small></span>
           <input id="i-checkpoint" spellcheck="false" placeholder="연결 확인을 누르면 목록이 나옵니다">
@@ -465,7 +561,7 @@
         </div>
         <p id="i-lists-note" class="field-hint">샘플러·스케줄러는 흔히 쓰는 목록입니다. 연결 확인을 누르면 ComfyUI 가 실제로 지원하는 목록으로 바뀝니다.</p>
 
-        <label class="field"><span>앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small></span>
+        <label class="field"><span id="i-prefix-label">앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small></span>
           <textarea id="i-prefix" rows="2" spellcheck="false"></textarea></label>
         <label class="field"><span>네거티브</span><textarea id="i-negative" rows="2" spellcheck="false"></textarea></label>
 
@@ -486,11 +582,15 @@
           <input id="i-free" type="checkbox">
           <span>그린 뒤 ComfyUI 메모리 비우기 — LLM 과 같은 GPU 를 쓸 때 켜 두세요. 다음 그림은 모델을 다시 올리느라 조금 늦게 시작합니다</span>
         </label>
+        </div>
+
         <label class="check-row">
           <input id="i-review" type="checkbox">
-          <span>그리기 전에 태그 검토하기 — 🎨 그리기를 누르면 AI 가 만든 태그를 먼저 보여 주고, 확인·수정한 뒤에 그립니다</span>
+          <span>그리기 전에 검토하기 — 🎨 그리기를 누르면 AI 가 만든 태그(문장 묘사 방식과 회사 API 는 장면 묘사)를 먼저 보여 주고, 확인·수정한 뒤에 그립니다</span>
         </label>
 
+        <!-- 태그를 다루는 필터라 ComfyUI 태그 방식에만 있습니다 -->
+        <div id="i-adult-filter" class="stack">
         <div class="divider"></div>
         <h3 class="sheet-sub">성인 대화 필터</h3>
         <p class="field-hint">성인 모드 대화에서 그릴 때만 적용됩니다. 쉼표로 구분하고, <code>*</code> 는 아무 글자나로 봅니다 (예: <code>*blood*</code>).</p>
@@ -498,6 +598,8 @@
         <label class="field"><span>지울 태그 <small class="field-hint">— 장면 태그에 섞여 나오면 빼고 그립니다</small></span>
           <textarea id="i-block" rows="2" spellcheck="false" placeholder="gore, *blood*, vomit"></textarea></label>
         <label class="field"><span>더할 네거티브</span><textarea id="i-extra-neg" rows="2" spellcheck="false"></textarea></label>
+        </div>
+        <div class="divider"></div>
         <details class="core-block">
           <summary>고정 차단 목록 — 모든 대화에 적용, 수정할 수 없습니다</summary>
           <p class="field-hint">
@@ -682,11 +784,11 @@
     <h2 class="sheet-title" id="tg-title">그릴 태그 확인</h2>
     <div class="sheet-body">
       <p id="tg-hint" class="field-hint"></p>
-      <label class="field"><span>태그 <small class="field-hint">— 그릴 것. 쉼표로 구분합니다</small></span>
+      <label class="field"><span id="tg-text-label">태그 <small class="field-hint">— 그릴 것. 쉼표로 구분합니다</small></span>
         <textarea id="tg-text" rows="6" spellcheck="false"></textarea>
       </label>
       <p id="tg-removed" class="field-hint is-warn" hidden></p>
-      <label class="field"><span>부정 태그 <small class="field-hint">— 그림에 나오면 안 되는 것</small></span>
+      <label id="tg-negative-field" class="field"><span>부정 태그 <small class="field-hint">— 그림에 나오면 안 되는 것</small></span>
         <textarea id="tg-negative" rows="4" spellcheck="false"></textarea>
       </label>
       <div id="tg-model-row" hidden>
@@ -695,7 +797,7 @@
         </label>
         <p id="tg-model-note" class="field-hint"></p>
       </div>
-      <p class="field-hint">앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.</p>
+      <p id="tg-foot-hint" class="field-hint">앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.</p>
     </div>
     <div class="sheet-foot">
       <label id="tg-skip-row" class="check-row">

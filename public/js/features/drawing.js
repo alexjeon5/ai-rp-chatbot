@@ -3,6 +3,42 @@ import { api, drawImage } from '../api.js';
 import * as ui from '../ui.js';
 import { $, esc, on } from '../core/dom.js';
 
+/** 회사 API 로 그리는 곳의 화면 이름. 이 곳들은 부정 프롬프트와 체크포인트가 없습니다. */
+const API_NAMES = { gemini: 'Gemini', openai: 'OpenAI' };
+
+/** 검토·고쳐 그리기 창의 문구. ComfyUI 태그 방식은 태그를, 그 밖에는 영어 장면 묘사를 고칩니다. */
+function tagCopy(image = {}) {
+  const api = API_NAMES[image.backend];
+  if (api) {
+    return {
+      label: '장면 묘사 <small class="field-hint">— 한국어로 고쳐 써도 알아듣습니다</small>',
+      reviewTitle: '그릴 장면 확인',
+      editTitle: '묘사 고쳐 그리기',
+      reviewHint: `AI 가 장면을 읽고 쓴 묘사입니다. 고친 뒤 그리기를 누르면 ${api} 로 그립니다.`,
+      editHint: `이 그림에 쓴 묘사입니다. 고친 뒤 그리기를 누르면 ${api} 로 다시 그립니다.`,
+      foot: '설정의 그림 스타일은 그릴 때 앞에 붙고, 고정 차단 목록도 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
+    };
+  }
+  if (image.promptStyle === 'prose') {
+    return {
+      label: '장면 묘사 <small class="field-hint">— 영어 문장</small>',
+      reviewTitle: '그릴 장면 확인',
+      editTitle: '묘사 고쳐 그리기',
+      reviewHint: 'AI 가 장면을 읽고 쓴 묘사입니다. 고친 뒤 그리기를 누르세요.',
+      editHint: '이 그림에 쓴 묘사와 모델입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.',
+      foot: '앞에 붙일 글, 설정의 네거티브, 고정 차단 목록·고정 네거티브는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
+    };
+  }
+  return {
+    label: '태그 <small class="field-hint">— 그릴 것. 쉼표로 구분합니다</small>',
+    reviewTitle: '그릴 태그 확인',
+    editTitle: '태그 고쳐 그리기',
+    reviewHint: 'AI 가 장면을 읽고 만든 태그입니다. 빼거나 더할 태그를 고친 뒤 그리기를 누르세요.',
+    editHint: '이 그림에 쓴 태그와 모델입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.',
+    foot: '앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
+  };
+}
+
 export class Drawing {
   constructor(app) {
     this.app = app;
@@ -111,10 +147,15 @@ export class Drawing {
    */
   askTags({ prompt, negative = '', review = false, removed = [], checkpoint = '' }) {
     const dlg = this.tags;
-    $('tg-title').textContent = review ? '그릴 태그 확인' : '태그 고쳐 그리기';
-    $('tg-hint').textContent = review
-      ? 'AI 가 장면을 읽고 만든 태그입니다. 빼거나 더할 태그를 고친 뒤 그리기를 누르세요.'
-      : '이 그림에 쓴 태그와 모델입니다. 고친 뒤 그리기를 누르면 새 시드로 다시 그립니다.';
+    // 회사 API 는 부정 프롬프트와 체크포인트가 없어서 그 칸을 숨깁니다.
+    const image = this.state.settings.image || {};
+    const viaApi = Boolean(API_NAMES[image.backend]);
+    const copy = tagCopy(image);
+    $('tg-title').textContent = review ? copy.reviewTitle : copy.editTitle;
+    $('tg-hint').textContent = review ? copy.reviewHint : copy.editHint;
+    $('tg-text-label').innerHTML = copy.label;
+    $('tg-foot-hint').textContent = copy.foot;
+    $('tg-negative-field').hidden = viaApi;
     $('tg-text').value = prompt;
     $('tg-negative').value = negative;
     $('tg-removed').hidden = !removed.length;
@@ -122,10 +163,10 @@ export class Drawing {
     // '다음부터 묻지 않기' 는 🎨 그리기의 검토에만 해당합니다.
     $('tg-skip-row').hidden = !review;
     $('tg-skip').checked = false;
-    $('tg-model-row').hidden = review;
+    $('tg-model-row').hidden = review || viaApi;
     dlg.returnValue = '';
     dlg.showModal();
-    if (!review) this.loadModelChoice(checkpoint);
+    if (!review && !viaApi) this.loadModelChoice(checkpoint);
     $('tg-text').focus();
 
     return new Promise((resolve) => {
@@ -140,8 +181,8 @@ export class Drawing {
             ui.toast(`설정을 저장하지 못했습니다 — ${e.message}`);
           }
         }
-        const picked = { prompt: tags, negative: $('tg-negative').value.trim() };
-        if (!review && !$('tg-checkpoint').disabled && $('tg-checkpoint').value) picked.checkpoint = $('tg-checkpoint').value;
+        const picked = { prompt: tags, negative: viaApi ? '' : $('tg-negative').value.trim() };
+        if (!review && !viaApi && !$('tg-checkpoint').disabled && $('tg-checkpoint').value) picked.checkpoint = $('tg-checkpoint').value;
         resolve(picked);
       }, { once: true });
     });

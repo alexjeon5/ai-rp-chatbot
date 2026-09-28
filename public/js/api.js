@@ -34,6 +34,7 @@ export const api = {
   importBackup: (data, includeSettings) =>
     req('/api/import', { method: 'POST', body: { data, includeSettings } }),
   imageCheckpoints: (baseUrl) => req(`/api/image/checkpoints?baseUrl=${encodeURIComponent(baseUrl)}`),
+  imageApiModels: (backend) => req(`/api/image/models/${encodeURIComponent(backend)}`),
   deleteImage: (chatId, mid, imgId) =>
     req(`/api/chats/${chatId}/messages/${mid}/images/${imgId}`, { method: 'DELETE' }),
   logs: () => req('/api/logs'),

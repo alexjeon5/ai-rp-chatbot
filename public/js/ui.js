@@ -192,7 +192,9 @@ function imageFigure(chatId, img) {
     <a class="img-open" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="장면 그림" loading="lazy" title="${esc(`${img.checkpoint ? `모델: ${img.checkpoint}\n` : ''}${img.prompt || ''}`)}"></a>
     <figcaption>
       <button type="button" class="tool" data-act="img-redraw" title="같은 장면을 다른 시드로">다시 그리기</button>
-      <button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>
+      ${img.backend === 'gemini' || img.backend === 'openai' || img.style === 'prose'
+        ? '<button type="button" class="tool" data-act="img-edit" title="장면 묘사를 직접 고쳐 다시 그립니다">묘사 고쳐 그리기</button>'
+        : '<button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>'}
       <button type="button" class="tool" data-act="img-del">삭제</button>
     </figcaption>
   </figure>`;

@@ -1,4 +1,4 @@
-/** 설정 창의 이미지 탭 (ComfyUI 장면 그리기). */
+/** 설정 창의 이미지 탭 (장면 그리기 — ComfyUI 또는 Google Gemini). */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { makeCombo } from '../select.js';
@@ -13,6 +13,9 @@ function fillChoice(id, list, current) {
   $(id).value = current || items[0] || '';
 }
 
+/** 회사 API 로 그리는 곳과, 설정 창에서 그 칸들의 id 앞머리 (i-gmodel, i-ostatus …). */
+const API_IDS = { gemini: 'g', openai: 'o' };
+
 export class ImageSettings {
   constructor(app) {
     this.state = app.state;
@@ -23,7 +26,20 @@ export class ImageSettings {
     // 체크포인트 입력칸. 연결 확인으로 받은 목록에서 고르거나 이름을 직접 적습니다.
     this.checkpoints = [];
 
+    // 불러오기로 받은 회사별 이미지 모델 목록.
+    this.apiModels = { gemini: [], openai: [] };
+
     on('i-enabled', 'change', () => this.paintOptions());
+    on('i-backend', 'change', () => this.paintBackend());
+    on('i-pstyle', 'change', () => this.paintPromptStyle());
+    for (const [backend, p] of Object.entries(API_IDS)) {
+      makeCombo($(`i-${p}model`), {
+        items: () => this.apiModels[backend],
+        emptyText: '불러오기를 누르면 이 키로 쓸 수 있는 이미지 모델이 나옵니다. 이름을 직접 적어도 됩니다.',
+        noMatchText: (q) => `'${q}' 와 일치하는 모델이 없습니다. 적은 이름을 그대로 써도 됩니다.`
+      });
+      on(`i-${p}models`, 'click', () => this.loadApiModels(backend));
+    }
     this.combo = makeCombo($('i-checkpoint'), {
       items: () => this.checkpoints,
       emptyText: '연결 확인을 누르면 ComfyUI 의 체크포인트 목록이 나옵니다. 이름을 직접 적어도 됩니다.',
@@ -62,12 +78,64 @@ export class ImageSettings {
     $('i-options').hidden = !$('i-enabled').checked;
   }
 
+  /** 고른 곳의 설정만 보여 줍니다. 숨긴 쪽 입력값도 저장 때 함께 갑니다. */
+  paintBackend() {
+    const backend = $('i-backend').value;
+    $('i-comfy').hidden = backend !== 'comfyui';
+    for (const b of Object.keys(API_IDS)) $(`i-${b}`).hidden = backend !== b;
+    this.paintPromptStyle();
+  }
+
+  /**
+   * ComfyUI 의 프롬프트 방식에 맞춰 '앞에 붙일' 칸의 이름과 안내를 바꿉니다.
+   * 붙일·지울 태그를 다루는 성인 대화 필터는 ComfyUI 태그 방식에만 보입니다.
+   */
+  paintPromptStyle() {
+    const prose = $('i-pstyle').value === 'prose';
+    $('i-adult-filter').hidden = $('i-backend').value !== 'comfyui' || prose;
+    $('i-prefix-label').innerHTML = prose
+      ? '앞에 붙일 글 <small class="field-hint">— 그림 스타일. 장면 묘사 앞에 붙습니다</small>'
+      : '앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small>';
+    $('i-pstyle-note').textContent = prose
+      ? 'AI 가 장면을 영어 문장으로 묘사해 보냅니다. Z-Image·Flux 는 모델·텍스트 인코더·VAE 파일이 나뉘어 있어 기본 워크플로로는 그릴 수 없습니다. ' +
+        'ComfyUI 에서 그 모델의 워크플로를 Save (API Format) 으로 내보내, 프롬프트 칸에 {{prompt}} 를 적어 올려 주세요.'
+      : 'AI 가 장면을 Danbooru 태그로 옮기고, 캐릭터의 외형 태그와 앞에 붙일 태그를 합쳐 보냅니다.';
+  }
+
+  async loadApiModels(backend) {
+    const p = API_IDS[backend];
+    $(`i-${p}status`).textContent = '모델 목록을 받는 중…';
+    try {
+      const { models } = await api.imageApiModels(backend);
+      this.apiModels[backend] = models;
+      if (!$(`i-${p}model`).value && models.length) $(`i-${p}model`).value = models[0];
+      $(`i-${p}status`).textContent = models.length
+        ? `이미지 모델 ${models.length}개를 받았습니다. 입력칸을 누르면 목록이 나옵니다.`
+        : '이 키로 쓸 수 있는 이미지 모델이 없습니다.';
+    } catch (e) {
+      $(`i-${p}status`).textContent = `받지 못했습니다 — ${e.message}`;
+    }
+  }
+
   fill() {
     const { settings } = this.state;
     const img = settings.image || {};
+    const gem = img.gemini || {};
+    const oai = img.openai || {};
     this.draftWorkflow = undefined;
     $('i-enabled').checked = Boolean(img.enabled);
     this.paintOptions();
+    $('i-backend').value = ['gemini', 'openai'].includes(img.backend) ? img.backend : 'comfyui';
+    $('i-pstyle').value = img.promptStyle === 'prose' ? 'prose' : 'tags';
+    this.paintBackend();
+    $('i-gmodel').value = gem.model || '';
+    $('i-gsize').value = gem.imageSize || '';
+    $('i-gratio').value = gem.aspectRatio || '2:3';
+    $('i-gstyle').value = gem.style || '';
+    $('i-omodel').value = oai.model || '';
+    $('i-osize').value = oai.size || '1024x1536';
+    $('i-oquality').value = oai.quality || 'auto';
+    $('i-ostyle').value = oai.style || '';
     $('i-baseurl').value = img.baseUrl || '';
     $('i-checkpoint').value = img.checkpoint || '';
     const size = `${img.width}x${img.height}`;
@@ -93,6 +161,20 @@ export class ImageSettings {
     const [width, height] = $('i-size').value.split('x').map(Number);
     const image = {
       enabled: $('i-enabled').checked,
+      backend: $('i-backend').value,
+      promptStyle: $('i-pstyle').value,
+      openai: {
+        model: $('i-omodel').value.trim(),
+        size: $('i-osize').value,
+        quality: $('i-oquality').value,
+        style: $('i-ostyle').value.trim()
+      },
+      gemini: {
+        model: $('i-gmodel').value.trim(),
+        imageSize: $('i-gsize').value,
+        aspectRatio: $('i-gratio').value,
+        style: $('i-gstyle').value.trim()
+      },
       baseUrl: $('i-baseurl').value.trim(),
       checkpoint: $('i-checkpoint').value.trim(),
       width,

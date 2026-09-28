@@ -1,12 +1,16 @@
 /**
- * ComfyUI 로 장면 그림을 그립니다.
+ * 장면 그림을 그립니다. 그리는 곳(backend)은 둘입니다.
  *
+ * ComfyUI (로컬)
  *   답변 ─▶ LLM 이 장면을 Danbooru 태그로 바꿈 ─▶ 태그 조립·필터 ─▶ ComfyUI /prompt
  *        ─▶ /history 로 끝날 때까지 기다림 ─▶ /view 로 받아 data/images 에 저장
+ *   워크플로는 ComfyUI 에서 'Save (API Format)' 으로 내보낸 JSON 을 그대로 씁니다.
+ *   값이 정확히 "{{seed}}" 처럼 자리표시자이면 그 값으로 바꿉니다. 올리지 않았으면
+ *   아래 기본 SDXL 워크플로를 씁니다.
  *
- * 워크플로는 ComfyUI 에서 'Save (API Format)' 으로 내보낸 JSON 을 그대로 씁니다.
- * 값이 정확히 "{{seed}}" 처럼 자리표시자이면 그 값으로 바꿉니다. 올리지 않았으면
- * 아래 기본 SDXL 워크플로를 씁니다.
+ * Google Gemini (API)
+ *   답변 ─▶ LLM 이 장면을 영어 문장 묘사로 바꿈 ─▶ 스타일 + 묘사 ─▶ models/{model}:generateContent
+ *   회사 모델은 태그보다 문장을 잘 알아듣고, 부정 프롬프트와 시드를 받지 않습니다.
  */
 
 import { logHttp, trimBody } from './logs.js';
@@ -14,8 +18,31 @@ import { logHttp, trimBody } from './logs.js';
 /* ---------------- 기본값 ---------------- */
 
 /** Illustrious / NoobAI 같은 SDXL 애니메 계열에 맞춘 기본값입니다. */
+const API_STYLE = 'Anime-style illustration with clean line art, soft cel shading and gentle lighting. No text, captions, speech bubbles or watermarks.';
+
 export const IMAGE_DEFAULTS = () => ({
   enabled: false,
+  // 'comfyui' | 'gemini' | 'openai'
+  backend: 'comfyui',
+  // ComfyUI 에 보낼 프롬프트 모양. 'tags' 는 SDXL 애니메 계열용 Danbooru 태그,
+  // 'prose' 는 Z-Image·Flux 처럼 LLM 텍스트 인코더를 쓰는 모델용 영어 문장 묘사입니다.
+  promptStyle: 'tags',
+  // OpenAI 로 그릴 때. 주소와 키는 설정 → 엔진의 OpenAI 것을 씁니다.
+  openai: {
+    model: 'gpt-image-2.5-flare',
+    size: '1024x1536',
+    quality: 'auto',
+    style: API_STYLE
+  },
+  // Gemini 로 그릴 때. 주소와 키는 설정 → 엔진의 Google Gemini 것을 씁니다.
+  gemini: {
+    model: 'gemini-3.1-flash-image',
+    // Gemini 가 받는 비율 중 하나(GEMINI_RATIOS). ComfyUI 의 픽셀 크기와는 따로 둡니다.
+    aspectRatio: '2:3',
+    // '' 이면 보내지 않고 모델 기본값을 씁니다. 모델마다 받는 값이 달라서입니다.
+    imageSize: '',
+    style: API_STYLE
+  },
   baseUrl: 'http://127.0.0.1:8188',
   checkpoint: '',
   width: 832,
@@ -39,6 +66,18 @@ export const IMAGE_DEFAULTS = () => ({
     extraNegative: ''
   }
 });
+
+/** 저장된 이미지 설정에 기본값을 깔아 둡니다. gemini 는 한 단계 안쪽이라 따로 합칩니다. */
+export function imageConfig(saved = {}) {
+  const base = IMAGE_DEFAULTS();
+  return {
+    ...base,
+    ...saved,
+    gemini: { ...base.gemini, ...(saved?.gemini || {}) },
+    openai: { ...base.openai, ...(saved?.openai || {}) },
+    adult: { ...base.adult, ...(saved?.adult || {}) }
+  };
+}
 
 /** 자리표시자가 들어 있는 기본 SDXL txt2img 워크플로 (ComfyUI API 형식). */
 export const DEFAULT_WORKFLOW = {
@@ -114,6 +153,17 @@ const CORE_RE = new RegExp(
 /** 미성년으로 읽히는 태그들을 돌려줍니다. 비어 있으면 통과입니다. */
 export function coreViolations(tags) {
   return tags.filter((t) => CORE_RE.test(t.toLowerCase()) || CORE_AGE.test(t));
+}
+
+/** 문장 묘사(Gemini)에서 같은 표현을 찾습니다. 태그처럼 나뉘어 있지 않아 글 전체를 훑습니다. */
+export function coreViolationsText(text = '') {
+  const lower = String(text).toLowerCase();
+  const found = new Set();
+  const all = new RegExp(CORE_RE.source, 'gi');
+  for (const m of lower.matchAll(all)) found.add(m[2]);
+  const age = new RegExp(CORE_AGE.source, 'gi');
+  for (const m of lower.matchAll(age)) found.add(m[0]);
+  return [...found];
 }
 
 /* ---------------- 태그 다루기 ---------------- */
@@ -265,6 +315,196 @@ export function seedOf(key = '') {
   let h = 2166136261;
   for (const ch of String(key)) h = Math.imul(h ^ ch.codePointAt(0), 16777619) >>> 0;
   return h % 4294967295;
+}
+
+/* ---------------- 장면 → 문장 묘사 (Gemini 용) ---------------- */
+
+export const IMAGE_DESCRIBE_SYSTEM = `You turn a role-play scene into a prompt for an image generation model. Write one English paragraph that describes a single illustration of the scene.
+
+Output rules:
+- Output exactly one line and nothing else: Description: <paragraph of 40 to 120 words>
+- Do not continue the story, do not reply to the characters, no lists, no Korean.
+
+What to describe, in this order: how many people -> each character's appearance (hair, eyes, build, clothing; use the given appearance notes) -> expression -> pose and action -> place and background -> time and lighting -> camera framing (close-up, upper body, full body, from the side ...).
+
+Rules:
+- Never write character names. Tell people apart by appearance.
+- Every character is an adult. Call them "young woman", "man", "adult woman" and so on. Never use words such as child, kid, minor, teen, teenage, baby or schoolgirl.
+- The viewer is never drawn. If a character looks at or talks to the viewer, write "looking at the viewer".
+- Only draw what actually happens in the scene. Do not describe art style or quality; that is added separately.`;
+
+const DESCRIBE_EXAMPLE_ANSWER = 'Description: A young adult woman with short silver hair and blue eyes, wearing a white blouse, smiles warmly as she takes hold of a black umbrella. She stands on a rainy city street at night, her hair slightly damp, streetlights reflecting on the wet pavement behind her. She is looking at the viewer. Upper body shot, soft light from the streetlamps.';
+
+export const IMAGE_DESCRIBE_RETRY_PROMPT =
+  'That was not the requested format. Reply again for the same scene with exactly one line: "Description: " followed by one English paragraph. Nothing else.';
+
+/** 장면 요청. 태그 요청과 같은 예시 장면을 쓰되, 답은 문단입니다. */
+export function buildDescribeMessages({ cast, scene, userName }) {
+  const [, , request] = buildImageMessages({ cast, scene, userName });
+  const ask = (text) => text.replace(/\nTags:$/, '\nDescription:');
+  return [
+    { role: 'user', content: ask(EXAMPLE_REQUEST) },
+    { role: 'assistant', content: DESCRIBE_EXAMPLE_ANSWER },
+    { role: 'user', content: ask(request.content) }
+  ];
+}
+
+/** 모델 출력에서 묘사 문단만 추립니다. 너무 짧으면 빈 문자열입니다. */
+export function parseDescription(text = '') {
+  let body = text.replace(/```\w*\n?/g, '').trim();
+  const marker = /(?:^|\n)\s*(?:\*\*)?(?:description|prompt|묘사)(?:\*\*)?\s*[:：]\s*/i.exec(body);
+  if (marker) body = body.slice(marker.index + marker[0].length);
+  body = body.replace(/\s+/g, ' ').replace(/^["']|["']$/g, '').trim().slice(0, 2000);
+  return body.length >= 20 ? body : '';
+}
+
+/* ---------------- Gemini 로 그리기 ---------------- */
+
+/** Gemini 이미지 모델이 받는 비율 (공식 문서의 aspectRatio 값). */
+export const GEMINI_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+
+const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+/** 그림 대신 돌아온 이유를 사람이 읽을 말로. */
+function geminiRefusal(json) {
+  const block = json?.promptFeedback?.blockReason;
+  if (block) return `Gemini 가 요청을 거부했습니다 (${block}). 묘사를 고쳐 다시 그려 보세요.`;
+  const cand = json?.candidates?.[0];
+  const said = (cand?.content?.parts || []).map((p) => p.text).filter(Boolean).join(' ').trim();
+  const reason = cand?.finishReason;
+  const lines = [`Gemini 가 그림을 돌려주지 않았습니다${reason && reason !== 'STOP' ? ` (${reason})` : ''}.`];
+  if (/SAFETY|PROHIBITED|BLOCK/i.test(reason || '')) lines.push('안전 정책에 걸린 것 같습니다. 묘사를 고쳐 다시 그려 보세요.');
+  if (said) lines.push(`모델의 말: "${said.slice(0, 200)}${said.length > 200 ? '…' : ''}"`);
+  return lines.join('\n');
+}
+
+function geminiHttpError(status, body, model) {
+  let message = '';
+  try { message = JSON.parse(body)?.error?.message || ''; } catch { /* 본문이 JSON 이 아닐 수 있습니다 */ }
+  const text = message || body.slice(0, 300);
+  if (status === 401 || status === 403) return `Gemini ${status}: API 키를 확인해 주세요 (설정 → 엔진 → Google Gemini).\n${text}`;
+  if (status === 404) return `Gemini 404: 이 계정에서 쓸 수 없는 모델입니다 (${model}). 설정 → 이미지에서 불러오기로 모델을 다시 골라 주세요.\n${text}`;
+  if (status === 429) return `Gemini 429: 사용량 한도에 걸렸습니다. 이미지 모델은 무료 등급 한도가 없거나 아주 적을 수 있습니다.\n${text}`;
+  if (status === 400 && /image_?size|imageConfig/i.test(text)) return `Gemini 400: 이 모델은 고른 해상도를 받지 않습니다. 설정 → 이미지에서 해상도를 '모델 기본'으로 두세요.\n${text}`;
+  return `Gemini ${status}: ${text}`;
+}
+
+/**
+ * Gemini 이미지 모델로 한 장 그립니다.
+ * @param {{ baseUrl: string, apiKey: string }} config  설정 → 엔진의 Google Gemini (키 채운 사본)
+ * @returns {Promise<{ buffer: Buffer, ext: string }>}
+ */
+export async function renderGemini({ config, model, prompt, aspectRatio, imageSize, signal, timeoutMs = 2 * 60_000 }) {
+  const url = `${trimSlash(config.baseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
+  const host = (() => { try { return new URL(url).host; } catch { return config.baseUrl; } })();
+  const path = `/models/${model}:generateContent`;
+  const start = Date.now();
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: { aspectRatio, ...(imageSize ? { imageSize } : {}) }
+    }
+  };
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      // 키는 쿼리스트링 대신 헤더로 보냅니다. URL 은 로그·프록시에 그대로 남습니다.
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)].filter(Boolean))
+    });
+  } catch (e) {
+    logHttp({ provider: 'gemini', host, path, kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
+    if (e.name === 'TimeoutError') throw new Error('Gemini 가 2분 안에 그림을 돌려주지 않아 멈췄습니다.');
+    if (e.name === 'AbortError') throw e;
+    throw new Error(`Gemini 에 연결하지 못했습니다 — ${e.message}`);
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    logHttp({ provider: 'gemini', host, path, kind: 'image', status: res.status, durationMs: Date.now() - start, error: trimBody(text, 600) });
+    throw new Error(geminiHttpError(res.status, text, model));
+  }
+  logHttp({ provider: 'gemini', host, path, kind: 'image', status: res.status, durationMs: Date.now() - start, detail: model });
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error('Gemini 응답을 읽지 못했습니다.'); }
+  const parts = json?.candidates?.[0]?.content?.parts || [];
+  // REST 는 inlineData 로 오지만, 일부 예제·프록시는 inline_data 로 적습니다.
+  const img = parts.map((p) => p.inlineData || p.inline_data).find((d) => d?.data);
+  if (!img) throw new Error(geminiRefusal(json));
+  const mime = img.mimeType || img.mime_type || 'image/png';
+  return { buffer: Buffer.from(img.data, 'base64'), ext: MIME_EXT[mime] || 'png' };
+}
+
+/* ---------------- OpenAI 로 그리기 ---------------- */
+
+/** gpt-image 계열이 받는 크기와 품질 (공식 문서). 'auto' 는 모델이 고릅니다. */
+export const OPENAI_SIZES = ['1024x1536', '1536x1024', '1024x1024', 'auto'];
+export const OPENAI_QUALITIES = ['auto', 'low', 'medium', 'high'];
+
+function openAiHttpError(status, body, model) {
+  let error = {};
+  try { error = JSON.parse(body)?.error || {}; } catch { /* 본문이 JSON 이 아닐 수 있습니다 */ }
+  const text = error.message || body.slice(0, 300);
+  if (error.code === 'moderation_blocked' || /safety system|moderation/i.test(text)) {
+    return `OpenAI 가 안전 정책에 걸려 그리지 않았습니다. 묘사를 고쳐 다시 그려 보세요.\n${text}`;
+  }
+  if (status === 401) return `OpenAI 401: API 키를 확인해 주세요 (설정 → 엔진 → OpenAI).\n${text}`;
+  if (status === 403 && /verif/i.test(text)) return `OpenAI 403: 이미지 모델을 쓰려면 OpenAI 콘솔에서 조직 인증(Organization Verification)을 먼저 마쳐야 합니다.\n${text}`;
+  if (status === 404) return `OpenAI 404: 이 계정에서 쓸 수 없는 모델입니다 (${model}). 설정 → 이미지에서 불러오기로 모델을 다시 골라 주세요.\n${text}`;
+  if (status === 429) return `OpenAI 429: 사용량 한도나 잔액을 확인해 주세요.\n${text}`;
+  return `OpenAI ${status}: ${text}`;
+}
+
+/**
+ * OpenAI Images API 로 한 장 그립니다. gpt-image 계열은 늘 b64_json 으로 돌려줍니다.
+ * @param {{ baseUrl: string, apiKey: string }} config  설정 → 엔진의 OpenAI (키 채운 사본)
+ * @returns {Promise<{ buffer: Buffer, ext: string }>}
+ */
+export async function renderOpenAi({ config, model, prompt, size, quality, signal, timeoutMs = 3 * 60_000 }) {
+  const url = `${trimSlash(config.baseUrl)}/images/generations`;
+  const host = (() => { try { return new URL(url).host; } catch { return config.baseUrl; } })();
+  const start = Date.now();
+  // dall-e 는 기본이 주소(url) 응답이고 품질 값도 달라서, 받는 것만 보냅니다.
+  const body = /^dall-e/i.test(model)
+    ? { model, prompt, n: 1, response_format: 'b64_json' }
+    : { model, prompt, n: 1, size, quality };
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)].filter(Boolean))
+    });
+  } catch (e) {
+    logHttp({ provider: 'openai', host, path: '/images/generations', kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
+    if (e.name === 'TimeoutError') throw new Error('OpenAI 가 3분 안에 그림을 돌려주지 않아 멈췄습니다.');
+    if (e.name === 'AbortError') throw e;
+    throw new Error(`OpenAI 에 연결하지 못했습니다 — ${e.message}`);
+  }
+  const text = await res.text();
+  const meta = { provider: 'openai', host, path: '/images/generations', kind: 'image', status: res.status, durationMs: Date.now() - start };
+  if (!res.ok) {
+    logHttp({ ...meta, error: trimBody(text, 600) });
+    throw new Error(openAiHttpError(res.status, text, model));
+  }
+  logHttp({ ...meta, detail: model });
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error('OpenAI 응답을 읽지 못했습니다.'); }
+  const item = json?.data?.[0];
+  if (!item?.b64_json) throw new Error('OpenAI 가 그림을 돌려주지 않았습니다.');
+  const ext = MIME_EXT[`image/${json.output_format || 'png'}`] || 'png';
+  return { buffer: Buffer.from(item.b64_json, 'base64'), ext };
+}
+
+/** OpenAI 모델 목록에서 이미지 모델만 추립니다. 채팅 엔진의 목록은 이미지 모델을 걸러 내서 따로 부릅니다. */
+export async function listOpenAiImageModels(config) {
+  const res = await fetch(`${trimSlash(config.baseUrl)}/models`, { headers: { Authorization: `Bearer ${config.apiKey}` } });
+  if (!res.ok) throw new Error(openAiHttpError(res.status, await res.text().catch(() => ''), ''));
+  const json = await res.json();
+  return (json.data || []).map((m) => m.id).filter((id) => /^(gpt-image|chatgpt-image|dall-e)/i.test(id || '')).sort();
 }
 
 /* ---------------- ComfyUI 통신 ---------------- */
