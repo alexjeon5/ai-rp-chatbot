@@ -44,6 +44,7 @@ export class ChatView {
     const sidebar = $('sidebar');
     on('btn-open-sidebar', 'click', () => sidebar.classList.add('open'));
     on('btn-close-sidebar', 'click', () => sidebar.classList.remove('open'));
+    on('sidebar-scrim', 'click', () => sidebar.classList.remove('open'));
   }
 
   async open(id) {

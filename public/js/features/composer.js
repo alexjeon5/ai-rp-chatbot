@@ -5,6 +5,9 @@ import { $, on } from '../core/dom.js';
 
 const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n));
 
+// 터치 화면의 가상 키보드에는 Shift+Enter 가 없어서, 그곳의 Enter 는 줄바꿈으로 두고 보내기는 버튼으로 합니다.
+const touchOnly = matchMedia('(hover: none) and (pointer: coarse)');
+
 export class Composer {
   constructor(app) {
     this.app = app;
@@ -13,6 +16,7 @@ export class Composer {
     input.addEventListener('input', () => this.grow());
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        if (touchOnly.matches && !e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
         this.send();
       }

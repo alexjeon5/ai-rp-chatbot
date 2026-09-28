@@ -64,6 +64,15 @@ html, body {
   margin: 0;
 }
 
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* 모바일 주소창이 나왔다 들어갈 때도 입력창이 화면 밖으로 밀리지 않게, 실제로 보이는 높이를 씁니다. */
+@supports (height: 100dvh) {
+  body { height: 100dvh; }
+}
+
+button, summary { -webkit-tap-highlight-color: transparent; }
+
 body {
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr);
@@ -1029,6 +1038,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overscroll-behavior: contain;
   padding: 18px 22px;
   display: grid;
+  /* 칸 폭을 창에 묶습니다. auto 로 두면 입력칸의 기본 폭만큼 칸이 넓어져 오른쪽이 창 밖으로 잘립니다. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -1098,6 +1109,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .sheet-foot {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   align-items: center;
   padding: 14px 22px;
@@ -1106,7 +1119,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .spacer { flex: 1; }
 
-.field { display: grid; gap: 6px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .field > span { font-size: 12.5px; color: var(--muted); }
 .field.short { max-width: 92px; }
 
@@ -1337,6 +1350,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .provider-box {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--line);
@@ -1437,6 +1451,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .fact-add { display: flex; gap: 6px; }
 .fact-add input {
   flex: 1;
+  min-width: 0;
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1800,13 +1815,131 @@ button, input, textarea, select { font: inherit; color: inherit; }
     transition: transform 0.2s ease;
   }
 
+  .sidebar {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+
   .sidebar.open { transform: none; box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); }
-  .stage-head, .messages, .composer { padding-left: 16px; padding-right: 16px; }
-  /* 버튼 줄이 제목 칸을 폭 0 으로 누르지 않게, 제목 아래 한 줄로 내립니다. ⋯ 메뉴가 화면 밖으로 안 나가게 오른쪽 정렬은 둡니다. */
-  .stage-head { flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 12px; }
-  .head-actions { flex-basis: 100%; }
+
+  /* 열린 사이드바 뒤를 어둡게 덮고, 누르면 닫습니다. */
+  .sidebar.open + .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(8, 5, 12, 0.55);
+  }
+
+  .stage-head, .messages, .composer {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  /*
+   * 제목 줄 + 버튼 줄 두 줄로 둡니다. ⋯ 메뉴는 제목 줄 오른쪽 끝에 붙여, 버튼 줄이 한 줄에 들어가게 합니다.
+   * 버튼 줄이 모자라면 선택기(대화 모드·페르소나)가 말줄임으로 줄어듭니다.
+   */
+  .stage-head {
+    position: relative;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    column-gap: 6px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-bottom: 10px;
+  }
+  .stage-title h1 { font-size: 17px; }
+  .stage-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stage-head:has(#btn-chat-menu:not([hidden])) .stage-title { padding-right: 44px; }
+  .head-actions { flex-basis: 100%; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; }
+  .head-actions > .sel { flex: 0 1 auto; min-width: 0; }
+  .head-actions > .sel > .sel-btn { width: 100%; }
+  .head-actions .chat-menu {
+    position: absolute;
+    top: calc(max(10px, env(safe-area-inset-top)) + 5px);
+    right: max(16px, env(safe-area-inset-right));
+  }
+  /* ⋯ 메뉴만 남으면(어시스턴트 대화) 빈 버튼 줄을 없앱니다. */
+  .head-actions:not(:has(> :not([hidden], .chat-menu))) { display: none; }
+
+  .messages { padding-top: 18px; padding-bottom: 24px; }
+
+  /* 입력창은 한 줄을 다 쓰고, 그 아래 [재전송][이어쓰기] … [보내기] 를 한 줄로 둡니다. */
+  .composer { padding-top: 10px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .composer-row { flex-direction: column; gap: 8px; }
+  .composer-side { flex-direction: row; align-items: center; }
+  #btn-send { order: 1; margin-left: auto; padding-left: 22px; padding-right: 22px; }
+  /* 세로 줄에서 flex: 1 이 남으면 composer.js 가 글에 맞춰 넣는 높이를 덮어써서, 입력창이 한 줄에 묶입니다. */
+  #input { flex: none; max-height: 35vh; max-height: 35dvh; }
+  #input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .composer-hint { margin-top: 6px; gap: 6px 10px; }
+  .ctx-bar { width: 64px; }
+  .quick-bar { flex-wrap: wrap; }
+  .quick-model { max-width: 150px; }
+
+  /* 입력창 위를 가리지 않게 알림은 위쪽에 띄웁니다. */
+  .toast {
+    top: calc(10px + env(safe-area-inset-top));
+    bottom: auto;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    border-radius: 14px;
+    text-align: center;
+  }
+
   .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; }
   .theme-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.sidebar-scrim { display: none; }
+
+@supports (height: 100dvh) {
+  .lightbox { height: 100dvh; max-height: 100dvh; }
+  .lb-figure img { max-height: calc(100dvh - 120px); }
+}
+
+/* 폰: 창(시트)을 화면 전체로 엽니다. 둘레 여백만큼 입력칸이 좁아지고, 안쪽 스크롤 영역도 작아지기 때문입니다. */
+@media (max-width: 640px) {
+  .sheet, .sheet-settings, .sheet-wide {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .sheet .sheet-inner { height: 100%; max-height: none; }
+  .sheet-title { padding: calc(14px + env(safe-area-inset-top)) 16px 12px; font-size: 17px; }
+  .sheet-body { padding: 16px; }
+  .sheet-foot { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+  .system-meta { flex-wrap: wrap; padding: 10px 16px; }
+  .system-body { padding: 12px 16px; }
+  .log-list { padding: 12px 16px; }
+
+  /* 페르소나 줄: 이름·소개를 한 줄 전체로 보이고, 버튼은 그 아래 오른쪽에 둡니다. */
+  #persona-list .persona-row { flex-wrap: wrap; justify-content: flex-end; }
+  #persona-list .persona-row .grow { flex-basis: 100%; }
+}
+
+/* 터치 화면: 마우스를 올릴 수 없으니 메시지 도구를 늘 보이고, 누르는 자리를 넓힙니다. */
+@media (hover: none) and (pointer: coarse) {
+  .turn-tools { opacity: 1; gap: 2px; margin-left: -8px; }
+  .turn.user .turn-tools { margin-left: 0; margin-right: -8px; }
+  .turn-tools .tool, .turn-image figcaption .tool { padding: 6px 8px; font-size: 13px; }
+  .swipe-nav .tool { padding: 6px 12px; font-size: 18px; }
+  .composer-hint .keys { display: none; }
+  .icon-btn { padding: 8px 12px; font-size: 20px; }
+  .rail-item { padding-top: 11px; padding-bottom: 11px; }
+  .quick-toggle, .quick-model { padding: 7px 12px; }
+  .sel--sm > .sel-btn { padding: 7px 10px; }
+
+  /* iOS 는 16px 보다 작은 입력칸을 누르면 화면을 확대합니다. */
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']),
+  textarea { font-size: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
