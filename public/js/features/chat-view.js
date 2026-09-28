@@ -247,6 +247,12 @@ export class ChatView {
     const { state, app } = this;
     const btn = e.target.closest('.tool');
     if (!btn) return;
+    // 코드 블록 복사는 쓰는 중인 답변에서도 됩니다. 메시지를 찾지 않고 그 블록의 글만 봅니다.
+    if (btn.dataset.act === 'copy-code') {
+      const code = btn.closest('.code-block')?.querySelector('code')?.textContent || '';
+      ui.toast(await ui.copyText(code) ? '코드를 복사했습니다' : '복사하지 못했습니다. 직접 선택해 복사해 주세요.');
+      return;
+    }
     const turn = btn.closest('.turn');
     const mid = turn.dataset.mid;
     const msg = state.chat.messages.find((m) => m.id === mid);
@@ -309,7 +315,8 @@ export class ChatView {
       if (settled) return;
       settled = true;
       const next = document.createElement('div');
-      next.className = state.isBubbles(state.chat) ? 'turn-text is-bubbles' : 'turn-text';
+      next.className = state.isBubbles(state.chat) ? 'turn-text is-bubbles'
+        : state.chat.kind === 'assistant' ? 'turn-text is-md' : 'turn-text';
       if (keep && ta.value.trim() !== msg.content) {
         msg.content = ta.value.trim();
         await api.editMessage(state.chat.id, msg.id, msg.content);

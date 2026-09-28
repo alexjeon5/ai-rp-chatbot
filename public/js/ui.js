@@ -225,7 +225,7 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
   li.innerHTML = `
     <div class="turn-name">${esc(speaker)}</div>
     ${message.thought ? `<details class="thought"><summary>생각 과정</summary><div class="thought-body">${esc(message.thought)}</div></details>` : ''}
-    <div class="turn-text${bubbles ? ' is-bubbles' : ''}">${formatText(message.content, { plain, bubbles })}</div>
+    <div class="turn-text${bubbles ? ' is-bubbles' : ''}${plain ? ' is-md' : ''}">${formatText(message.content, { plain, bubbles })}</div>
     ${message.sources?.length ? `<details class="sources"><summary>출처 ${message.sources.length}곳</summary><ol class="source-list">${message.sources
       .map((src) => `<li><a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title?.trim() || src.url)}</a></li>`)
       .join('')}</ol></details>` : ''}

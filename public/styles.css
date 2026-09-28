@@ -333,6 +333,50 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .turn-text pre code { padding: 0; background: none; }
 
+/*
+ * 마크다운은 렌더러가 줄바꿈을 태그로 바꿔 두므로, 본문의 pre-wrap 을 풉니다.
+ * 그대로 두면 블록 사이의 줄바꿈이 빈 줄로 보이고, 목록 표지와 글이 다른 줄로 떨어집니다.
+ */
+.turn-text.is-md { white-space: normal; }
+
+.turn-text li > p { margin: 0; }
+.turn-text li > p + * { margin-top: 6px; }
+.turn-text li > :last-child { margin-bottom: 0; }
+.turn-text li > ul, .turn-text li > ol { margin: 5px 0 0; }
+.turn-text li.task-item { list-style: none; }
+.turn-text .task-box { display: inline-block; width: 1.3em; margin-left: -1.3em; color: var(--brass-soft); }
+.turn-text li.task-item > p { display: inline; }
+.turn-text blockquote > :last-child { margin-bottom: 0; }
+
+.turn-text .al-left { text-align: left; }
+.turn-text .al-center { text-align: center; }
+.turn-text .al-right { text-align: right; }
+
+/* 코드 블록: 위쪽에 언어 이름과 복사 버튼을 두는 틀 */
+.turn-text .code-block {
+  margin: 8px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.turn-text .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--muted);
+}
+.turn-text .code-lang { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.turn-text .code-copy { padding: 2px 6px; }
+.turn-text .code-block pre { margin: 0; border: 0; border-radius: 0; }
+.turn-text.is-md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }
+.turn-text.is-md pre code { font-size: inherit; }
+
 .rail-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 12px; }
 
 .rail-group { padding: 6px 10px 14px; }
