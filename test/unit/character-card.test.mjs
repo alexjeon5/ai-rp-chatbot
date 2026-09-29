@@ -104,22 +104,22 @@ function fakeStore() {
   return { characters: table(), lorebooks: table() };
 }
 
-test('CharacterCards.import: 캐릭터를 만들고 세계관은 그 캐릭터에 묶인 로어북으로', () => {
+test('CharacterCards.import: 캐릭터를 만들고 세계관은 그 캐릭터에 묶인 로어북으로', async () => {
   const store = fakeStore();
-  const cards = new CharacterCards(store);
+  const cards = new CharacterCards(store, { setPortrait: async (id) => store.characters.get(id) });
   const card = v2({ name: '리아', character_book: { name: '왕국', entries: [{ keys: ['왕도'], content: '수도' }] } });
-  const out = cards.import({ png: png(tEXt('chara', b64(card))).toString('base64') });
+  const out = await cards.import({ png: png(tEXt('chara', b64(card))).toString('base64') });
   assert.equal(out.character.name, '리아');
   assert.equal(out.lorebook.name, '왕국');
   assert.deepEqual(out.lorebook.characterIds, [out.character.id]);
   assert.equal(out.lorebook.global, false);
-  assert.throws(() => cards.import({}), /카드 파일이 없습니다/);
-  assert.equal(cards.import({ card: { name: '세계관 없음' } }).lorebook, null);
+  await assert.rejects(() => cards.import({}), /카드 파일이 없습니다/);
+  assert.equal((await cards.import({ card: { name: '세계관 없음' } })).lorebook, null);
 });
 
 test('CharacterCards.export: 묶인 로어북만 담고 파일 이름을 안전하게', () => {
   const store = fakeStore();
-  const cards = new CharacterCards(store);
+  const cards = new CharacterCards(store, null);
   const ch = store.characters.add({ name: 'a/b:c', greeting: '안녕' });
   store.lorebooks.add({ name: '묶임', characterIds: [ch.id], ...cleanLorebook({ entries: [{ keys: 'k', content: 'v' }] }) });
   store.lorebooks.add({ name: '남의 책', characterIds: ['other'], ...cleanLorebook({ entries: [{ keys: 'k', content: 'v' }] }) });

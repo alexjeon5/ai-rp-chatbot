@@ -5,7 +5,7 @@
  */
 import { uid, merge } from '../db.js';
 import { CHARACTER_FIELDS, BUILTIN_CHARACTERS } from '../content/characters.js';
-import { cleanFacts } from '../chat-ops.js';
+import { cleanFacts, CHAT_FLAGS } from '../chat-ops.js';
 import { cleanLorebook } from '../lorebook.js';
 import { SAFE_ID, isObj, str, characterFields, normalizePersona } from './records.js';
 
@@ -43,6 +43,15 @@ const cleanSources = (list) => list.filter(isObj)
 /** 답변 한 장이 따로 들고 있는 값(엔진·사고·출처)을 옮겨 담습니다. */
 function copyVariantFields(from, to) {
   for (const k of ['provider', 'model', 'thought']) if (typeof from[k] === 'string') to[k] = from[k];
+  if (isObj(from.scene)) {
+    const scene = {};
+    for (const k of ['expression', 'place']) if (typeof from.scene[k] === 'string') scene[k] = from.scene[k].slice(0, 60);
+    if (Object.keys(scene).length) to.scene = scene;
+  }
+  const c = from.check;
+  if (isObj(c) && typeof c.label === 'string' && Number.isFinite(c.sides) && Number.isFinite(c.dc)) {
+    to.check = { label: c.label.slice(0, 20), sides: c.sides, dc: c.dc };
+  }
 }
 
 function cleanMessage(m) {
@@ -79,6 +88,7 @@ function cleanChat(raw) {
     messages
   };
   for (const k of ['presetId', 'memory', 'authorNote']) if (typeof raw[k] === 'string') chat[k] = raw[k];
+  for (const k of CHAT_FLAGS) if (raw[k] === true) chat[k] = true;
   if (Number.isFinite(raw.summaryUntilAt)) chat.summaryUntilAt = raw.summaryUntilAt;
   if (Number.isFinite(raw.archivedAt)) chat.archivedAt = raw.archivedAt;
   if (Array.isArray(raw.facts)) chat.facts = cleanFacts(raw.facts);

@@ -8,6 +8,17 @@ function toLogin(res) {
   return true;
 }
 
+/** 그림 파일을 그대로 본문에 실어 보냅니다. 종류는 Content-Type 으로 알립니다. */
+async function sendImage(url, method, blob) {
+  const res = await fetch(url, { method, headers: { 'Content-Type': blob.type }, body: blob });
+  if (toLogin(res)) throw new Error('로그인이 필요합니다.');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `올리지 못했습니다 (${res.status})`);
+  }
+  return res.json();
+}
+
 async function req(url, options = {}) {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
@@ -35,15 +46,7 @@ export const api = {
     req('/api/import', { method: 'POST', body: { data, includeSettings } }),
   imageCheckpoints: (baseUrl) => req(`/api/image/checkpoints?baseUrl=${encodeURIComponent(baseUrl)}`),
   imageApiModels: (backend) => req(`/api/image/models/${encodeURIComponent(backend)}`),
-  uploadAttachment: async (chatId, blob) => {
-    const res = await fetch(`/api/chats/${chatId}/attachments`, { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
-    if (toLogin(res)) throw new Error('로그인이 필요합니다.');
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `올리지 못했습니다 (${res.status})`);
-    }
-    return res.json();
-  },
+  uploadAttachment: (chatId, blob) => sendImage(`/api/chats/${chatId}/attachments`, 'POST', blob),
   discardAttachment: (chatId, file) => req(`/api/chats/${chatId}/attachments/${encodeURIComponent(file)}`, { method: 'DELETE' }),
   deleteImage: (chatId, mid, imgId) =>
     req(`/api/chats/${chatId}/messages/${mid}/images/${imgId}`, { method: 'DELETE' }),
@@ -60,6 +63,15 @@ export const api = {
   deleteCharacter: (id) => req(`/api/characters/${id}`, { method: 'DELETE' }),
   importCard: (body) => req('/api/characters/import', { method: 'POST', body }),
   cardUrl: (id) => `/api/characters/${id}/export`,
+  setPortrait: (id, blob) => sendImage(`/api/characters/${id}/portrait`, 'PUT', blob),
+  clearPortrait: (id) => req(`/api/characters/${id}/portrait`, { method: 'DELETE' }),
+  setExpression: (id, label, blob) => sendImage(`/api/characters/${id}/expressions?label=${encodeURIComponent(label)}`, 'PUT', blob),
+  removeExpression: (id, label) => req(`/api/characters/${id}/expressions?label=${encodeURIComponent(label)}`, { method: 'DELETE' }),
+
+  backgrounds: () => req('/api/backgrounds'),
+  addBackground: (name, blob) => sendImage(`/api/backgrounds?name=${encodeURIComponent(name)}`, 'POST', blob),
+  renameBackground: (id, name) => req(`/api/backgrounds/${id}`, { method: 'PUT', body: { name } }),
+  removeBackground: (id) => req(`/api/backgrounds/${id}`, { method: 'DELETE' }),
 
   personas: () => req('/api/personas'),
   createPersona: (body) => req('/api/personas', { method: 'POST', body }),
@@ -73,6 +85,7 @@ export const api = {
   updateLorebook: (id, body) => req(`/api/lorebooks/${id}`, { method: 'PUT', body }),
   deleteLorebook: (id) => req(`/api/lorebooks/${id}`, { method: 'DELETE' }),
   testLorebook: (id, text, entries) => req(`/api/lorebooks/${id}/test`, { method: 'POST', body: { text, entries } }),
+  suggestChoices: (chatId, count, signal) => req(`/api/chats/${chatId}/choices`, { method: 'POST', body: { count }, signal }),
   chatLore: (chatId) => req(`/api/chats/${chatId}/lore`),
 
   chats: () => req('/api/chats'),

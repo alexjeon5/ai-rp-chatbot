@@ -149,6 +149,7 @@ export class ImageSettings {
     $('i-negative').value = img.negative || '';
     $('i-free').checked = img.freeAfter !== false;
     $('i-review').checked = img.reviewTags !== false;
+    $('i-reference').checked = img.useReference === true;
     $('i-force').value = img.adult?.forceTags || '';
     $('i-block').value = img.adult?.blockTags || '';
     $('i-extra-neg').value = img.adult?.extraNegative || '';
@@ -187,6 +188,7 @@ export class ImageSettings {
       negative: $('i-negative').value.trim(),
       freeAfter: $('i-free').checked,
       reviewTags: $('i-review').checked,
+      useReference: $('i-reference').checked,
       adult: {
         forceTags: $('i-force').value.trim(),
         blockTags: $('i-block').value.trim(),

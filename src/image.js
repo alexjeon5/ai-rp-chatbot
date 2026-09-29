@@ -55,6 +55,8 @@ export const IMAGE_DEFAULTS = () => ({
   negative: 'lowres, worst quality, bad quality, bad anatomy, bad hands, extra digits, fewer digits, jpeg artifacts, signature, watermark, text, username, blurry',
   // ComfyUI 'Save (API Format)' JSON. null 이면 기본 워크플로.
   workflow: null,
+  // Gemini·OpenAI 로 그릴 때 캐릭터의 프로필 그림을 참조 이미지로 함께 보내 얼굴·머리·옷을 맞춥니다. 그림이 외부로 나가므로 직접 켭니다.
+  useReference: false,
   // 그린 뒤 ComfyUI 가 잡고 있는 VRAM 을 풀어 LLM 이 쓰게 합니다. 같은 PC 에서 돌릴 때 켭니다.
   freeAfter: true,
   // 🎨 그리기 때 LLM 이 만든 태그를 먼저 보여 주고, 확인(수정)한 뒤에 ComfyUI 로 보냅니다.
@@ -389,18 +391,29 @@ function geminiHttpError(status, body, model) {
   return `Gemini ${status}: ${text}`;
 }
 
+/** 그릴 글 앞에 참조 그림을 붙입니다. 참조가 없으면 글 하나뿐입니다. */
+export const REFERENCE_NOTE = 'The attached image is the character\'s design reference. Keep the same face, hair and outfit, and draw the scene below.';
+
+function geminiParts(prompt, reference) {
+  if (!reference) return [{ text: prompt }];
+  return [
+    { inlineData: { mimeType: reference.mime, data: reference.buffer.toString('base64') } },
+    { text: `${REFERENCE_NOTE}\n\n${prompt}` }
+  ];
+}
+
 /**
  * Gemini 이미지 모델로 한 장 그립니다.
  * @param {{ baseUrl: string, apiKey: string }} config  설정 → 엔진의 Google Gemini (키 채운 사본)
  * @returns {Promise<{ buffer: Buffer, ext: string }>}
  */
-export async function renderGemini({ config, model, prompt, aspectRatio, imageSize, signal, timeoutMs = 2 * 60_000 }) {
+export async function renderGemini({ config, model, prompt, aspectRatio, imageSize, reference, signal, timeoutMs = 2 * 60_000 }) {
   const url = `${trimSlash(config.baseUrl)}/models/${encodeURIComponent(model)}:generateContent`;
   const host = (() => { try { return new URL(url).host; } catch { return config.baseUrl; } })();
   const path = `/models/${model}:generateContent`;
   const start = Date.now();
   const body = {
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts: geminiParts(prompt, reference) }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
       imageConfig: { aspectRatio, ...(imageSize ? { imageSize } : {}) }
@@ -462,30 +475,44 @@ function openAiHttpError(status, body, model) {
  * @param {{ baseUrl: string, apiKey: string }} config  설정 → 엔진의 OpenAI (키 채운 사본)
  * @returns {Promise<{ buffer: Buffer, ext: string }>}
  */
-export async function renderOpenAi({ config, model, prompt, size, quality, signal, timeoutMs = 3 * 60_000 }) {
-  const url = `${trimSlash(config.baseUrl)}/images/generations`;
+export async function renderOpenAi({ config, model, prompt, size, quality, reference, signal, timeoutMs = 3 * 60_000 }) {
+  // 참조 그림은 gpt-image 계열의 편집(edits) 주소로만 받습니다. dall-e 는 참조 없이 그립니다.
+  const edit = Boolean(reference) && !/^dall-e/i.test(model);
+  const route = edit ? '/images/edits' : '/images/generations';
+  const url = `${trimSlash(config.baseUrl)}${route}`;
   const host = (() => { try { return new URL(url).host; } catch { return config.baseUrl; } })();
   const start = Date.now();
   // dall-e 는 기본이 주소(url) 응답이고 품질 값도 달라서, 받는 것만 보냅니다.
-  const body = /^dall-e/i.test(model)
+  const fields = /^dall-e/i.test(model)
     ? { model, prompt, n: 1, response_format: 'b64_json' }
-    : { model, prompt, n: 1, size, quality };
+    : { model, prompt: edit ? `${REFERENCE_NOTE}\n\n${prompt}` : prompt, n: 1, size, quality };
+  let body;
+  const headers = { Authorization: `Bearer ${config.apiKey}` };
+  if (edit) {
+    // 편집 주소는 JSON 이 아니라 multipart 로 받습니다. Content-Type 은 fetch 가 경계와 함께 채웁니다.
+    body = new FormData();
+    for (const [k, v] of Object.entries(fields)) body.append(k, String(v));
+    body.append('image', new Blob([reference.buffer], { type: reference.mime }), `reference.${reference.ext}`);
+  } else {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(fields);
+  }
   let res;
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify(body),
+      headers,
+      body,
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)].filter(Boolean))
     });
   } catch (e) {
-    logHttp({ provider: 'openai', host, path: '/images/generations', kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
+    logHttp({ provider: 'openai', host, path: route, kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
     if (e.name === 'TimeoutError') throw new Error('OpenAI 가 3분 안에 그림을 돌려주지 않아 멈췄습니다.');
     if (e.name === 'AbortError') throw e;
     throw new Error(`OpenAI 에 연결하지 못했습니다 — ${e.message}`);
   }
   const text = await res.text();
-  const meta = { provider: 'openai', host, path: '/images/generations', kind: 'image', status: res.status, durationMs: Date.now() - start };
+  const meta = { provider: 'openai', host, path: route, kind: 'image', status: res.status, durationMs: Date.now() - start };
   if (!res.ok) {
     logHttp({ ...meta, error: trimBody(text, 600) });
     throw new Error(openAiHttpError(res.status, text, model));

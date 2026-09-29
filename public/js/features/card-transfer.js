@@ -2,14 +2,7 @@
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, on } from '../core/dom.js';
-
-/** 바이트를 base64 로. 한 번에 다 넘기면 인자가 너무 많아지므로 잘라서 이어 붙입니다. */
-function toBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
+import { downscale, blobToBase64 } from '../core/image-resize.js';
 
 const isPng = (file) => file.type === 'image/png' || /\.png$/i.test(file.name);
 
@@ -27,9 +20,15 @@ export class CardTransfer {
     on('c-export', 'click', () => this.download(this.state.editingCharacterId));
   }
 
-  /** 파일을 서버가 읽을 본문으로. PNG 는 그대로 base64 로, JSON 은 여기서 한 번 해석해 봅니다. */
+  /**
+   * 파일을 서버가 읽을 본문으로. PNG 는 그대로 base64 로 보내고, 카드 그림은 줄여서 portrait 로 함께 보냅니다
+   * (카드 그림은 수 MB 일 수 있어서). 줄이지 못하면 서버가 원본 그림을 씁니다. JSON 은 여기서 한 번 해석해 봅니다.
+   */
   async payloadOf(file) {
-    if (isPng(file)) return { png: toBase64(await file.arrayBuffer()) };
+    if (isPng(file)) {
+      const small = await downscale(file, { max: 1024 });
+      return { png: await blobToBase64(file), ...(small && small !== file ? { portrait: await blobToBase64(small) } : {}) };
+    }
     try {
       return { card: JSON.parse(await file.text()) };
     } catch {

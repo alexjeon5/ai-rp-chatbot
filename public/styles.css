@@ -429,6 +429,17 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font-size: 15px;
 }
 
+.rail-avatar.has-img,
+.cast-avatar.has-img { overflow: hidden; background: var(--panel-2); }
+
+.has-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
+}
+
 .rail-body {
   display: block;
   flex: 1;
@@ -676,6 +687,17 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font-size: 13px;
   color: var(--brass);
   margin-bottom: 4px;
+}
+
+.turn-avatar {
+  width: 22px;
+  height: 22px;
+  margin-right: 7px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center top;
+  vertical-align: -6px;
+  border: 1px solid var(--line);
 }
 
 .turn-text {
@@ -935,6 +957,38 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 14px; line-height: 1; cursor: pointer;
 }
 .attach-x:hover { background: var(--danger); }
+
+/* 선택지 칩 · 주사위 · 판정 버튼 */
+.choices-tray { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; max-width: 720px; margin: 0 auto 8px; }
+.choices-tray[hidden], .dice-pop[hidden], .check-btn[hidden] { display: none; }
+.choice-chip {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 100%; padding: 7px 12px;
+  border: 1px solid var(--brass-soft); border-radius: 12px; background: var(--bg); color: var(--text);
+  font-size: 13px; line-height: 1.4; text-align: left; cursor: pointer;
+}
+.choice-chip:hover { border-color: var(--brass); background: var(--panel); }
+.choice-check { font-size: 11px; color: var(--brass); }
+.choices-close { align-self: center; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 4px 8px; cursor: pointer; }
+.choices-close:hover { color: var(--text); }
+.composer-hint { position: relative; }
+.dice-wrap { display: contents; }
+.dice-pop {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; width: 260px; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.dice-pop .field-hint { display: block; }
+.dice-sides { display: flex; flex-wrap: wrap; gap: 6px; }
+.dice-face {
+  min-width: 52px; padding: 8px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  color: var(--text); font-size: 14px; cursor: pointer;
+}
+.dice-face:hover { border-color: var(--brass); color: var(--brass); }
+.dice-fields { display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.dice-fields label { display: flex; align-items: center; gap: 6px; }
+.dice-fields input { width: 56px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+.check-btn { padding: 4px 10px; border: 1px solid var(--brass-soft); border-radius: 999px; color: var(--brass); font-size: 12px; }
+.check-btn:hover { background: var(--bg); }
 
 /* 대화 속에 붙어 있는 사용자 그림 */
 .turn-attach { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -2005,11 +2059,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .composer-row, .composer-side, .composer-hint, .quick-bar { display: contents; }
   .composer::after { content: ''; order: 3; flex-basis: 100%; height: 0; }
   #stream-status { order: 0; flex-basis: 100%; margin: 0 0 2px; }
-  .attach-tray { order: 0; flex-basis: 100%; margin: 0; }
+  .attach-tray, .choices-tray { order: 0; flex-basis: 100%; margin: 0; }
+  .choices-tray { flex-wrap: nowrap; overflow-x: auto; }
+  .choice-chip { flex: none; max-width: 80%; }
+  .dice-pop { right: 0; left: 0; width: auto; bottom: calc(100% + 4px); }
   #input { order: 1; flex: 1 1 0; min-width: 0; max-height: 35vh; max-height: 35dvh; padding: 10px 12px; }
   #input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #btn-send { order: 2; height: 45px; padding: 0 16px; }
-  #btn-regen, #btn-continue, .quick-bar > * { order: 4; }
+  #btn-regen, #btn-continue, #btn-dice, .quick-bar > * { order: 4; }
   .composer-hint .keys, #active-model { display: none; }
 
   /* 재전송·이어쓰기는 아이콘만. 글자는 남겨 두어 화면 낭독기와 title 은 그대로 읽힙니다. */
@@ -2176,3 +2233,129 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .usage-bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: var(--brass-soft); }
 .usage-bar:last-child i { background: var(--brass); }
 @media (max-width: 640px) { .usage-total { grid-template-columns: repeat(2, 1fr); } }
+
+/* 캐릭터 창의 그림 칸 */
+.art-box { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.art-portrait { display: flex; gap: 14px; align-items: flex-start; }
+.art-thumb {
+  flex: none;
+  width: 96px;
+  height: 128px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.art-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.art-empty { font-size: 12px; color: var(--muted); }
+.art-side { display: grid; gap: 8px; min-width: 0; }
+.art-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.art-actions .field { flex: 1; min-width: 120px; }
+.art-exprs { display: grid; gap: 8px; }
+.art-expr-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.art-expr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 13px;
+}
+.art-expr img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; object-position: center top; }
+
+/* 비주얼 노벨 화면 */
+.vn-stage {
+  position: relative;
+  flex: none;
+  height: clamp(200px, 34vh, 340px);
+  overflow: hidden;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+  background: radial-gradient(ellipse at 50% 120%, var(--panel-2), var(--bg));
+  transition: height 0.25s ease;
+}
+.vn-stage[hidden] { display: none; }
+.vn-stage.is-compact { height: 72px; }
+.vn-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.vn-bg.on { opacity: 1; }
+.vn-stage.has-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(8, 5, 12, 0.55), transparent 45%);
+  pointer-events: none;
+}
+.vn-sprite {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1;
+}
+.vn-sprite img {
+  height: 100%;
+  max-width: 70%;
+  object-fit: contain;
+  object-position: bottom;
+  animation: vn-in 0.35s ease;
+}
+.vn-face { font-size: clamp(64px, 14vh, 120px); line-height: 1; margin-bottom: 14%; animation: vn-in 0.35s ease; }
+@keyframes vn-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.vn-chip {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(8, 5, 12, 0.6);
+  color: #f1e9da;
+  font-size: 12px;
+  backdrop-filter: blur(4px);
+}
+.vn-place { left: 12px; }
+.vn-mood { right: 12px; }
+.vn-hint {
+  position: absolute;
+  z-index: 2;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.vn-stage.is-compact .vn-hint, .vn-stage.is-compact .vn-mood { display: none; }
+@media (max-width: 640px) {
+  .vn-stage { height: clamp(150px, 26vh, 240px); }
+  .vn-stage.is-compact { height: 56px; }
+}
+
+/* 배경 관리 */
+.bg-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bg-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.bg-item img { flex: none; width: 96px; height: 54px; border-radius: 6px; object-fit: cover; }
+.bg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ghost-btn.danger { color: var(--danger); }
+
+#btn-dice::before { display: none; }

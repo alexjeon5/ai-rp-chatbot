@@ -10,6 +10,8 @@ import { Attachments } from '../services/attachments.js';
 import { LoreBooks } from '../services/lorebooks.js';
 import { UsageLedger } from '../services/usage-ledger.js';
 import { CharacterCards } from '../services/character-cards.js';
+import { CharacterArt } from '../services/character-art.js';
+import { Backgrounds } from '../services/backgrounds.js';
 import { SettingsRoutes } from './routes/settings.js';
 import { LibraryRoutes } from './routes/library.js';
 import { ChatRoutes } from './routes/chats.js';
@@ -18,6 +20,8 @@ import { ImageRoutes } from './routes/images.js';
 import { AttachmentRoutes } from './routes/attachments.js';
 import { LorebookRoutes } from './routes/lorebooks.js';
 import { CharacterCardRoutes } from './routes/character-cards.js';
+import { CharacterArtRoutes } from './routes/character-art.js';
+import { BackgroundRoutes } from './routes/backgrounds.js';
 import { SearchRoutes } from './routes/search.js';
 import { UsageRoutes } from './routes/usage.js';
 import { BackupRoutes } from './routes/backup.js';
@@ -70,15 +74,17 @@ export function createApp({ store, auth, publicDir }) {
   const usage = new UsageLedger(store.usageDoc);
   const engines = new Engines(store, usage);
   const lore = new LoreBooks(store);
+  const art = new CharacterArt(store, path.join(store.dir, 'portraits'));
+  const backgrounds = new Backgrounds(store, path.join(store.dir, 'backgrounds', 'img'));
   const deps = {
-    store, auth, engines, limits, lore, usage,
-    cards: new CharacterCards(store),
-    context: new ChatContext(store, engines, lore),
+    store, auth, engines, limits, lore, usage, art, backgrounds,
+    cards: new CharacterCards(store, art),
+    context: new ChatContext(store, engines, lore, backgrounds),
     jobs: new Jobs(),
     images: new ImageFiles(path.join(store.dir, 'images')),
     attachments: new Attachments(path.join(store.dir, 'uploads'))
   };
-  for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes]) {
+  for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, CharacterArtRoutes, BackgroundRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes]) {
     new Routes(deps).mount(app);
   }
   return app;

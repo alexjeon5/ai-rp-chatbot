@@ -72,6 +72,7 @@ const defaultSettings = () => ({
  *   data/personas/<id>.json
  *   data/lorebooks/<id>.json
  *   data/chats/<id>.json
+ *   data/backgrounds/<id>.json   배경 그림 목록 (그림 파일은 data/backgrounds/img/)
  *   data/usage.json     날짜별 토큰 사용량
  */
 export class Store {
@@ -82,6 +83,7 @@ export class Store {
     this.personas = new Collection(path.join(dir, 'personas'));
     this.lorebooks = new Collection(path.join(dir, 'lorebooks'), (a, b) => String(a.name).localeCompare(String(b.name), 'ko'));
     this.chats = new Collection(path.join(dir, 'chats'));
+    this.backgrounds = new Collection(path.join(dir, 'backgrounds'), (a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     this.usageDoc = new JsonDoc(path.join(dir, 'usage.json'), () => ({ days: {} }));
   }
 
@@ -102,6 +104,7 @@ export class Store {
       this.personas.load(),
       this.lorebooks.load(),
       this.chats.load(),
+      this.backgrounds.load(),
       this.usageDoc.load()
     ]);
     this.normalizeSettings();

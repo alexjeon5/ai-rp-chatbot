@@ -108,7 +108,7 @@ export class SettingsRoutes {
     for (const k of ['checkpoint', 'sampler', 'scheduler', 'prefix', 'negative']) {
       if (typeof body[k] === 'string') next[k] = body[k].slice(0, 4000);
     }
-    for (const k of ['enabled', 'freeAfter', 'reviewTags']) if (typeof body[k] === 'boolean') next[k] = body[k];
+    for (const k of ['enabled', 'freeAfter', 'reviewTags', 'useReference']) if (typeof body[k] === 'boolean') next[k] = body[k];
     if (body.workflow === null) next.workflow = null;
     else if (body.workflow !== undefined) {
       if (!looksLikeWorkflow(body.workflow)) {

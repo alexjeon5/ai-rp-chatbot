@@ -2,6 +2,7 @@
 import { api, generate, impersonate } from '../api.js';
 import * as ui from '../ui.js';
 import { $, on } from '../core/dom.js';
+import { stripForDisplay } from '../shared/scene-tags.js';
 
 const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n));
 
@@ -91,6 +92,7 @@ export class Composer {
     };
     this.state.run = run;
     this.setStreaming(true);
+    this.app.choices.clear();
     return {
       run,
       end: () => {
@@ -101,28 +103,38 @@ export class Composer {
     };
   }
 
-  async send() {
+  /** 입력창의 글(과 붙인 그림)을 보냅니다. */
+  send() {
+    return this.submit($('input').value.trim(), { fromInput: true });
+  }
+
+  /**
+   * 내 메시지를 저장하고 답변을 받습니다. fromInput 이면 입력창을 비우고 붙인 그림도 함께 보내며,
+   * 실패하면 쓴 글을 되돌립니다. 아니면(판정 결과처럼 따로 만든 글) 입력창의 초안은 건드리지 않습니다.
+   */
+  async submit(content, { fromInput = false } = {}) {
     const { state, app } = this;
     const input = $('input');
-    const content = input.value.trim();
-    const attachments = app.attach.refs();
+    const attachments = fromInput ? app.attach.refs() : [];
     if ((!content && !attachments.length) || !state.chat || state.run) return;
-    if (app.attach.busy) return ui.toast('그림을 올리는 중입니다. 잠시만 기다려 주세요');
+    if (fromInput && app.attach.busy) return ui.toast('그림을 올리는 중입니다. 잠시만 기다려 주세요');
 
-    input.value = '';
-    input.style.height = 'auto';
+    if (fromInput) {
+      input.value = '';
+      input.style.height = 'auto';
+    }
 
     let msg;
     try {
       msg = await api.addMessage(state.chat.id, { role: 'user', content, attachments });
     } catch (e) {
-      // 보내지 못했으면 쓴 글을 되돌려 놓습니다.
-      input.value = content;
+      if (fromInput) input.value = content;
       ui.toast(`보내지 못했습니다 — ${e.message}`);
       return;
     }
-    app.attach.release();
+    if (fromInput) app.attach.release();
     state.chat.messages.push(msg);
+    app.choices.clear();
     $('thread').appendChild(app.view.turnFor(state.chat, msg));
     if (state.chat.kind === 'assistant' && state.chat.title === '새 채팅') {
       // 서버와 같은 규칙으로 첫 질문을 제목으로 씁니다.
@@ -154,7 +166,9 @@ export class Composer {
     const chat = state.chat;
     const thread = $('thread');
     const isOpen = () => state.chat === chat;
-    const format = (t) => ui.formatText(t, { plain: chat.kind === 'assistant', bubbles: state.isBubbles(chat) });
+    // 표식([[표정: …]])은 저장할 때 서버가 떼지만, 쓰는 동안에는 여기서 가려야 화면에 비치지 않습니다.
+    const tagged = () => chat.kind !== 'assistant' && (chat.vn || chat.dice);
+    const format = (t) => ui.formatText(tagged() ? stripForDisplay(t) : t, { plain: chat.kind === 'assistant', bubbles: state.isBubbles(chat) });
 
     const last = chat.messages[chat.messages.length - 1];
     // 마지막이 내 메시지면 재전송은 그냥 새로 받기(실패한 요청 다시 보내기)입니다.
@@ -200,7 +214,10 @@ export class Composer {
         onDelta: (d) => {
           acc += d;
           textEl.innerHTML = format(base + acc);
-          if (isOpen()) ui.scrollToEnd();
+          if (isOpen()) {
+            ui.scrollToEnd();
+            app.stage.live(base + acc);
+          }
         },
         onThought: (t) => {
           thought += t;
@@ -257,6 +274,8 @@ export class Composer {
         }
       }
       end();
+      if (isOpen()) app.view.syncScene();
+      if (succeeded && isOpen() && chat.autoChoices) app.choices.suggest({ auto: true });
       if (reload && isOpen()) setTimeout(() => { if (isOpen() && !state.run) app.view.open(chat.id); }, 300);
       app.list.refresh();
       if (succeeded) app.memory.afterReply(chat);
@@ -281,7 +300,7 @@ export class Composer {
 
   setStreaming(on) {
     $('stream-status').hidden = !on;
-    for (const id of ['btn-send', 'btn-regen', 'btn-continue', 'btn-impersonate']) $(id).disabled = on;
+    for (const id of ['btn-send', 'btn-regen', 'btn-continue', 'btn-impersonate', 'btn-choices']) $(id).disabled = on;
     if (!on) $('stream-label').textContent = '응답 생성 중';
     // 막대가 생기고 사라지면서 입력창 높이가 달라지므로 다시 맞춰 줍니다.
     ui.scrollToEnd();

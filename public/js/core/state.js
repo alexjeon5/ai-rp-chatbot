@@ -7,11 +7,15 @@ const MESSENGER_PRESETS = new Set(['messenger', 'adult-messenger']);
 export const isLocalUrl = (url = '') =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url);
 
+const portraitUrl = (c) => (c?.id && c.portrait ? `/api/character-art/${c.id}/${c.portrait}` : '');
+
 export class AppState {
   settings = null;
   characters = [];
   personas = [];
   lorebooks = [];
+  // 배경 그림 모음. { id, name, file }
+  backgrounds = [];
   chats = [];
   chat = null;
   // 진행 중인 생성. { chatId, controller, stopped, done }
@@ -52,6 +56,17 @@ export class AppState {
   /** 답변 위에 붙는 이름. 여럿이 함께 나오면 이름을 이어 붙입니다. */
   charLabel(chat) {
     return [this.characterOf(chat)?.name, ...this.castOf(chat).map((c) => c.name)].filter(Boolean).join(' · ') || '상대';
+  }
+
+  /** 답변 이름 옆에 붙일 프로필 그림 주소. 여럿이 함께 나오는 장면에서는 누구의 말인지 알 수 없어 붙이지 않습니다. */
+  turnAvatar(chat) {
+    if (chat?.kind === 'assistant' || this.castOf(chat).length) return '';
+    return portraitUrl(this.characterOf(chat));
+  }
+
+  backgroundUrl(place) {
+    const b = this.backgrounds.find((x) => x.name === place);
+    return b ? `/api/background-art/${b.id}/${b.file}` : '';
   }
 
   /** 목록 한 줄(서버가 붙여 준 adult·presetName 등)로 본 지금 대화. */

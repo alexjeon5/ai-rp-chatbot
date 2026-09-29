@@ -11,12 +11,12 @@ import { characterFields, PERSONA_FIELDS, normalizePersona } from '../../service
 import { wrap, fail, abortOnClose } from '../helpers.js';
 
 export class LibraryRoutes {
-  constructor({ store, engines, limits }) {
-    Object.assign(this, { store, engines, limits });
+  constructor({ store, engines, limits, art }) {
+    Object.assign(this, { store, engines, limits, art });
   }
 
   mount(app) {
-    this.crud(app, 'characters', this.store.characters, CHARACTER_FIELDS, { beforeRemove: (c) => this.detachCharacter(c) });
+    this.crud(app, 'characters', this.store.characters, CHARACTER_FIELDS, { beforeRemove: (c) => this.releaseCharacter(c) });
     this.crud(app, 'personas', this.store.personas, PERSONA_FIELDS, { normalize: normalizePersona });
     app.post('/api/personas/roll', (req, res) => this.rollPersona(req, res));
     app.post('/api/personas/generate', this.limits.generate, wrap((req, res) => this.generatePersona(req, res)));
@@ -54,6 +54,11 @@ export class LibraryRoutes {
       if (!(await collection.remove(req.params.id))) return fail(res, 404, '없는 항목입니다.');
       res.json({ ok: true });
     }));
+  }
+
+  releaseCharacter(character) {
+    this.detachCharacter(character);
+    this.art.removeAll(character.id);
   }
 
   /**

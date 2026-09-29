@@ -13,7 +13,11 @@
 export const SWIPE_LIMIT = 20;
 
 // 답변 한 장이 따로 들고 있는 값. 본문(content) 외에 사고·출처·엔진 정보가 장마다 다릅니다.
-const VARIANT_KEYS = ['thought', 'sources', 'provider', 'model'];
+// scene(표정·장소)과 check(주사위 판정 요청)는 답변 본문에서 떼어 낸 화면 표식입니다.
+const VARIANT_KEYS = ['thought', 'sources', 'provider', 'model', 'scene', 'check'];
+
+/** 대화별로 켜고 끄는 기능 스위치. 켜 둔 것만 true 로 남기고, 끄면 키를 지웁니다. */
+export const CHAT_FLAGS = ['vn', 'dice', 'autoChoices'];
 
 function snapshot(msg) {
   const v = { content: msg.content, at: msg.at };
@@ -46,7 +50,9 @@ export function addSwipe(msg, variant) {
 /** 본문을 직접 고치거나 이어 쓴 뒤 부릅니다. 보고 있는 장에도 같은 내용을 남깁니다. */
 export function syncSwipe(msg) {
   const v = msg.swipes?.[msg.swipeIndex];
-  if (v) v.content = msg.content;
+  if (!v) return;
+  v.content = msg.content;
+  for (const k of ['scene', 'check']) if (msg[k] !== undefined) v[k] = msg[k];
 }
 
 /* ---------------- 이어쓰기 ---------------- */
@@ -336,6 +342,7 @@ export function branchFrom(chat, messageId) {
     ...(chat.castIds?.length ? { castIds: [...chat.castIds] } : {}),
     ...(chat.authorNote ? { authorNote: chat.authorNote } : {}),
     ...(chat.lorebookIds?.length ? { lorebookIds: [...chat.lorebookIds] } : {}),
+    ...Object.fromEntries(CHAT_FLAGS.filter((k) => chat[k]).map((k) => [k, true])),
     title: `${chat.title} · 분기`,
     branchOf: { chatId: chat.id, messageId, title: chat.title },
     updatedAt: Date.now(),

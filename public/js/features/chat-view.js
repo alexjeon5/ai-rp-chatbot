@@ -5,8 +5,15 @@ import { $, esc, setHidden, on } from '../core/dom.js';
 import { menuKeys } from '../core/menu.js';
 
 // 대화가 열려 있을 때만 보이는 상단 버튼들
-const CHAT_ONLY = ['btn-rename', 'btn-archive-chat', 'btn-delete-chat', 'btn-save-character', 'btn-open-origin', 'btn-cast', 'btn-memory', 'btn-chat-lore',
+const CHAT_ONLY = ['btn-choices', 'btn-dice', 'btn-toggle-vn', 'btn-backgrounds', 'btn-toggle-dice', 'btn-toggle-autochoices', 'btn-rename', 'btn-archive-chat', 'btn-delete-chat', 'btn-save-character', 'btn-open-origin', 'btn-cast', 'btn-memory', 'btn-chat-lore',
   'btn-impersonate', 'chat-preset', 'chat-persona', 'btn-websearch', 'btn-thinking'];
+
+// ⋯ 메뉴의 켜고 끄는 항목. 대화마다 따로 저장합니다.
+const FLAG_ITEMS = [
+  { id: 'btn-toggle-vn', key: 'vn', label: '비주얼 노벨 화면', hint: '캐릭터의 표정·장소 표식을 답변에 요청합니다' },
+  { id: 'btn-toggle-dice', key: 'dice', label: '주사위 판정', hint: '위험한 순간에 AI 가 판정을 요청합니다' },
+  { id: 'btn-toggle-autochoices', key: 'autoChoices', label: '선택지 자동 제안', hint: '답변이 끝나면 다음 행동을 제안합니다' }
+];
 
 export class ChatView {
   constructor(app) {
@@ -33,6 +40,8 @@ export class ChatView {
     on('btn-archive-chat', 'click', withChat((chat) => app.list.setArchived(chat.id, !chat.archivedAt)));
     on('btn-rename', 'click', withChat((chat) => app.list.rename(chat.id)));
     on('btn-save-character', 'click', () => this.saveCharacter());
+    for (const item of FLAG_ITEMS) on(item.id, 'click', () => this.toggleFlag(item));
+    on('btn-backgrounds', 'click', () => app.backgrounds.open());
     on('btn-open-origin', 'click', withChat((chat) => { if (chat.branchOf) this.open(chat.branchOf.chatId); }));
     on('btn-new-chat', 'click', () => {
       const chat = this.state.chat;
@@ -67,7 +76,9 @@ export class ChatView {
     this.paintArchiveButton();
     $('btn-save-character').hidden = !state.chat.character;
     $('btn-open-origin').hidden = !this.originOf(state.chat);
-    setHidden(['btn-cast', 'btn-memory', 'btn-chat-lore', 'btn-impersonate'], assistant);
+    setHidden(['btn-cast', 'btn-memory', 'btn-chat-lore', 'btn-impersonate', 'btn-choices', 'btn-dice',
+      'btn-toggle-vn', 'btn-backgrounds', 'btn-toggle-dice', 'btn-toggle-autochoices'], assistant);
+    this.paintFlags();
     $('input').placeholder = assistant
       ? '무엇이든 물어보세요.'
       : '무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다.';
@@ -77,10 +88,18 @@ export class ChatView {
     app.toolbar.paintQuickProvider();
     app.toolbar.paintWebSearch();
     app.toolbar.paintThinking();
+    app.choices.clear();
     this.paintThread();
+    this.syncScene();
     app.composer.refreshContext();
     app.list.paint(id);
     $('sidebar').classList.remove('open');
+  }
+
+  /** 장면에 딸린 화면(무대, 판정 버튼)을 지금 대화 상태에 맞춥니다. */
+  syncScene() {
+    this.app.stage.sync();
+    this.app.choices.sync();
   }
 
   /** 열린 대화를 닫고 빈 화면으로 되돌립니다. */
@@ -96,6 +115,8 @@ export class ChatView {
     setHidden(CHAT_ONLY, true);
     app.composer.paintContext(null);
     app.composer.setStreaming(false);
+    app.choices.clear();
+    this.syncScene();
     ui.renderEmptyStage(state.mode);
   }
 
@@ -204,6 +225,33 @@ export class ChatView {
     }
   }
 
+  paintFlags() {
+    const chat = this.state.chat;
+    for (const { id, key, label } of FLAG_ITEMS) {
+      const on = Boolean(chat?.[key]);
+      $(id).textContent = `${label} ${on ? '끄기' : '켜기'}`;
+    }
+  }
+
+  async toggleFlag({ key, label, hint }) {
+    const { state, app } = this;
+    const chat = state.chat;
+    if (!chat) return;
+    const next = !chat[key];
+    try {
+      await api.updateChat(chat.id, { [key]: next });
+    } catch (err) {
+      return ui.toast(`바꾸지 못했습니다 — ${err.message}`);
+    }
+    if (next) chat[key] = true;
+    else delete chat[key];
+    if (state.chat !== chat) return;
+    this.paintFlags();
+    this.syncScene();
+    app.composer.refreshContext();
+    ui.toast(next ? `${label}을 켰습니다. 다음 답변부터 반영됩니다 — ${hint}` : `${label}을 껐습니다`);
+  }
+
   paintArchiveButton() {
     const btn = $('btn-archive-chat');
     const archived = Boolean(this.state.chat?.archivedAt);
@@ -248,7 +296,8 @@ export class ChatView {
     this.syncDrawing(state.chat);
     ui.renderThread(state.chat, state.characterOf(state.chat), state.personaOf(state.chat), {
       bubbles: state.isBubbles(state.chat),
-      charLabel: state.charLabel(state.chat)
+      charLabel: state.charLabel(state.chat),
+      avatar: state.turnAvatar(state.chat)
     });
   }
 
@@ -265,7 +314,8 @@ export class ChatView {
         : (assistant ? '어시스턴트' : state.charLabel(chat)),
       isUser,
       plain: assistant,
-      bubbles: state.isBubbles(chat)
+      bubbles: state.isBubbles(chat),
+      avatar: isUser ? '' : state.turnAvatar(chat)
     });
   }
 
@@ -299,8 +349,10 @@ export class ChatView {
       turn.remove();
       app.list.refresh();
       app.composer.refreshContext();
+      this.syncScene();
       return;
     }
+    if (act === 'roll-check') return app.choices.rollCheck(msg);
     if (act === 'branch') return this.branch(msg);
     if (act === 'edit') this.edit(turn, msg);
   }
@@ -322,7 +374,9 @@ export class ChatView {
       Object.assign(msg, updated);
       if (!updated.thought) delete msg.thought;
       if (!updated.sources) delete msg.sources;
+      for (const k of ['scene', 'check']) if (!updated[k]) delete msg[k];
       if (state.chat === chat) turn.replaceWith(this.turnFor(chat, msg));
+      this.syncScene();
       app.list.refresh();
       app.composer.refreshContext();
     } catch (err) {

@@ -150,6 +150,8 @@ data/
   usage.json             # 날짜별 토큰 사용량 { days: { 'YYYY-MM-DD': [{ provider, model, requests, promptTokens, completionTokens, estimated }] } }
   images/<chatId>/       # 장면 그리기로 그린 그림
   uploads/<chatId>/      # 사용자가 메시지에 붙인 그림
+  portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
+  backgrounds/           # 비주얼 노벨 배경. 목록 index 와 img/ 폴더. 백업에는 들어가지 않음
   chats/<id>.json        # 메시지 배열을 포함
 ```
 
@@ -199,7 +201,8 @@ data/
 - `buildCard(character, books)` — V2 카드. 이 앱의 칸은 표준 칸에 풀어 담고(`description` 에 성격·말투·외형·추가 설정을 이어 붙이고 한 줄 소개는 `creator_notes`),
   원래 칸은 `extensions.rpchat` 에 둡니다. `bookToCard`/`bookFromCard` 가 로어북 항목과 `character_book` 을 오갑니다(우선순위는 `priority`).
 - `CharacterCards`(서비스)가 저장소와 잇습니다. 가져올 때 세계관이 있으면 `characterIds: [새 캐릭터]` 로 묶인 로어북을 만들고,
-  내보낼 때는 `characterIds` 에 그 캐릭터가 든 로어북을 모읍니다. PNG 로 내보내기는 없습니다(캐릭터에 그림이 없음).
+  내보낼 때는 `characterIds` 에 그 캐릭터가 든 로어북을 모읍니다. PNG 로 내보내기는 없습니다(카드는 JSON 만).
+  PNG 를 가져올 때는 `CharacterCards` 가 그림을 프로필로 저장합니다(`CharacterArt.setPortrait`). 그림 파일 저장·삭제는 `src/services/image-files.js` 를 공유합니다
 
 프런트는 `features/lorebooks.js`(설정집 창) · `lore-entry.js`(항목 편집기) · `chat-lore.js`(대화에 붙이기 창)로 나뉩니다.
 
@@ -319,6 +322,26 @@ data: {"done": true, "message": {...}}   완료
 - 필터: 사용자 설정(`image.adult.forceTags/blockTags/extraNegative`)은 성인 대화에만. `CORE_BLOCK_TERMS`·나이 표기·`CORE_NEGATIVE` 는 **모든 대화에** 고정 적용이며, 걸리면 지우지 않고 그리기를 거부합니다. 설정 API 로도 바꿀 수 없게 코드에만 둡니다
 - 그림 경로는 `SAFE_ID` + `IMAGE_FILE` 로 검사해 `data/images` 밖으로 못 나갑니다. 메시지·대화를 지우면 파일도 지웁니다. 메시지당 6장
 
+### 프로필·표정·배경 — `src/services/character-art.js`, `src/services/backgrounds.js`
+
+- `CharacterArt` 가 `data/portraits/<characterId>/` 를 맡습니다. 프로필 1장, 표정은 이름(`cleanLabel`)별로(최대 `ART_LIMITS`). 캐릭터 JSON 에는 파일 이름만 남기고(`portrait`, `expressions: [{label,file}]`) 프런트가 `/api/character-art/:id/:file` 로 부릅니다
+- `Backgrounds` 는 앱 전체 배경 목록입니다(`/api/background-art/:id/:file`). 이름은 무대 표식의 장소 이름이 됩니다
+- 파일 삭제는 `ImageFiles.remove()` 가 프라미스를 돌려주므로 서비스는 await 합니다(시험에서 지워졌는지 곧바로 볼 수 있음)
+- 그림 본문은 `sniffImage` 로 PNG·JPEG·WebP 만 받고 파일명은 서버가 정합니다
+
+### 화면 표식·주사위·선택지 — `public/js/shared/scene-tags.js`, `dice.js`, `src/scene-prompt.js`, `src/choices.js`
+
+- 문법: `[[표정: …]]` `[[장소: …]]` `[[판정: 이름 d20 난이도 N]]`. 서버(저장·프롬프트)와 브라우저(스트리밍 중 화면)가 같은 `scene-tags.js` 를 씁니다.
+  `extractDirectives` 가 본문에서 표식을 떼고, `stripForDisplay` 는 스트리밍 중 아직 닫히지 않은 `[[…` 까지 가립니다. `matchLabel`/`resolveScene` 이 표식을 올려 둔 이름에 맞춥니다
+- 저장: 답변의 활성 장(swipe)마다 `msg.scene {expression?, place?}` 와 `msg.check {label, sides, dc}`. `chat-ops.js` 의 `VARIANT_KEYS` 에 들어 있어 넘겨보기를 따라 바뀝니다
+- 대화 플래그 `chat.vn` `chat.dice` `chat.autoChoices`(`CHAT_FLAGS`, `PUT /api/chats/:id` 에 불리언). 분기하면 이어받습니다
+- 프롬프트: `chat-context.js` 의 `roleplay` 가 `chat.vn || chat.dice` 일 때 `sceneBlock()` 을 붙입니다. 표정·장소 목록은 `vn` 일 때만 채웁니다. 과거 답변에는 `withSceneTags` 가 저장해 둔 표식(판정 포함)을 다시 붙여, 모델이 형식을 따라 하게 합니다
+- 주사위: `dice.js` 의 `rollDice(spec, rng)`, `judge`, `formatRoll`, `formatCheck`. **브라우저가 굴리고** 결과 문장이 사용자 메시지로 서버에 갑니다(서버는 굴리지 않음). 난수는 `crypto.getRandomValues`(없으면 `Math.random`), 시험에서는 `rng` 를 바꿔 끼웁니다
+- 선택지: `POST /api/chats/:id/choices` 가 `choicesPrompt()` 를 마지막 요청에 덧붙여 `engines.complete` 로 한 번 받고 `parseChoices()` 가 `[{ text, check? }]` 로 읽습니다. 저장하지 않으며 롤플레이 대화만 됩니다
+- 프런트: `features/stage.js`(`Stage` 무대, 스트리밍 중 `live()`), `backgrounds.js`(배경 창), `character-art.js`(캐릭터 창의 그림 칸), `choices.js`(`Choices` 칩·주사위 팝오버·판정 버튼). 판정 결과는 `Composer.submit(content)` 로 입력창 초안을 건드리지 않고 보냅니다.
+  `ChatView.syncScene()` 이 무대와 판정 버튼을 지금 대화 상태에 맞춥니다
+- 장면 그리기의 참고 그림은 `src/image.js` 의 `useReference`(기본 꺼짐)입니다. Gemini 는 `inlineData` 부분, OpenAI 는 gpt-image 계열만 `/images/edits` 멀티파트. ComfyUI 는 없음
+
 ### 컨텍스트 예산 — `src/context.js`
 
 - `estimateTokens` 는 토크나이저 없이 글자 종류로 어림합니다 (한글 음절 0.9, ASCII 0.3, 그 밖 0.8)
@@ -397,11 +420,18 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
 | POST | `/api/characters/import` | `{ card }`(JSON) 또는 `{ png }`(base64) 캐릭터 카드를 새 캐릭터로. 응답 `{ character, lorebook, dropped }`. 이 경로만 본문 한도 16MB. 카드가 아니면 400 |
 | GET | `/api/characters/:id/export` | 캐릭터를 V2 카드 JSON 으로 내려받기. 묶인 로어북은 `character_book` |
+| PUT/DELETE | `/api/characters/:id/portrait` | 프로필 그림 올리기(본문이 PNG·JPEG·WebP 파일 그대로)/지우기 |
+| PUT/DELETE | `/api/characters/:id/expressions?label=` | 표정 그림 올리기/지우기 |
+| GET | `/api/character-art/:id/:file` | 프로필·표정 그림 파일 |
+| GET/POST | `/api/backgrounds` | 배경 목록/올리기(`?name=`, 본문은 그림 파일 그대로) |
+| PUT/DELETE | `/api/backgrounds/:id` | 배경 이름 바꾸기 `{ name }`/지우기 |
+| GET | `/api/background-art/:id/:file` | 배경 그림 파일 |
+| POST | `/api/chats/:id/choices` | `{ count? }` 선택지 제안 `{ choices: [{ text, check? }] }`. 저장하지 않음. 롤플레이 대화만 |
 | GET/POST/PUT/DELETE | `/api/personas[/:id]` | 페르소나 CRUD |
 | GET/POST/PUT/DELETE | `/api/lorebooks[/:id]` | 세계관 설정집 CRUD. 본문 `{ name, description, global, characterIds, entries }` |
 | POST | `/api/lorebooks/:id/test` | `{ text, entries? }` 이 글에서 발동하는 항목 `{ triggered: [{id,title,tokens}] }`. 저장하지 않으며 `entries` 를 주면 고치는 중인 항목으로 시험 |
 | GET | `/api/chats/:id/lore` | 이 대화에 적용되는 책(`applied`, 이유 `via`)과 지금 발동 중인 항목(`triggered`), 스캔 설정 |
-| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` `lorebookIds` `archived`. 목록은 `updatedAt` 최신순. `archived: true` 면 `archivedAt` 을 적고 화면이 보관함으로 옮깁니다. 보관한 대화에 사용자 메시지가 들어오면 서버가 보관을 풉니다 |
+| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` `lorebookIds` `archived` `vn` `dice` `autoChoices`. 목록은 `updatedAt` 최신순. `archived: true` 면 `archivedAt` 을 적고 화면이 보관함으로 옮깁니다. 보관한 대화에 사용자 메시지가 들어오면 서버가 보관을 풉니다 |
 | POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제. 추가할 때 `attachments: [{ file, name }]` 로 올려 둔 그림을 붙임 |
 | POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate, continue }` 바디. regenerate 는 마지막 답변에 새 장(`swipes`)을 얹고, continue 는 끝에 이어 붙임. 둘 다 새 내용이 생겼을 때만 바뀜 |
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |

@@ -52,16 +52,27 @@ export async function copyText(text) {
   return ok;
 }
 
+/** 캐릭터의 프로필 그림 주소. 없으면 빈 문자열입니다. */
+export const portraitUrl = (c) => (c?.id && c.portrait ? `/api/character-art/${c.id}/${c.portrait}` : '');
+
+/** 동그란 아바타. 프로필 그림이 있으면 그림, 없으면 아이콘(이모지) 글자. */
+export function avatarHtml(c, { fallback = '◦', cls = 'rail-avatar' } = {}) {
+  const url = portraitUrl(c);
+  return url
+    ? `<span class="${cls} has-img"><img src="${esc(url)}" alt="" loading="lazy" draggable="false"></span>`
+    : `<span class="${cls}">${esc(c?.avatar || fallback)}</span>`;
+}
+
 /**
  * 대화 한 줄. grouped 면 캐릭터 묶음 안이라 아이콘 대신 들여쓰기만 두고,
  * depth 는 분기한 대화를 원본 아래로 들여 쓸 깊이입니다.
  */
 function chatRow(c, characters, activeId, { grouped = false, depth = 0 } = {}) {
   const ch = characters.find((x) => x.id === c.characterId);
-  const icon = c.kind === 'assistant' ? '✳' : c.avatar || ch?.avatar || '◦';
+  const face = c.kind === 'assistant' ? { avatar: '✳' } : { ...ch, avatar: c.avatar || ch?.avatar };
   const lead = grouped
     ? (depth ? '<span class="rail-branch" aria-hidden="true">↳</span>' : '')
-    : `<span class="rail-avatar">${esc(icon)}</span>`;
+    : avatarHtml(face);
   const cls = ['rail-item', c.id === activeId ? 'active' : '', grouped ? `is-grouped depth-${Math.min(depth, 3)}` : '']
     .filter(Boolean).join(' ');
   return `<li><button class="${cls}" data-chat="${c.id}">
@@ -119,10 +130,10 @@ function groupedRows(chats, characters, activeId, collapsed) {
   return [...groups].map(([key, list]) => {
     const ch = characters.find((x) => x.id === key);
     const name = key === 'once' ? '1회성 캐릭터' : ch?.name || '지운 캐릭터';
-    const icon = key === 'once' ? '◦' : ch?.avatar || list[0].avatar || '◦';
+    const face = key === 'once' ? {} : { ...ch, avatar: ch?.avatar || list[0].avatar };
     const open = !collapsed.has(key) || list.some((c) => c.id === activeId);
     const head = `<li><button class="rail-folder" type="button" data-group-key="${esc(key)}" aria-expanded="${open}">
-        <span class="rail-avatar">${esc(icon)}</span>
+        ${avatarHtml(face)}
         <span class="label">${esc(name)}</span>
         <span class="char-count">${list.length}</span>
         <span class="rail-chev" aria-hidden="true">${open ? '▾' : '▸'}</span></button></li>`;
@@ -188,7 +199,7 @@ export function renderCharacterList(characters, { tab = 'mine', missing = 0 } = 
   const shown = tab === 'builtin' ? builtin : mine;
   const rows = shown.map(
     (c) => `<li><button class="rail-item" data-character="${c.id}">
-        <span class="rail-avatar">${esc(c.avatar || '◦')}</span>
+        ${avatarHtml(c)}
         <span class="rail-body">
           <span class="rail-name"><span class="label">${esc(c.name)}</span></span>
           <span class="rail-note">${esc(c.description || (c.tags || ''))}</span>
@@ -296,12 +307,12 @@ function swipeNav(message) {
   </div>`;
 }
 
-export function turnEl({ message, speaker, isUser, plain = false, bubbles = false }) {
+export function turnEl({ message, speaker, isUser, plain = false, bubbles = false, avatar = '' }) {
   const li = document.createElement('article');
   li.className = `turn ${isUser ? 'user' : 'char'}`;
   li.dataset.mid = message.id;
   li.innerHTML = `
-    <div class="turn-name">${esc(speaker)}</div>
+    <div class="turn-name">${avatar ? `<img class="turn-avatar" src="${esc(avatar)}" alt="" draggable="false">` : ''}${esc(speaker)}</div>
     ${message.thought ? `<details class="thought"><summary>생각 과정</summary><div class="thought-body">${esc(message.thought)}</div></details>` : ''}
     ${isUser ? attachmentsBlock(message) : ''}
     <div class="turn-text${bubbles ? ' is-bubbles' : ''}${plain ? ' is-md' : ''}">${formatText(message.content, { plain, bubbles })}</div>
@@ -315,6 +326,7 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
       <button class="tool" data-act="copy">복사</button>
       <button class="tool" data-act="delete">삭제</button>
       <button class="tool" data-act="branch" title="이 메시지까지 복사해 새 대화로 갈라집니다. 원본은 그대로 남습니다">분기</button>
+      ${message.check && !isUser && !plain ? `<button class="tool check-btn" data-act="roll-check" hidden title="주사위를 굴려 결과를 내 메시지로 보냅니다">🎲 ${esc(message.check.label)} 판정 (d${message.check.sides} · 난이도 ${message.check.dc})</button>` : ''}
       ${!isUser && !plain && drawing.enabled ? '<button class="tool" data-act="draw" title="이 장면을 ComfyUI 로 그립니다">🎨 그리기</button>' : ''}
     </div>`;
   return li;
@@ -324,8 +336,9 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
  * @param {object} [opts]
  * @param {boolean} [opts.bubbles] 메신저 모드 — 줄마다 말풍선
  * @param {string} [opts.charLabel] 답변 위에 붙는 이름. 여럿이 함께 나오는 장면이면 이름을 이어 붙입니다
+ * @param {string} [opts.avatar] 답변 이름 옆에 붙는 작은 프로필 그림 주소
  */
-export function renderThread(chat, character, persona, { bubbles = false, charLabel } = {}) {
+export function renderThread(chat, character, persona, { bubbles = false, charLabel, avatar = '' } = {}) {
   const box = document.getElementById('messages');
   const plain = chat.kind === 'assistant';
   box.innerHTML = '';
@@ -341,7 +354,8 @@ export function renderThread(chat, character, persona, { bubbles = false, charLa
           : (plain ? '어시스턴트' : charLabel || character?.name || '상대'),
         isUser: m.role === 'user',
         plain,
-        bubbles
+        bubbles,
+        avatar: m.role === 'user' ? '' : avatar
       })
     );
   }

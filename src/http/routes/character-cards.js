@@ -12,10 +12,10 @@ export class CharacterCardRoutes {
     app.get('/api/characters/:id/export', (req, res) => this.exportCard(req, res));
   }
 
-  /** body: { card } 또는 { png } (base64). 만든 캐릭터와 함께 온 로어북, 옮기지 못한 정보를 돌려줍니다. */
-  importCard(req, res) {
+  /** body: { card } 또는 { png } (base64, 선택으로 줄인 그림 portrait). 만든 캐릭터와 함께 온 로어북, 옮기지 못한 정보를 돌려줍니다. */
+  async importCard(req, res) {
     try {
-      res.json(this.cards.import(req.body));
+      res.json(await this.cards.import(req.body));
     } catch (err) {
       if (err instanceof CardError) return fail(res, 400, err.message);
       throw err;

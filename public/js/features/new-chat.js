@@ -126,7 +126,7 @@ export class NewChat {
 
     box.innerHTML = `
     <div class="cast-head">
-      <span class="cast-avatar">${esc(character.avatar || '◦')}</span>
+      ${ui.avatarHtml(character, { cls: 'cast-avatar' })}
       <span class="grow">
         <span class="cast-name">
           ${esc(character.name)}

@@ -10,7 +10,9 @@ import {
   FACT_EVERY, factsWindow, turnsSinceFacts, FACTS_SYSTEM, buildFactsPrompt, parseFactOps, applyFactOps,
   invalidateFacts, impersonatePrompt, cleanImpersonation
 } from '../../chat-ops.js';
+import { choicesPrompt, parseChoices, CHOICE_COUNT } from '../../choices.js';
 import { rawPromptTokens } from '../../services/chat-context.js';
+import { extractDirectives, resolveScene, sceneTags, checkTag } from '../../../public/js/shared/scene-tags.js';
 import { wrap, fail, abortOnClose, EventStream } from '../helpers.js';
 
 const LOOP_NOTICE = '\n\n(같은 말이 되풀이되어 생성을 멈췄습니다. 재전송을 누르거나, 설정에서 반복 억제 값을 올려 보세요.)';
@@ -25,6 +27,7 @@ export class GenerationRoutes {
     post('/api/chats/:id/generate', this.generate);
     post('/api/chats/:id/summarize', this.summarize);
     post('/api/chats/:id/impersonate', this.impersonate);
+    post('/api/chats/:id/choices', this.choices);
     post('/api/chats/:id/facts/extract', this.extractFacts);
   }
 
@@ -61,6 +64,7 @@ export class GenerationRoutes {
     const basis = mode === 'regenerate' && target ? { ...chat, messages: chat.messages.slice(0, -1) } : chat;
 
     let system;
+    let sceneCtx = null;
     let params = s.params;
     let webSearch = false;
     let thinking = false;
@@ -75,12 +79,15 @@ export class GenerationRoutes {
       const ctx = this.context.roleplay(chat, { basis });
       if (!ctx) return fail(res, 400, '이 대화의 캐릭터가 삭제되었습니다.');
       if (ctx.preset.adult && !this.engines.adultAllowed(config)) return fail(res, 400, this.engines.adultBlocked(ctx.preset, config));
-      system = ctx.system;
+      system = this.context.replySystem(ctx);
+      sceneCtx = ctx.scene ? this.context.sceneNames(chat) : null;
     }
 
     // 토큰 한도 안에 들어가는 만큼만 최근 메시지부터 보냅니다.
     const plan = this.context.plan(chat, { provider, basis, extra: mode === 'continue' ? CONTINUE_PROMPT : '' });
     let history = plan.history;
+    // 지난 답변에서는 표식을 떼어 저장했으니, 보낼 때 다시 붙여 줍니다. 안 그러면 모델이 표식 형식을 잊습니다.
+    if (sceneCtx) history = this.withSceneTags(history, plan.keptIds, chat);
     if (mode === 'continue') history.push({ role: 'user', content: CONTINUE_PROMPT });
     if (plan.note) history = withAuthorNote(history, plan.note);
     const rawPrompt = rawPromptTokens(system, history);
@@ -165,16 +172,42 @@ export class GenerationRoutes {
       return out.end();
     }
 
-    out.send({ done: true, message: this.saveReply(chat, { mode, target, text, thought, sources, provider, config }) });
+    out.send({ done: true, message: this.saveReply(chat, { mode, target, text, thought, sources, provider, config, names: sceneCtx }) });
     out.end();
   }
 
-  /** 다 쓴 답변을 대화에 넣습니다. 생성하는 동안 사용자가 그 메시지를 지웠다면 새 메시지로 붙입니다. */
-  saveReply(chat, { mode, target, text, thought, sources, provider, config }) {
+  /** 보낼 기록의 assistant 턴 앞에 그 답변의 화면 표식을 되살려 붙입니다. history 와 keptIds 는 같은 순서입니다. */
+  withSceneTags(history, keptIds, chat) {
+    const byId = new Map(chat.messages.map((m) => [m.id, m]));
+    return history.map((turn, i) => {
+      const msg = turn.role === 'assistant' ? byId.get(keptIds[i]) : null;
+      const head = sceneTags(msg?.scene);
+      const tail = checkTag(msg?.check);
+      if (!head && !tail) return turn;
+      return { ...turn, content: [head, turn.content, tail].filter(Boolean).join('\n') };
+    });
+  }
+
+  /**
+   * 다 쓴 답변을 대화에 넣습니다. 생성하는 동안 사용자가 그 메시지를 지웠다면 새 메시지로 붙입니다.
+   * names 는 화면 표식이 켜진 대화의 고를 수 있는 이름들입니다. 있으면 본문에서 표식을 떼어 msg.scene·msg.check 로 둡니다.
+   */
+  saveReply(chat, { mode, target, text, thought, sources, provider, config, names = null }) {
     const alive = target && chat.messages.includes(target);
     let msg;
+    let scene = null;
+    let check = null;
+    if (names) {
+      const found = extractDirectives(text);
+      text = found.text;
+      scene = resolveScene(found, names);
+      check = found.check || null;
+      if (!text.trim()) return null;
+    }
     if (mode === 'continue' && alive) {
       target.content = joinContinuation(target.content, text);
+      if (scene) target.scene = { ...target.scene, ...scene };
+      if (check) target.check = check;
       target.continuedAt = Date.now();
       syncSwipe(target);
       // 덧붙은 부분도 다음 기억 확인 때 읽히게 되감습니다. 기존 항목은 그대로 둡니다.
@@ -185,6 +218,8 @@ export class GenerationRoutes {
       // 사고와 출처는 본문과 따로 둡니다. 다음 턴에 같이 보내지 않으므로 맥락을 잡아먹지 않습니다.
       if (thought.trim()) variant.thought = thought.trim().slice(0, 6000);
       if (sources.length) variant.sources = sources.slice(0, 20);
+      if (scene) variant.scene = scene;
+      if (check) variant.check = check;
       if (mode === 'regenerate' && alive) {
         invalidateFacts(chat, target);
         msg = addSwipe(target, variant);
@@ -334,6 +369,47 @@ export class GenerationRoutes {
     meter.record(text);
     out.send({ done: true, draft: cleanImpersonation(text, userName, { director }) });
     out.end();
+  }
+
+  /**
+   * 선택지 제안. 내 다음 차례로 할 만한 말·행동 후보를 받습니다. 대화에는 아무것도 저장하지 않습니다.
+   * body: { count? }  → { choices: [{ text, check? }] }
+   */
+  async choices(req, res) {
+    const s = this.store.settings;
+    const chat = this.store.chats.get(req.params.id);
+    if (!chat) return fail(res, 404, '없는 대화입니다.');
+    if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화에서는 쓸 수 없습니다.');
+    const engine = this.engineFor(req, res, chat, {});
+    if (!engine) return;
+    const { ctx, provider, config } = engine;
+    this.jobs.pauseBackground(chat.id);
+
+    const n = Math.round(Number(req.body?.count)) || CHOICE_COUNT.def;
+    const count = Math.min(CHOICE_COUNT.max, Math.max(CHOICE_COUNT.min, n));
+    const instruction = fillVars(choicesPrompt({
+      messenger: ['messenger', 'adult-messenger'].includes(ctx.preset.id),
+      director: Boolean(ctx.persona?.director),
+      dice: Boolean(chat.dice),
+      count
+    }), { char: ctx.character.name, user: ctx.persona?.name || '사용자', particleFix: s.dev.particleFix });
+    const plan = this.context.plan(chat, { provider, extra: instruction });
+    const past = await this.attachments.inline(chat.id, plan.history);
+    const controller = abortOnClose(res);
+    let text;
+    try {
+      text = await this.engines.complete({
+        provider, config, controller, system: withThinking(ctx.system, false),
+        messages: [...past, { role: 'user', content: instruction }],
+        params: { ...s.params, maxTokens: 600 }
+      });
+    } catch (e) {
+      controller.finish();
+      if (controller.signal.aborted) return;
+      return fail(res, 502, this.engines.describeFailure(e, provider, config));
+    }
+    controller.finish();
+    res.json({ choices: parseChoices(text, count) });
   }
 
   /**

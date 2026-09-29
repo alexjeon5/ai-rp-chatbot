@@ -2,16 +2,18 @@
 import { buildSystem, fillVars, withThinking } from '../prompt.js';
 import { planContext, contextLimitOf, estimateTokens, IMAGE_TOKENS } from '../context.js';
 import { isLocalUrl } from '../security.js';
+import { sceneBlock } from '../scene-prompt.js';
 
 /** 보정 전 어림. 엔진이 알려 준 실제 토큰 수와 비교해 보정값을 만듭니다. */
 export const rawPromptTokens = (system, history) =>
   estimateTokens(system) + history.reduce((n, m) => n + estimateTokens(m.content) + 6 + IMAGE_TOKENS * (m.attachments?.length || 0), 0);
 
 export class ChatContext {
-  constructor(store, engines, lore) {
+  constructor(store, engines, lore, backgrounds) {
     this.store = store;
     this.engines = engines;
     this.lore = lore;
+    this.backgrounds = backgrounds;
   }
 
   get settings() {
@@ -37,6 +39,16 @@ export class ChatContext {
       .filter(Boolean);
   }
 
+  /** 이 대화에서 화면 표식으로 고를 수 있는 이름들. 표정은 주인공 캐릭터의 표정 그림, 장소는 배경 그림 이름입니다. */
+  sceneNames(chat) {
+    if (!chat.vn) return { expressions: [], places: [] };
+    const character = this.characterOf(chat);
+    return {
+      expressions: (character?.expressions || []).map((e) => e.label),
+      places: this.backgrounds ? this.backgrounds.names() : []
+    };
+  }
+
   /**
    * 롤플레이 대화 하나를 보낼 준비물. 캐릭터가 없으면 null 입니다.
    * basis 는 세계관 키워드를 찾을 메시지 묶음입니다 (다시 쓰기면 지워질 마지막 답변을 뺀 것).
@@ -53,7 +65,14 @@ export class ChatContext {
       lore: this.lore.block(chat, basis.messages),
       facts: chat.facts, memory: chat.memory, particleFix: s.dev.particleFix
     });
-    return { character, persona, preset, cast, system };
+    // 화면 표식 안내는 답변을 쓸 때만 뒤에 덧붙입니다. 대신 쓰기·요약 같은 다른 요청에는 섞이지 않게 system 과 따로 둡니다.
+    const scene = chat.vn || chat.dice ? sceneBlock({ name: character.name, ...this.sceneNames(chat), dice: Boolean(chat.dice) }) : '';
+    return { character, persona, preset, cast, system, scene };
+  }
+
+  /** 답변을 쓸 때 실제로 보내는 시스템 프롬프트. */
+  replySystem(ctx) {
+    return [ctx.system, ctx.scene].filter(Boolean).join('\n\n');
   }
 
   /** 이름을 채운 작가 노트. 없거나 캐릭터가 없으면 빈 글입니다. */
@@ -84,7 +103,7 @@ export class ChatContext {
     const ctx = assistant ? null : this.roleplay(chat, { basis });
     const system = assistant
       ? withThinking(s.assistant.systemPrompt, Boolean(s.assistant.thinking))
-      : ctx?.system || '';
+      : (ctx && this.replySystem(ctx)) || '';
     const params = assistant ? s.assistant.params : s.params;
     const note = this.authorNote(chat, ctx);
     const plan = planContext(basis.messages, {

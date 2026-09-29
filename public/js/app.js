@@ -22,6 +22,9 @@ import { Personas } from './features/personas.js';
 import { Lorebooks } from './features/lorebooks.js';
 import { ChatLoreDialog } from './features/chat-lore.js';
 import { Settings } from './features/settings.js';
+import { Stage } from './features/stage.js';
+import { Choices } from './features/choices.js';
+import { BackgroundsDialog } from './features/backgrounds.js';
 
 class App {
   constructor() {
@@ -43,6 +46,9 @@ class App {
     this.lorebooks = new Lorebooks(this);
     this.chatLore = new ChatLoreDialog(this);
     this.settings = new Settings(this);
+    this.stage = new Stage(this);
+    this.choices = new Choices(this);
+    this.backgrounds = new BackgroundsDialog(this);
 
     // 두 메뉴 모두 바깥을 누르면 닫습니다.
     document.addEventListener('mousedown', (e) => {
@@ -58,8 +64,8 @@ class App {
 
   async boot() {
     const { state } = this;
-    [state.settings, state.characters, state.personas, state.lorebooks, state.chats] = await Promise.all([
-      api.settings(), api.characters(), api.personas(), api.lorebooks(), api.chats()
+    [state.settings, state.characters, state.personas, state.lorebooks, state.chats, state.backgrounds] = await Promise.all([
+      api.settings(), api.characters(), api.personas(), api.lorebooks(), api.chats(), api.backgrounds()
     ]);
     applyTheme(state.settings.dev);
     this.paintAccount();

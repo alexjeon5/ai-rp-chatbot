@@ -2,6 +2,7 @@
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, storage, on } from '../core/dom.js';
+import { CharacterArtEditor } from './character-art.js';
 
 const FIELDS = ['avatar', 'name', 'tags', 'description', 'appearance', 'personality',
   'speech', 'scenario', 'greeting', 'exampleDialogue', 'notes'];
@@ -14,6 +15,7 @@ export class Characters {
     this.app = app;
     this.state = app.state;
     this.dialog = $('dlg-character');
+    this.art = new CharacterArtEditor(app);
 
     on('character-list', 'click', (e) => {
       const btn = e.target.closest('[data-character]');
@@ -58,6 +60,7 @@ export class Characters {
       $('c-name').value = `${$('c-name').value.trim()} (내 버전)`;
       for (const id of ['c-delete', 'c-export', 'c-copy', 'c-builtin-note']) $(id).hidden = true;
       $('c-once').hidden = false;
+      this.art.open(null);
       this.note('복사했습니다. 고친 뒤 저장하면 내 캐릭터에 들어갑니다.');
       $('c-name').focus();
     });
@@ -103,6 +106,7 @@ export class Characters {
     for (const f of FIELDS) $(`c-${f}`).value = ch?.[f] || '';
     $('c-brief').value = '';
     this.note('');
+    this.art.open(ch);
     this.dialog.showModal();
   }
 
@@ -140,7 +144,8 @@ export class Characters {
       if (!body.name) return ui.toast('이름을 입력해 주세요');
       if (id) await api.updateCharacter(id, body);
       else {
-        await api.createCharacter(body);
+        const made = await api.createCharacter(body);
+        await this.art.flushPending(made.id);
         // 새로 만든 캐릭터가 바로 보이도록 '내 캐릭터' 탭으로 옮깁니다.
         this.rememberTab('mine');
       }

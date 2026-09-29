@@ -24,7 +24,7 @@ export class ImageFiles {
   }
 
   remove(chatId, file) {
-    if (this.isSafe(chatId, file)) unlink(this.path(chatId, file)).catch(() => {});
+    return this.isSafe(chatId, file) ? unlink(this.path(chatId, file)).catch(() => {}) : Promise.resolve();
   }
 
   /** 대화를 지울 때 그 대화의 그림도 모두 지웁니다. */

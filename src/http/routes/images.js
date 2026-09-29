@@ -1,5 +1,7 @@
 /** 장면 그리기 (ComfyUI · Google Gemini · OpenAI). */
+import { readFile } from 'node:fs/promises';
 import { withThinking } from '../../prompt.js';
+import { sniffImage } from '../../services/attachments.js';
 import { checkBaseUrl } from '../../security.js';
 import { listModels } from '../../providers.js';
 import {
@@ -22,8 +24,8 @@ const blockedMessage = (terms) =>
   '이 차단은 설정에서 끌 수 없습니다. 캐릭터 외형이나 장면을 확인해 주세요.';
 
 export class ImageRoutes {
-  constructor({ store, auth, engines, context, jobs, images, limits }) {
-    Object.assign(this, { store, auth, engines, context, jobs, images, limits });
+  constructor({ store, auth, engines, context, jobs, images, limits, art }) {
+    Object.assign(this, { store, auth, engines, context, jobs, images, limits, art });
   }
 
   mount(app) {
@@ -259,20 +261,34 @@ export class ImageRoutes {
     if (body?.review) return finish({ done: true, review: { prompt: description, negative: '', removed: [] } });
 
     const prompt = [style, description].filter(Boolean).join('\n\n');
-    stage('draw', `${API_BACKENDS[backend]} 가 그리는 중`);
+    const reference = cfg.useReference ? await this.referenceOf(ctx.character) : null;
+    stage('draw', `${API_BACKENDS[backend]} 가 ${reference ? '프로필 그림을 참고해 ' : ''}그리는 중`);
     const { buffer, ext } = backend === 'openai'
-      ? await renderOpenAi({ config: apiConfig, model: opts.model, prompt, size: opts.size, quality: opts.quality, signal: controller.signal })
+      ? await renderOpenAi({ config: apiConfig, model: opts.model, prompt, size: opts.size, quality: opts.quality, reference, signal: controller.signal })
       : await renderGemini({
         config: apiConfig,
         model: opts.model,
         prompt,
         aspectRatio: GEMINI_RATIOS.includes(opts.aspectRatio) ? opts.aspectRatio : '2:3',
         imageSize: opts.imageSize,
+        reference,
         signal: controller.signal
       });
     if (!chat.messages.includes(msg)) return finish({ error: '그리는 동안 메시지가 삭제되었습니다.' });
     const image = await this.keep(chat, msg, buffer, ext, { prompt: description, negative: '', checkpoint: opts.model, backend });
     finish({ done: true, image, images: msg.images });
+  }
+
+  /** 캐릭터의 프로필 그림. 없거나 읽지 못하면 null 이라 참조 없이 그립니다. */
+  async referenceOf(character) {
+    if (!character?.id || !character.portrait || !this.art.isSafe(character.id, character.portrait)) return null;
+    try {
+      const buffer = await readFile(this.art.path(character.id, character.portrait));
+      const kind = sniffImage(buffer);
+      return kind ? { buffer, mime: kind.mime, ext: kind.ext } : null;
+    } catch {
+      return null;
+    }
   }
 
   /** 답변 한 장면을 대화 조각으로. 바로 앞 내 메시지와 그 답변만 씁니다. */

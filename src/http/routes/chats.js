@@ -1,7 +1,7 @@
 /** 대화와 메시지: 목록·만들기·고치기·지우기, 넘겨보기, 멈추기, 게이지와 미리보기. */
 import { uid } from '../../db.js';
 import { fillVars } from '../../prompt.js';
-import { showSwipe, syncSwipe, invalidateFacts, cleanFacts, pendingForSummary, branchFrom, MEMORY_MAX_CHARS } from '../../chat-ops.js';
+import { CHAT_FLAGS, showSwipe, syncSwipe, invalidateFacts, cleanFacts, pendingForSummary, branchFrom, MEMORY_MAX_CHARS } from '../../chat-ops.js';
 import { characterFields, SAFE_ID } from '../../services/records.js';
 import { wrap, fail } from '../helpers.js';
 
@@ -117,6 +117,11 @@ export class ChatRoutes {
     if (typeof body.memory === 'string') chat.memory = body.memory.slice(0, MEMORY_MAX_CHARS * 2);
     if (typeof body.authorNote === 'string') chat.authorNote = body.authorNote.slice(0, 2000);
     if (Array.isArray(body.facts)) chat.facts = cleanFacts(body.facts);
+    for (const k of CHAT_FLAGS) {
+      if (typeof body[k] !== 'boolean') continue;
+      if (body[k]) chat[k] = true;
+      else delete chat[k];
+    }
     // 보관한 대화는 목록에서 빠지고 보관함에만 보입니다. 지우지 않으므로 언제든 꺼낼 수 있습니다.
     if (body.archived === true && !chat.archivedAt) chat.archivedAt = Date.now();
     if (body.archived === false) delete chat.archivedAt;
@@ -262,6 +267,6 @@ export class ChatRoutes {
     }
     const ctx = this.context.roleplay(chat);
     if (!ctx) return fail(res, 400, '이 대화의 캐릭터가 삭제되었습니다.');
-    res.json({ system: ctx.system, turns: this.context.plan(chat).usage.kept, authorNote: this.context.authorNote(chat, ctx) });
+    res.json({ system: this.context.replySystem(ctx), turns: this.context.plan(chat).usage.kept, authorNote: this.context.authorNote(chat, ctx) });
   }
 }
