@@ -1,16 +1,17 @@
 /** 대화 하나를 모델에 보낼 준비물 — 캐릭터·페르소나·모드, 시스템 프롬프트, 토큰 예산. */
 import { buildSystem, fillVars, withThinking } from '../prompt.js';
-import { planContext, contextLimitOf, estimateTokens } from '../context.js';
+import { planContext, contextLimitOf, estimateTokens, IMAGE_TOKENS } from '../context.js';
 import { isLocalUrl } from '../security.js';
 
 /** 보정 전 어림. 엔진이 알려 준 실제 토큰 수와 비교해 보정값을 만듭니다. */
 export const rawPromptTokens = (system, history) =>
-  estimateTokens(system) + history.reduce((n, m) => n + estimateTokens(m.content) + 6, 0);
+  estimateTokens(system) + history.reduce((n, m) => n + estimateTokens(m.content) + 6 + IMAGE_TOKENS * (m.attachments?.length || 0), 0);
 
 export class ChatContext {
-  constructor(store, engines) {
+  constructor(store, engines, lore) {
     this.store = store;
     this.engines = engines;
+    this.lore = lore;
   }
 
   get settings() {
@@ -36,8 +37,11 @@ export class ChatContext {
       .filter(Boolean);
   }
 
-  /** 롤플레이 대화 하나를 보낼 준비물. 캐릭터가 없으면 null 입니다. */
-  roleplay(chat) {
+  /**
+   * 롤플레이 대화 하나를 보낼 준비물. 캐릭터가 없으면 null 입니다.
+   * basis 는 세계관 키워드를 찾을 메시지 묶음입니다 (다시 쓰기면 지워질 마지막 답변을 뺀 것).
+   */
+  roleplay(chat, { basis = chat } = {}) {
     const s = this.settings;
     const character = this.characterOf(chat);
     if (!character) return null;
@@ -46,6 +50,7 @@ export class ChatContext {
     const cast = this.castOf(chat);
     const system = buildSystem({
       character, persona, template: preset.template, cast,
+      lore: this.lore.block(chat, basis.messages),
       facts: chat.facts, memory: chat.memory, particleFix: s.dev.particleFix
     });
     return { character, persona, preset, cast, system };
@@ -76,7 +81,7 @@ export class ChatContext {
     const s = this.settings;
     const config = this.engines.config(provider) || {};
     const assistant = chat.kind === 'assistant';
-    const ctx = assistant ? null : this.roleplay(chat);
+    const ctx = assistant ? null : this.roleplay(chat, { basis });
     const system = assistant
       ? withThinking(s.assistant.systemPrompt, Boolean(s.assistant.thinking))
       : ctx?.system || '';

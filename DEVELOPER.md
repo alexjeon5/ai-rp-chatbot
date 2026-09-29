@@ -15,17 +15,24 @@ src/
     app.js                 createApp — 미들웨어 순서, 요청 제한, 라우트 클래스 등록
     helpers.js             wrap / fail / abortOnClose, SSE 를 보내는 EventStream
     routes/                기능별 라우트 클래스 — settings, library(캐릭터·페르소나), chats,
-                           generation(생성·대신 쓰기·기억), images, backup
+                           generation(생성·대신 쓰기·기억), lorebooks, character-cards, images, backup
   services/
     engines.js             Engines — 지금 엔진 설정, 성인 허용 판정, 실패 설명, 한 번에 받는 완성
     chat-context.js        ChatContext — 대화 한 개의 캐릭터·페르소나·틀·컨텍스트 예산
+    character-cards.js     CharacterCards — 카드 가져오기(캐릭터+묶인 로어북 만들기)·내보내기
+    lorebooks.js           LoreBooks — 대화에 적용되는 로어북 고르기, 발동 항목, 책 삭제 시 떼어내기
     jobs.js                Jobs — 대화별 진행 중 작업(중복 생성 막기, 멈추기)
     image-files.js         ImageFiles — 그린 그림 파일 저장·삭제
+    usage-ledger.js        UsageLedger — 날짜별 토큰 사용량 기록(data/usage.json)과 호출 하나를 지켜보는 계량기
+    attachments.js         Attachments — 사용자가 붙인 그림 저장(파일 머리로 종류 확인)·검증·모델용 base64 변환
     records.js             입력값 정리 — SAFE_ID, characterFields, normalizePersona
     backup.js              Backup — 내려받기·불러오기(합치기)
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
   store.js                 Store 클래스, 설정 기본값
+  character-card.js        캐릭터 카드 V1·V2·V3 ↔ 캐릭터·로어북 변환 (parseCard, buildCard)
+  png-card.js              PNG 의 tEXt/iTXt 조각에서 카드 JSON 꺼내기 (CardError)
+  lorebook.js              로어북 순수 규칙 — 값 정리(cleanEntry·cleanLorebook), 발동 판정(LoreScanner), renderLore
   prompt.js                시스템 프롬프트 조립 (조사 교정은 public/js/shared/korean.js 를 가져다 씀)
   providers.js             엔진 클래스 — Engine 을 잇는 OpenAI/LM Studio/Ollama/Vercel/Anthropic/Gemini
   sanitize.js              사고 블록 제거, 반복 출력 감지
@@ -40,6 +47,9 @@ public/
   login.html               로그인 페이지. 앱 스크립트를 읽지 않는 독립 페이지
   index.html               전체 마크업 (사이드바, 대화창, 다이얼로그 다섯 개)
   styles.css               전체 스타일. CSS 변수로 테마 관리
+  manifest.webmanifest     홈 화면 설치용 앱 정보 (이름, 아이콘, standalone)
+  sw.js                    서비스 워커 — 화면 파일만 네트워크 우선으로 캐시, /api 는 건드리지 않음
+  icons/                   앱 아이콘 (icon.svg 원본, 192·512, maskable, apple-touch-icon)
   js/
     app.js                 진입점 — App 이 상태와 기능 객체를 만들어 잇고 첫 화면을 띄움
     api.js                 서버 호출 얇은 래퍼 + SSE 파서
@@ -84,6 +94,7 @@ class Store {
   settingsDoc   // JsonDoc
   characters    // Collection
   personas      // Collection
+  lorebooks     // Collection
   chats         // Collection
 }
 export const store = new Store();  // 싱글턴
@@ -135,6 +146,10 @@ data/
   settings.json
   characters/<id>.json
   personas/<id>.json
+  lorebooks/<id>.json    # 세계관 설정집(항목 배열 포함)
+  usage.json             # 날짜별 토큰 사용량 { days: { 'YYYY-MM-DD': [{ provider, model, requests, promptTokens, completionTokens, estimated }] } }
+  images/<chatId>/       # 장면 그리기로 그린 그림
+  uploads/<chatId>/      # 사용자가 메시지에 붙인 그림
   chats/<id>.json        # 메시지 배열을 포함
 ```
 
@@ -154,6 +169,39 @@ data/
 - `{{char}}`가 틀에 한 번도 없으면, 배역 블록을 틀 맨 뒤에 자동으로 붙입니다
   (사용자가 자리표시자를 모르는 프롬프트를 그대로 붙여 넣어도 동작하게 하기 위함).
 - `exampleDialogue`, `notes`는 `# 대화 예시`, `# 추가 설정` 제목을 붙여 맨 뒤에 이어 붙입니다.
+- `lore`(이미 완성된 글)가 있으면 `# 추가 설정` 다음, 기억해 둔 사실 앞에 그대로 붙입니다. 아래 로어북 절 참고.
+
+### 로어북 — `src/lorebook.js`, `src/services/lorebooks.js`
+
+키워드가 최근 대화에 나올 때만 프롬프트에 끼우는 설정 조각 모음입니다. 역할을 나눠 두었습니다.
+
+- **`cleanEntry` / `cleanLorebook` / `cleanLoreSettings`** (`src/lorebook.js`) — 들어온 값 정리. `cleanLorebook` 은 들어온 칸만
+  돌려줘서 PUT 에 일부만 보내도 됩니다. 항목은 내용이 비면 버리고, 300개·키 20개·내용 4000자 등 `LORE_LIMITS` 로 자릅니다.
+- **`LoreScanner`** — 발동 판정. 보이는(`hidden` 아닌) 메시지 중 마지막 `scanDepth` 개를 이어 붙인 글에서 키워드를 찾고
+  (`constant` 는 늘 발동, `secondaryKeys` 가 있으면 그중 하나도 나와야 함, `caseSensitive` 아니면 소문자 비교),
+  `priority` 높은 순으로 `tokenBudget` 안에 드는 것만 남깁니다. 상한을 넘는 항목은 건너뛰고 더 작은 것을 계속 살핍니다.
+- **`renderLore(selected)`** — `# 세계관 설정` 제목 아래 `### 제목\n내용` 을 이은 글. 없으면 빈 글.
+- **`LoreBooks`** (`src/services/lorebooks.js`) — 저장소와 잇는 층. `appliedTo(chat)` 가 적용할 책을
+  `global` → 캐릭터에 묶인 책(`characterIds`) → 대화에 직접 붙인 책(`chat.lorebookIds`) 순으로 모으고(한 책은 한 번만),
+  `block(chat, messages)` 가 프롬프트에 붙일 글을 만듭니다. `ChatContext.roleplay(chat, { basis })` 가 이걸 부르며,
+  다시 쓰기일 때는 마지막 답변을 뺀 `basis.messages` 로 검사해 그 답변이 만든 발동을 되풀이하지 않습니다.
+  어시스턴트 대화에는 적용하지 않습니다.
+- 설정은 `settings.lorebook = { scanDepth: 4, tokenBudget: 1200 }` (범위 1–20, 100–8000). 책을 지우면 `detach` 가
+  대화들의 `lorebookIds` 에서도 뺍니다. 대화 분기는 `lorebookIds` 를 복사하고, 백업은 `lorebooks` 를 함께 내보내고
+  불러옵니다(`characterIds`·`lorebookIds` 는 id 매핑으로 다시 이음).
+
+### 캐릭터 카드 — `src/character-card.js`, `src/png-card.js`
+
+- `pngCard.cardFromPng(buf)` — PNG 조각을 훑어 tEXt/iTXt 의 `ccv3` → `chara` 순으로 base64 JSON 을 꺼냅니다. 압축 조각은 건너뜁니다. 그림은 쓰지 않고 CRC 도 검사하지 않습니다. 사용자에게 보여도 되는 오류는 `CardError` 입니다(라우트가 400 으로 돌려줌).
+- `parseCard(raw)` — V1(납작한 JSON)·V2·V3(`spec`+`data`)을 읽어 `{ character, book, dropped }`. 카드의 긴 `description` 은
+  `personality` 칸으로, `system_prompt`·`post_history_instructions` 는 `notes` 로 옮기고 `<USER>`/`<BOT>`/`<START>` 를 다듬습니다.
+  `extensions.rpchat.character` 가 있으면(이 앱에서 낸 카드) 그 칸을 그대로 써서 손실 없이 되살립니다.
+- `buildCard(character, books)` — V2 카드. 이 앱의 칸은 표준 칸에 풀어 담고(`description` 에 성격·말투·외형·추가 설정을 이어 붙이고 한 줄 소개는 `creator_notes`),
+  원래 칸은 `extensions.rpchat` 에 둡니다. `bookToCard`/`bookFromCard` 가 로어북 항목과 `character_book` 을 오갑니다(우선순위는 `priority`).
+- `CharacterCards`(서비스)가 저장소와 잇습니다. 가져올 때 세계관이 있으면 `characterIds: [새 캐릭터]` 로 묶인 로어북을 만들고,
+  내보낼 때는 `characterIds` 에 그 캐릭터가 든 로어북을 모읍니다. PNG 로 내보내기는 없습니다(캐릭터에 그림이 없음).
+
+프런트는 `features/lorebooks.js`(설정집 창) · `lore-entry.js`(항목 편집기) · `chat-lore.js`(대화에 붙이기 창)로 나뉩니다.
 
 ### 한국어 조사 교정 — `public/js/shared/korean.js`
 
@@ -278,6 +326,33 @@ data: {"done": true, "message": {...}}   완료
 - 서버의 `planFor(chat)` 가 생성·미리보기·게이지(`GET /api/chats/:id/context`)·요약 판단에 같은 계산을 씁니다
 - 엔진이 실제 프롬프트 토큰 수를 알려 주면(`onUsage`: OpenAI 호환은 `stream_options.include_usage`, Anthropic `message_start`, Gemini `usageMetadata`) `nextRatio` 로 `settings.tokenRatio[엔진]` 을 갱신해 다음 어림에 곱합니다. `stream_options` 를 모르는 서버가 400 을 내면 빼고 다시 보냅니다
 
+### 그림 입력(비전) — `src/services/attachments.js`
+
+- 사용자 메시지의 `attachments: [{ id, file, mime, name, bytes }]`. 파일은 `data/uploads/<대화 id>/` 에 있고(`ImageFiles` 를 다른 뿌리로 재사용), 종류는 브라우저가 보낸 값이 아니라 파일 머리(`sniffImage`: PNG·JPEG·WebP)로 정합니다
+- 올리기(`POST /api/chats/:id/attachments`, 본문이 그림 파일 그대로, 10MB)와 메시지 추가는 두 단계입니다. 메시지를 만들 때 `Attachments.resolve` 가 화면이 보낸 `{file, name}` 목록을 이 대화에 실제로 있는 파일과 맞춰 보고 최대 4개로 자릅니다.
+  보내지 않고 뺀 그림은 화면이 `DELETE …/attachments/:file` 로 지웁니다(이미 메시지에 붙은 파일은 지우지 않음)
+- `planContext` 는 `attachments` 가 있는 메시지를 남기고(글이 비어도), 한 장을 `IMAGE_TOKENS`(850)로 세며, 가장 최근 `MAX_SENT_IMAGES`(6)장만 히스토리에 `attachments` 로 실어 줍니다
+- 히스토리의 `attachments` 는 보내기 직전에 `Attachments.inline` 이 `images: [{ mime, data(base64) }]` 로 바꿉니다(생성·대신 쓰기 경로). 저장된 메시지에는 base64 를 두지 않습니다
+- 엔진 어댑터: `openAiTurns`(content 를 `text` + `image_url` 데이터 URL 조각 배열로) · `anthropicTurns`(`image`/`base64` 조각을 글 앞에) · `geminiTurns`(`inlineData`). `normalizeTurns` 는 같은 역할 턴을 합칠 때 그림도 함께 모읍니다.
+  글도 그림도 없는 턴은 어느 엔진에서도 보내지 않습니다
+- 브라우저(`features/attach.js`): 긴 변 1600px 초과·GIF·HEIC 등은 canvas 로 JPEG 로 줄여 올리고, 작은 PNG·JPEG·WebP 는 원본 그대로 올립니다. 메시지 속 그림은 `class="img-open"` 링크라 그림 크게 보기 창을 그대로 씁니다
+- 지워지는 때: 메시지 삭제, 대화 삭제(폴더째). 분기하면 `branchFrom` 이 돌려주는 `attachmentFiles` 를 복사합니다. 백업(`cleanMessage`)은 `attachments` 를 옮기지 않습니다
+- 로컬 모델이 비전을 못 하는지는 알 수 없어 막지 않습니다. 엔진 오류가 그대로 화면에 나옵니다
+
+### 사용량 기록 — `src/usage.js`, `src/services/usage-ledger.js`
+
+- 엔진은 `onUsage({ promptTokens, completionTokens })` 로 **누적값**을 여러 번 알려 줍니다(OpenAI 호환은 마지막 청크, Anthropic 은 `message_start` 의 입력 + `message_delta` 의 `output_tokens`, Gemini 는 청크마다 `usageMetadata`, 사고 토큰 포함). `UsageTally.note` 는 알려 준 값으로 덮어써서 마지막 값이 그 호출의 총량이 됩니다
+- `UsageLedger.meter(request)` 가 `{ onUsage, record(text) }` 를 돌려줍니다. 호출이 끝나면(중단·오류 포함) `record` 를 한 번 부르고, 받은 것이 하나도 없으면 남기지 않습니다. 붙는 곳: 답변 생성, 대신 쓰기, `Engines.complete`(요약·기억·캐릭터/페르소나 만들기·장면 묘사)
+- 엔진이 토큰 수를 알려 주지 않으면(일부 로컬 서버) 프롬프트는 `rawPromptTokens`, 출력은 `estimateTokens(text)` 로 어림하고 그 줄의 `estimated` 를 올립니다. 화면은 `≈` 로 표시
+- 날짜는 서버 시간대의 `YYYY-MM-DD`, 같은 날 같은 엔진·모델은 한 줄로 합칩니다. 90일이 지난 날짜는 기록할 때 지웁니다. 백업에는 담지 않습니다(`data/usage.json` 은 기기 로컬)
+- `GET /api/usage` 는 `summarizeUsage` 결과(`periods`: 오늘·7일·30일 합계와 모델별 행, `daily`: 30일 날짜별)
+
+### 대화 검색 — `src/chat-search.js`, `src/http/routes/search.js`
+
+- `searchChats(chats, query, { kind })` 는 순수 함수입니다. 검색어를 공백으로 나눠(최대 6개, 소문자·NFC) **모두 포함한** 메시지만 찾고, 대화는 최근 수정 순, 한 대화에서는 최근 메시지부터 3개까지(`moreInChat`), 전체 60개까지입니다(`truncated`)
+- 본문이 걸린 대화는 제목 결과를 따로 내지 않습니다(첫 메시지로 제목을 붙이는 대화가 많아 같은 말이 두 번 나옴). 제목만 걸리면 `messageId: null`
+- 라우트는 결과에 대화 제목·종류·캐릭터 이름·보관·성인 여부를 붙여서 돌려줍니다. 검색은 서버 메모리의 대화를 훑을 뿐 색인은 없습니다
+
 ### 대화 한 개의 규칙 — `src/chat-ops.js`
 
 저장소와 무관한 순수 함수만 둡니다.
@@ -320,9 +395,14 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/models?provider=` | 모델 목록 (엔진별 필터·페이지네이션 적용됨) |
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
+| POST | `/api/characters/import` | `{ card }`(JSON) 또는 `{ png }`(base64) 캐릭터 카드를 새 캐릭터로. 응답 `{ character, lorebook, dropped }`. 이 경로만 본문 한도 16MB. 카드가 아니면 400 |
+| GET | `/api/characters/:id/export` | 캐릭터를 V2 카드 JSON 으로 내려받기. 묶인 로어북은 `character_book` |
 | GET/POST/PUT/DELETE | `/api/personas[/:id]` | 페르소나 CRUD |
-| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` `archived`. 목록은 `updatedAt` 최신순. `archived: true` 면 `archivedAt` 을 적고 화면이 보관함으로 옮깁니다. 보관한 대화에 사용자 메시지가 들어오면 서버가 보관을 풉니다 |
-| POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제 |
+| GET/POST/PUT/DELETE | `/api/lorebooks[/:id]` | 세계관 설정집 CRUD. 본문 `{ name, description, global, characterIds, entries }` |
+| POST | `/api/lorebooks/:id/test` | `{ text, entries? }` 이 글에서 발동하는 항목 `{ triggered: [{id,title,tokens}] }`. 저장하지 않으며 `entries` 를 주면 고치는 중인 항목으로 시험 |
+| GET | `/api/chats/:id/lore` | 이 대화에 적용되는 책(`applied`, 이유 `via`)과 지금 발동 중인 항목(`triggered`), 스캔 설정 |
+| GET/POST/PUT/DELETE | `/api/chats[/:id]` | 대화 CRUD. PUT 은 `title` `personaId` `presetId` `memory` `authorNote` `castIds` `lorebookIds` `archived`. 목록은 `updatedAt` 최신순. `archived: true` 면 `archivedAt` 을 적고 화면이 보관함으로 옮깁니다. 보관한 대화에 사용자 메시지가 들어오면 서버가 보관을 풉니다 |
+| POST/PUT/DELETE | `/api/chats/:id/messages[/:mid]` | 메시지 추가/수정/삭제. 추가할 때 `attachments: [{ file, name }]` 로 올려 둔 그림을 붙임 |
 | POST | `/api/chats/:id/generate` | SSE 스트리밍 생성. `{ regenerate, continue }` 바디. regenerate 는 마지막 답변에 새 장(`swipes`)을 얹고, continue 는 끝에 이어 붙임. 둘 다 새 내용이 생겼을 때만 바뀜 |
 | PUT | `/api/chats/:id/messages/:mid/swipe` | `{ index }` 보여 줄 답변 장 바꾸기. `content` 가 그 장으로 바뀜 |
 | POST | `/api/chats/:id/facts/extract` | `{ auto }` 최근 대화에서 사실을 뽑아 `chat.facts` 에 추가·수정·삭제. auto 는 답변 4개 이상 쌓였을 때만. 새 generate 요청이 오면 멈춤 |
@@ -330,7 +410,13 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | POST | `/api/chats/:id/messages/:mid/image` | `{ prompt?, negative?, checkpoint?, random?, review? }` 장면 그리기. SSE 로 `stage`·`prompt`·`done{image, images}`. prompt 를 주면 LLM 을 건너뜀. checkpoint 는 그 한 장에만 쓰는 모델(설정은 그대로)이고 `image.checkpoint` 에 남김 |
 | DELETE | `/api/chats/:id/messages/:mid/images/:imgId` | 그림 삭제 |
 | GET | `/api/images/:chatId/:file` | 그림 파일 |
+| POST | `/api/chats/:id/attachments` | 붙일 그림 올리기. 본문이 PNG·JPEG·WebP 파일 그대로. `{ file, mime, bytes }` |
+| DELETE | `/api/chats/:id/attachments/:file` | 보내지 않고 뺀 그림 지우기. 이미 메시지에 붙었으면 `kept: true` 로 남김 |
+| GET | `/api/uploads/:chatId/:file` | 사용자가 붙인 그림 파일 |
 | GET | `/api/image/checkpoints?baseUrl=` | ComfyUI 연결 확인 + 체크포인트 목록 |
+| GET | `/api/search?q=&kind=rp\|assistant` | 대화 제목·본문 검색. `{ terms, truncated, hits: [{ chatId, messageId, role, snippet, title, character, archived, adult, moreInChat }] }` |
+| GET | `/api/usage` | 토큰 사용량 요약(오늘·7일·30일, 모델별, 날짜별) |
+| DELETE | `/api/usage` | 사용량 기록 지우기. 주인 계정만 |
 | GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
@@ -419,18 +505,24 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 
 | 필드 | 파일 | 맡는 일 |
 |---|---|---|
-| `state` | `core/state.js` | 서버 데이터 사본(`settings, characters, personas, chats, chat`), 진행 중 생성 `run`, `mode`, `hideAdult`, `showArchived`, 계산 메서드 |
+| `state` | `core/state.js` | 서버 데이터 사본(`settings, characters, personas, lorebooks, chats, chat`), 진행 중 생성 `run`, `mode`, `hideAdult`, `showArchived`, 계산 메서드 |
 | `toolbar` | `features/toolbar.js` | 입력창 아래 엔진 선택기, 모델 이름, 웹 검색·생각 토글 |
 | `list` | `features/chat-list.js` | 사이드바 대화 목록, 모드 탭, 보관함, 우클릭 메뉴, 이름 바꾸기·보관·삭제 |
 | `drawing` | `features/drawing.js` | 🎨 장면 그리기, 태그 검토, 그림 크게 보기 |
 | `view` | `features/chat-view.js` | 대화 열기·닫기, 상단 헤더와 ⋯ 메뉴, 메시지 그리기·넘기기·편집 |
 | `composer` | `features/composer.js` | 입력창, 보내기·다시 쓰기·이어 쓰기·멈추기, 대신 쓰기, 컨텍스트 게이지 |
+| `search` | `features/search.js` | 사이드바 대화 검색(250ms 뒤 요청, 늦게 온 응답 버림), 결과에서 그 메시지로 이동, Ctrl/⌘+K |
+| `pwa` | `features/pwa.js` | 서비스 워커 등록 (`app.js` 가 App 을 만들기 전에 호출) |
+| `attach` | `features/attach.js` | 그림 붙이기(고르기·붙여넣기·끌어놓기), 줄여 올리기, 보내기 전 미리보기 |
 | `memory` | `features/memory.js` | 기억(설정 기록·요약) 창과 답변 뒤 자동 정리 |
 | `cast` | `features/cast.js` | 함께 등장하는 인물 창 |
 | `newChat` | `features/new-chat.js` | 새 대화 시작과 모드 선택 창 (`MODE_NOTES`) |
 | `characters` | `features/characters.js` | 캐릭터 목록 탭과 캐릭터 창 |
 | `personas` | `features/personas.js` | 페르소나 창과 랜덤 페르소나 |
-| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js` |
+| `lorebooks` | `features/lorebooks.js` | 세계관 설정집 창 — 목록·이름·적용 범위·발동 시험. 항목 편집은 `lore-entry.js` 의 `LoreEntryEditor` |
+| `chatLore` | `features/chat-lore.js` | 대화의 ⋯ 메뉴 「세계관 적용」 창 — 이 대화에 붙일 설정집과 지금 발동 중인 항목 |
+| `cardTransfer` | `features/card-transfer.js` | 캐릭터 카드 가져오기(JSON·PNG)·내보내기 버튼 |
+| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js`, 사용량 탭은 `settings-usage.js` |
 
 `theme.js` 의 `applyTheme(dev)` 는 테마 색·글꼴·파비콘·표기법을 화면에 적용합니다.
 
@@ -448,6 +540,16 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 버렸습니다.
 
 ---
+
+### 홈 화면 설치(PWA) — `public/sw.js`
+
+- 정적 파일(`express.static`)은 로그인 없이 받을 수 있으므로 manifest·sw.js·아이콘도 그대로 열립니다. 첫 화면(`/`)만 `pageGate` 가 로그인 페이지로 돌립니다
+- 워커는 같은 출처의 GET 중 `/api/`·`/sw.js`·`/login.html` 을 뺀 요청을 **네트워크 우선**으로 받고, 성공한(`ok`, 리다이렉트 아님, `basic`) 응답만 `rp-shell-v1` 에 복사해 둡니다.
+  실패하면 캐시에서 꺼내고, 화면 이동이면 `/` 를 냅니다. 로그인 페이지로 돌려보낸 응답을 저장하면 다음에 "리다이렉트된 응답으로 이동" 오류가 나므로 저장하지 않습니다
+- 캐시 우선을 쓰지 않는 이유: ES 모듈이 여러 파일이라 업데이트 뒤 새 `app.js` 와 옛 `api.js` 가 섞이기 쉽습니다. 파일을 바꿀 때 워커를 고칠 필요가 없습니다(캐시 구조를 바꿀 때만 `CACHE` 이름을 올립니다)
+- 대화·설정 같은 API 응답과 그림 파일은 절대 캐시하지 않습니다. 로그아웃한 기기에 데이터가 남으면 안 되기 때문입니다
+- 서비스 워커는 https 또는 localhost 에서만 등록됩니다. 그 밖(LAN 의 http)에서는 조용히 건너뜁니다
+- 아이콘은 `public/icons/icon.svg` 의 말풍선을 Chromium 으로 찍어 만든 PNG 입니다. `theme.js` 는 테마를 바꾸면 `theme-color` 메타를 같이 바꿉니다(manifest 의 색은 고정)
 
 ## 9. 로컬 테스트 방법
 

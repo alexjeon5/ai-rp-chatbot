@@ -7,6 +7,8 @@ import { BUILTIN_CHARACTERS } from '../../content/characters.js';
 import {
   imageConfig, GEMINI_RATIOS, OPENAI_SIZES, OPENAI_QUALITIES, looksLikeWorkflow, CORE_BLOCK_TERMS, CORE_NEGATIVE, COMMON_SAMPLERS, COMMON_SCHEDULERS
 } from '../../image.js';
+import { cleanLoreSettings, LORE_DEFAULTS } from '../../lorebook.js';
+import { isObj } from '../../services/records.js';
 import { wrap, fail } from '../helpers.js';
 
 /**
@@ -168,6 +170,7 @@ export class SettingsRoutes {
     }
     if (typeof body.memory?.autoSummarize === 'boolean') s.memory.autoSummarize = body.memory.autoSummarize;
     if (typeof body.memory?.autoFacts === 'boolean') s.memory.autoFacts = body.memory.autoFacts;
+    if (isObj(body.lorebook)) s.lorebook = cleanLoreSettings(body.lorebook, { ...LORE_DEFAULTS, ...s.lorebook });
     if (body.dev) {
       const d = body.dev;
       if (typeof d.particleFix === 'boolean') s.dev.particleFix = d.particleFix;

@@ -335,6 +335,7 @@ export function branchFrom(chat, messageId) {
     ...(chat.presetId ? { presetId: chat.presetId } : {}),
     ...(chat.castIds?.length ? { castIds: [...chat.castIds] } : {}),
     ...(chat.authorNote ? { authorNote: chat.authorNote } : {}),
+    ...(chat.lorebookIds?.length ? { lorebookIds: [...chat.lorebookIds] } : {}),
     title: `${chat.title} · 분기`,
     branchOf: { chatId: chat.id, messageId, title: chat.title },
     updatedAt: Date.now(),
@@ -344,7 +345,8 @@ export function branchFrom(chat, messageId) {
     ...(summarizedPast ? {} : { ...(chat.memory ? { memory: chat.memory } : {}), ...(chat.summaryUntilAt ? { summaryUntilAt: chat.summaryUntilAt } : {}) })
   };
   const files = messages.flatMap((m) => (m.images || []).map((img) => img.file));
-  return { chat: branch, files, memoryCleared };
+  const attachmentFiles = messages.flatMap((m) => (m.attachments || []).map((a) => a.file));
+  return { chat: branch, files, attachmentFiles, memoryCleared };
 }
 
 /**

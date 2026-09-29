@@ -35,8 +35,20 @@ export const api = {
     req('/api/import', { method: 'POST', body: { data, includeSettings } }),
   imageCheckpoints: (baseUrl) => req(`/api/image/checkpoints?baseUrl=${encodeURIComponent(baseUrl)}`),
   imageApiModels: (backend) => req(`/api/image/models/${encodeURIComponent(backend)}`),
+  uploadAttachment: async (chatId, blob) => {
+    const res = await fetch(`/api/chats/${chatId}/attachments`, { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+    if (toLogin(res)) throw new Error('로그인이 필요합니다.');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `올리지 못했습니다 (${res.status})`);
+    }
+    return res.json();
+  },
+  discardAttachment: (chatId, file) => req(`/api/chats/${chatId}/attachments/${encodeURIComponent(file)}`, { method: 'DELETE' }),
   deleteImage: (chatId, mid, imgId) =>
     req(`/api/chats/${chatId}/messages/${mid}/images/${imgId}`, { method: 'DELETE' }),
+  usage: () => req('/api/usage'),
+  clearUsage: () => req('/api/usage', { method: 'DELETE' }),
   logs: () => req('/api/logs'),
   clearLogs: () => req('/api/logs', { method: 'DELETE' }),
 
@@ -46,6 +58,8 @@ export const api = {
   draftCharacter: (brief, current) => req('/api/characters/draft', { method: 'POST', body: { brief, current } }),
   updateCharacter: (id, body) => req(`/api/characters/${id}`, { method: 'PUT', body }),
   deleteCharacter: (id) => req(`/api/characters/${id}`, { method: 'DELETE' }),
+  importCard: (body) => req('/api/characters/import', { method: 'POST', body }),
+  cardUrl: (id) => `/api/characters/${id}/export`,
 
   personas: () => req('/api/personas'),
   createPersona: (body) => req('/api/personas', { method: 'POST', body }),
@@ -54,8 +68,16 @@ export const api = {
   rollPersonaSeeds: (seeds, only, adult) => req('/api/personas/roll', { method: 'POST', body: { seeds, only, adult } }),
   generatePersona: (seeds, adult) => req('/api/personas/generate', { method: 'POST', body: { seeds, adult } }),
 
+  lorebooks: () => req('/api/lorebooks'),
+  createLorebook: (body) => req('/api/lorebooks', { method: 'POST', body }),
+  updateLorebook: (id, body) => req(`/api/lorebooks/${id}`, { method: 'PUT', body }),
+  deleteLorebook: (id) => req(`/api/lorebooks/${id}`, { method: 'DELETE' }),
+  testLorebook: (id, text, entries) => req(`/api/lorebooks/${id}/test`, { method: 'POST', body: { text, entries } }),
+  chatLore: (chatId) => req(`/api/chats/${chatId}/lore`),
+
   chats: () => req('/api/chats'),
   chat: (id) => req(`/api/chats/${id}`),
+  search: (q, kind) => req(`/api/search?q=${encodeURIComponent(q)}&kind=${kind}`),
   createChat: (body) => req('/api/chats', { method: 'POST', body }),
   systemPreview: (id) => req(`/api/chats/${id}/system`),
   stopChat: (id) => req(`/api/chats/${id}/stop`, { method: 'POST', body: {} }),

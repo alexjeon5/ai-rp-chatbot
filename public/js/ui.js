@@ -274,6 +274,16 @@ function imagesBlock(message) {
   return `<div class="turn-images">${[...message.images].reverse().map((img) => imageFigure(drawing.chatId, img)).join('')}</div>`;
 }
 
+/** 사용자가 붙인 그림. 누르면 그림 크게 보기 창(Drawing)이 열립니다. */
+function attachmentsBlock(message) {
+  if (!message.attachments?.length || !drawing.chatId) return '';
+  const chat = encodeURIComponent(drawing.chatId);
+  return `<div class="turn-attach">${message.attachments.map((a) => {
+    const src = `/api/uploads/${chat}/${encodeURIComponent(a.file)}`;
+    return `<a class="img-open" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(a.name || '붙인 그림')}" title="${esc(a.name || '')}" loading="lazy"></a>`;
+  }).join('')}</div>`;
+}
+
 /** 답변 넘겨보기. 두 장 이상일 때만 보입니다. */
 function swipeNav(message) {
   const total = message.swipes?.length || 0;
@@ -293,6 +303,7 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
   li.innerHTML = `
     <div class="turn-name">${esc(speaker)}</div>
     ${message.thought ? `<details class="thought"><summary>생각 과정</summary><div class="thought-body">${esc(message.thought)}</div></details>` : ''}
+    ${isUser ? attachmentsBlock(message) : ''}
     <div class="turn-text${bubbles ? ' is-bubbles' : ''}${plain ? ' is-md' : ''}">${formatText(message.content, { plain, bubbles })}</div>
     ${message.sources?.length ? `<details class="sources"><summary>출처 ${message.sources.length}곳</summary><ol class="source-list">${message.sources
       .map((src) => `<li><a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title?.trim() || src.url)}</a></li>`)

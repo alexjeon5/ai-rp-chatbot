@@ -16,6 +16,8 @@ const defaultSettings = () => ({
   askModeOnNewChat: true,
   // 기억할 메시지 수 밖으로 밀려난 대화를 자동으로 요약해 둘지.
   memory: { autoSummarize: true, autoFacts: true },
+  // 로어북(세계관 설정집). 최근 몇 개 메시지에서 키워드를 찾고, 붙이는 글은 몇 토큰까지 허용할지.
+  lorebook: { scanDepth: 4, tokenBudget: 1200 },
   // ComfyUI 로 장면 그리기. src/image.js 의 IMAGE_DEFAULTS 참고.
   image: IMAGE_DEFAULTS(),
   // 엔진별 토큰 어림 보정값. 엔진이 알려 준 실제 토큰 수로 스스로 맞춰 갑니다.
@@ -68,7 +70,9 @@ const defaultSettings = () => ({
  *   data/settings.json
  *   data/characters/<id>.json
  *   data/personas/<id>.json
+ *   data/lorebooks/<id>.json
  *   data/chats/<id>.json
+ *   data/usage.json     날짜별 토큰 사용량
  */
 export class Store {
   constructor(dir = DATA_DIR) {
@@ -76,7 +80,9 @@ export class Store {
     this.settingsDoc = new JsonDoc(path.join(dir, 'settings.json'), defaultSettings);
     this.characters = new Collection(path.join(dir, 'characters'));
     this.personas = new Collection(path.join(dir, 'personas'));
+    this.lorebooks = new Collection(path.join(dir, 'lorebooks'), (a, b) => String(a.name).localeCompare(String(b.name), 'ko'));
     this.chats = new Collection(path.join(dir, 'chats'));
+    this.usageDoc = new JsonDoc(path.join(dir, 'usage.json'), () => ({ days: {} }));
   }
 
   /** 설정 객체. 고친 뒤에는 saveSettings() 를 부르세요. */
@@ -94,7 +100,9 @@ export class Store {
       this.settingsDoc.load(),
       this.characters.load(),
       this.personas.load(),
-      this.chats.load()
+      this.lorebooks.load(),
+      this.chats.load(),
+      this.usageDoc.load()
     ]);
     this.normalizeSettings();
     this.tagBuiltinCharacters();

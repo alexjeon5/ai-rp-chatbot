@@ -7,14 +7,20 @@ import { AppState } from './core/state.js';
 import { applyTheme } from './features/theme.js';
 import { Toolbar } from './features/toolbar.js';
 import { ChatList } from './features/chat-list.js';
+import { SearchPanel } from './features/search.js';
 import { Drawing } from './features/drawing.js';
 import { ChatView } from './features/chat-view.js';
 import { Composer } from './features/composer.js';
+import { AttachTray } from './features/attach.js';
+import { Pwa } from './features/pwa.js';
 import { Memory } from './features/memory.js';
 import { CastDialog } from './features/cast.js';
 import { NewChat } from './features/new-chat.js';
 import { Characters } from './features/characters.js';
+import { CardTransfer } from './features/card-transfer.js';
 import { Personas } from './features/personas.js';
+import { Lorebooks } from './features/lorebooks.js';
+import { ChatLoreDialog } from './features/chat-lore.js';
 import { Settings } from './features/settings.js';
 
 class App {
@@ -22,15 +28,20 @@ class App {
     this.state = new AppState();
     this.toolbar = new Toolbar(this);
     this.list = new ChatList(this);
+    this.search = new SearchPanel(this);
     // 그림 크게 보기는 메시지 편집보다 먼저 #messages 클릭을 받아야 하므로 ChatView 보다 먼저 만듭니다.
     this.drawing = new Drawing(this);
     this.view = new ChatView(this);
+    this.attach = new AttachTray(this);
     this.composer = new Composer(this);
     this.memory = new Memory(this);
     this.cast = new CastDialog(this);
     this.newChat = new NewChat(this);
     this.characters = new Characters(this);
+    this.cardTransfer = new CardTransfer(this);
     this.personas = new Personas(this);
+    this.lorebooks = new Lorebooks(this);
+    this.chatLore = new ChatLoreDialog(this);
     this.settings = new Settings(this);
 
     // 두 메뉴 모두 바깥을 누르면 닫습니다.
@@ -47,8 +58,8 @@ class App {
 
   async boot() {
     const { state } = this;
-    [state.settings, state.characters, state.personas, state.chats] = await Promise.all([
-      api.settings(), api.characters(), api.personas(), api.chats()
+    [state.settings, state.characters, state.personas, state.lorebooks, state.chats] = await Promise.all([
+      api.settings(), api.characters(), api.personas(), api.lorebooks(), api.chats()
     ]);
     applyTheme(state.settings.dev);
     this.paintAccount();
@@ -88,6 +99,7 @@ class App {
   }
 }
 
+new Pwa().register();
 const app = new App();
 enhanceSelects();
 ui.watchScroll();

@@ -16,8 +16,8 @@ import { wrap, fail, abortOnClose, EventStream } from '../helpers.js';
 const LOOP_NOTICE = '\n\n(같은 말이 되풀이되어 생성을 멈췄습니다. 재전송을 누르거나, 설정에서 반복 억제 값을 올려 보세요.)';
 
 export class GenerationRoutes {
-  constructor({ store, engines, context, jobs, limits }) {
-    Object.assign(this, { store, engines, context, jobs, limits });
+  constructor({ store, engines, context, jobs, limits, attachments, usage }) {
+    Object.assign(this, { store, engines, context, jobs, limits, attachments, usage });
   }
 
   mount(app) {
@@ -57,6 +57,9 @@ export class GenerationRoutes {
     const problem = this.engines.problem(config, provider);
     if (problem) return fail(res, 400, problem);
 
+    // 다른 버전을 쓸 때는 지금 답변을 빼고 보냅니다. 실제로 바꾸는 건 새 버전이 생긴 뒤입니다.
+    const basis = mode === 'regenerate' && target ? { ...chat, messages: chat.messages.slice(0, -1) } : chat;
+
     let system;
     let params = s.params;
     let webSearch = false;
@@ -69,14 +72,12 @@ export class GenerationRoutes {
       thinking = Boolean(s.assistant.thinking) && mode !== 'continue';
       system = withThinking(s.assistant.systemPrompt, thinking);
     } else {
-      const ctx = this.context.roleplay(chat);
+      const ctx = this.context.roleplay(chat, { basis });
       if (!ctx) return fail(res, 400, '이 대화의 캐릭터가 삭제되었습니다.');
       if (ctx.preset.adult && !this.engines.adultAllowed(config)) return fail(res, 400, this.engines.adultBlocked(ctx.preset, config));
       system = ctx.system;
     }
 
-    // 다른 버전을 쓸 때는 지금 답변을 빼고 보냅니다. 실제로 바꾸는 건 새 버전이 생긴 뒤입니다.
-    const basis = mode === 'regenerate' && target ? { ...chat, messages: chat.messages.slice(0, -1) } : chat;
     // 토큰 한도 안에 들어가는 만큼만 최근 메시지부터 보냅니다.
     const plan = this.context.plan(chat, { provider, basis, extra: mode === 'continue' ? CONTINUE_PROMPT : '' });
     let history = plan.history;
@@ -86,12 +87,19 @@ export class GenerationRoutes {
     // 첫 대사도 없는 캐릭터에서 인사말을 다시 뽑는 경우처럼, 보낼 턴이 하나도 없을 수 있습니다.
     if (!history.length) history.push({ role: 'user', content: '(장면을 시작한다)' });
 
+    // 붙인 그림은 보내기 직전에 파일에서 읽어 넣습니다. 토큰 어림은 위에서 이미 끝났습니다.
+    history = await this.attachments.inline(chat.id, history);
+
     const out = new EventStream(res);
     // 화면의 컨텍스트 게이지를 먼저 채웁니다.
     out.send({ context: plan.usage });
 
     // 엔진이 실제 프롬프트 토큰 수를 알려 주면 어림 보정값을 갱신하고 게이지에도 알려 줍니다.
-    const onUsage = ({ promptTokens }) => {
+    const meter = this.usage.meter({ provider, config, promptEstimate: rawPrompt });
+    const onUsage = (used) => {
+      meter.onUsage(used);
+      const { promptTokens } = used;
+      if (!promptTokens) return;
       const ratio = nextRatio(s.tokenRatio?.[provider], promptTokens, rawPrompt);
       s.tokenRatio = { ...(s.tokenRatio || {}), [provider]: ratio };
       this.store.saveSettings();
@@ -150,6 +158,7 @@ export class GenerationRoutes {
     }
 
     controller.finish();
+    meter.record(text);
     if (this.jobs.running.get(chat.id) === run) this.jobs.running.delete(chat.id);
     if (!text.trim()) {
       out.send({ done: true, message: null });
@@ -295,14 +304,17 @@ export class GenerationRoutes {
     }), { char: ctx.character.name, user: userName, particleFix: s.dev.particleFix });
     const plan = this.context.plan(chat, { provider, extra: instruction });
 
+    const past = await this.attachments.inline(chat.id, plan.history);
     const out = new EventStream(res);
     const controller = abortOnClose(res);
     const stripper = makeThoughtStripper({});
+    const asked = [...past, { role: 'user', content: instruction }];
+    const meter = this.usage.meter({ provider, config, system: ctx.system, messages: asked });
     let text = '';
     try {
       const stream = streamChat({
         provider, config, system: ctx.system,
-        messages: [...plan.history, { role: 'user', content: instruction }],
+        messages: asked, onUsage: meter.onUsage,
         // 초안은 짧으면 충분합니다.
         params: { ...s.params, maxTokens: Math.min(Number(s.params.maxTokens) || 400, 400) },
         signal: controller.signal
@@ -319,6 +331,7 @@ export class GenerationRoutes {
       if (!controller.signal.aborted) out.send({ error: this.engines.describeFailure(e, provider, config) });
     }
     controller.finish();
+    meter.record(text);
     out.send({ done: true, draft: cleanImpersonation(text, userName, { director }) });
     out.end();
   }

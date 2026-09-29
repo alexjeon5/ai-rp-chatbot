@@ -36,7 +36,7 @@ export function personaBlock(persona) {
   return lines.join('\n');
 }
 
-export function buildSystem({ character, persona, template, cast = [], facts = [], memory = '', particleFix = true }) {
+export function buildSystem({ character, persona, template, cast = [], lore = '', facts = [], memory = '', particleFix = true }) {
   const vars = { char: character.name, user: persona?.name || '사용자', particleFix };
 
   // 자리표시자가 하나도 없는 틀(직접 써 온 프롬프트 등)이면 배역 정보가 들어갈 곳이 없습니다.
@@ -83,6 +83,8 @@ export function buildSystem({ character, persona, template, cast = [], facts = [
   if (character.notes?.trim()) {
     out += `\n\n# 추가 설정\n${character.notes.trim()}`;
   }
+  // 최근 대화에 키워드가 나와 발동한 세계관 설정. 이름 자리표시자는 아래에서 한꺼번에 채웁니다.
+  if (lore?.trim()) out += `\n\n${lore.trim()}`;
   // 대화 중에 모아 둔 사실 목록. 약속·호칭·취향처럼 어긋나면 티가 나는 것들입니다.
   const factLines = (facts || []).map((f) => f?.text?.trim()).filter(Boolean);
   if (factLines.length) {

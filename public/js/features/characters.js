@@ -56,7 +56,7 @@ export class Characters {
       this.state.editingCharacterId = null;
       $('char-dlg-title').textContent = '캐릭터 만들기';
       $('c-name').value = `${$('c-name').value.trim()} (내 버전)`;
-      for (const id of ['c-delete', 'c-copy', 'c-builtin-note']) $(id).hidden = true;
+      for (const id of ['c-delete', 'c-export', 'c-copy', 'c-builtin-note']) $(id).hidden = true;
       $('c-once').hidden = false;
       this.note('복사했습니다. 고친 뒤 저장하면 내 캐릭터에 들어갑니다.');
       $('c-name').focus();
@@ -94,6 +94,7 @@ export class Characters {
     this.state.editingCharacterId = ch?.id || null;
     $('char-dlg-title').textContent = ch ? `${ch.name} 고치기` : '캐릭터 만들기';
     $('c-delete').hidden = !ch;
+    $('c-export').hidden = !ch;
     // 기본 캐릭터는 원본을 두고 내 버전을 따로 만들 수 있게 합니다.
     $('c-copy').hidden = !ch?.builtin;
     $('c-builtin-note').hidden = !ch?.builtin;

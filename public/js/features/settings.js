@@ -6,6 +6,7 @@ import { $, storage, on } from '../core/dom.js';
 import { applyTheme } from './theme.js';
 import { ImageSettings } from './settings-image.js';
 import { DevSettings } from './settings-dev.js';
+import { UsageSettings } from './settings-usage.js';
 
 const TABS = [...$('s-tabs').querySelectorAll('[data-tab]')].map((t) => t.dataset.tab);
 
@@ -33,6 +34,7 @@ export class Settings {
 
     this.image = new ImageSettings(app);
     this.dev = new DevSettings(app, this);
+    this.usage = new UsageSettings(app);
     this.modelCombo = makeCombo($('s-model'), {
       items: () => this.modelOptions,
       emptyText: '먼저 불러오기를 눌러 주세요.',
@@ -245,6 +247,7 @@ export class Settings {
     this.resetScroll();
     this.modelCombo.close();
     this.image.combo.close();
+    if (tab === 'usage') this.usage.load();
     storage.set('settingsTab', tab);
   }
 
@@ -389,7 +392,7 @@ export class Settings {
       return ui.toast('JSON 파일을 읽지 못했습니다. 백업 내려받기로 받은 파일인지 확인해 주세요.');
     }
     const count = (k) => (Array.isArray(data?.[k]) ? data[k].length : 0);
-    const summary = `캐릭터 ${count('characters')}개, 페르소나 ${count('personas')}개, 대화 ${count('chats')}개`;
+    const summary = `캐릭터 ${count('characters')}개, 페르소나 ${count('personas')}개, 로어북 ${count('lorebooks')}개, 대화 ${count('chats')}개`;
     if (!confirm(`${file.name}\n${summary}\n\n지금 데이터에 합칩니다. 이미 있는 항목은 건너뜁니다. 계속할까요?`)) return;
     const includeSettings = Boolean(data?.settings) && confirm(
       '설정(샘플링 값·어시스턴트 프롬프트·테마·표기법)도 백업의 값으로 덮어쓸까요?\n' +
@@ -405,7 +408,9 @@ export class Settings {
 
     // 설정 창에 떠 있던 입력값은 옛 값이므로 저장하지 않고 닫은 뒤 전부 다시 읽습니다.
     this.dialog.close('cancel');
-    [state.settings, state.characters, state.personas] = await Promise.all([api.settings(), api.characters(), api.personas()]);
+    [state.settings, state.characters, state.personas, state.lorebooks] = await Promise.all([
+      api.settings(), api.characters(), api.personas(), api.lorebooks()
+    ]);
     applyTheme(state.settings.dev);
     app.paintAdultRules();
     app.characters.paint();
@@ -413,10 +418,10 @@ export class Settings {
     await app.list.refresh();
     if (state.chat && !state.run) await app.view.open(state.chat.id);
 
-    const { characters, personas, chats } = result;
-    const skipped = characters.skipped + personas.skipped + chats.skipped;
+    const { characters, personas, lorebooks, chats } = result;
+    const skipped = characters.skipped + personas.skipped + lorebooks.skipped + chats.skipped;
     ui.toast(
-      `불러왔습니다 — 캐릭터 ${characters.added}, 페르소나 ${personas.added}, 대화 ${chats.added}` +
+      `불러왔습니다 — 캐릭터 ${characters.added}, 페르소나 ${personas.added}, 로어북 ${lorebooks.added}, 대화 ${chats.added}` +
       (skipped ? ` (이미 있거나 읽을 수 없는 ${skipped}개 건너뜀)` : '') +
       (result.settings ? ' · 설정 반영' : '')
     );

@@ -5,7 +5,7 @@ import { $, esc, setHidden, on } from '../core/dom.js';
 import { menuKeys } from '../core/menu.js';
 
 // 대화가 열려 있을 때만 보이는 상단 버튼들
-const CHAT_ONLY = ['btn-rename', 'btn-archive-chat', 'btn-delete-chat', 'btn-save-character', 'btn-open-origin', 'btn-cast', 'btn-memory',
+const CHAT_ONLY = ['btn-rename', 'btn-archive-chat', 'btn-delete-chat', 'btn-save-character', 'btn-open-origin', 'btn-cast', 'btn-memory', 'btn-chat-lore',
   'btn-impersonate', 'chat-preset', 'chat-persona', 'btn-websearch', 'btn-thinking'];
 
 export class ChatView {
@@ -53,6 +53,7 @@ export class ChatView {
     // 다른 대화에서 생성 중이면 멈춥니다. 쓰던 내용은 그 대화에 저장됩니다.
     // 그대로 두면 끝난 답변이 새로 연 대화에 붙고, 새 대화의 전송도 잠깁니다.
     if (state.run && state.run.chatId !== id) await app.composer.stop();
+    if (state.chat?.id !== id) app.attach.reset();
     state.chat = await api.chat(id);
     localStorage.setItem('lastChat', id);
     // 연 대화가 들어 있는 쪽(대화 목록/보관함)을 보여 줍니다. 새로 만든 대화는 늘 대화 목록입니다.
@@ -66,7 +67,7 @@ export class ChatView {
     this.paintArchiveButton();
     $('btn-save-character').hidden = !state.chat.character;
     $('btn-open-origin').hidden = !this.originOf(state.chat);
-    setHidden(['btn-cast', 'btn-memory', 'btn-impersonate'], assistant);
+    setHidden(['btn-cast', 'btn-memory', 'btn-chat-lore', 'btn-impersonate'], assistant);
     $('input').placeholder = assistant
       ? '무엇이든 물어보세요.'
       : '무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다.';

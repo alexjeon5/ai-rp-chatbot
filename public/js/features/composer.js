@@ -105,20 +105,23 @@ export class Composer {
     const { state, app } = this;
     const input = $('input');
     const content = input.value.trim();
-    if (!content || !state.chat || state.run) return;
+    const attachments = app.attach.refs();
+    if ((!content && !attachments.length) || !state.chat || state.run) return;
+    if (app.attach.busy) return ui.toast('그림을 올리는 중입니다. 잠시만 기다려 주세요');
 
     input.value = '';
     input.style.height = 'auto';
 
     let msg;
     try {
-      msg = await api.addMessage(state.chat.id, { role: 'user', content });
+      msg = await api.addMessage(state.chat.id, { role: 'user', content, attachments });
     } catch (e) {
       // 보내지 못했으면 쓴 글을 되돌려 놓습니다.
       input.value = content;
       ui.toast(`보내지 못했습니다 — ${e.message}`);
       return;
     }
+    app.attach.release();
     state.chat.messages.push(msg);
     $('thread').appendChild(app.view.turnFor(state.chat, msg));
     if (state.chat.kind === 'assistant' && state.chat.title === '새 채팅') {
@@ -134,7 +137,7 @@ export class Composer {
       app.view.paintSub();
       ui.toast('보관한 대화를 목록으로 꺼냈습니다');
     }
-    app.list.bump(state.chat, content);
+    app.list.bump(state.chat, content || '(그림)');
     ui.scrollToEnd({ force: true });
     await this.run();
   }

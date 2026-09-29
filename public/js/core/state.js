@@ -11,6 +11,7 @@ export class AppState {
   settings = null;
   characters = [];
   personas = [];
+  lorebooks = [];
   chats = [];
   chat = null;
   // 진행 중인 생성. { chatId, controller, stopped, done }

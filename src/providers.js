@@ -98,17 +98,63 @@ export function readsAsModelGone(error) {
   return { replacement: hint?.[1] || null };
 }
 
+/** 글도 그림도 없는 턴은 보내지 않습니다. 빈 content 를 거부하는 엔진이 있습니다. */
+const hasBody = (m) => Boolean(m.content?.trim() || m.images?.length);
+
 /** assistant 로 시작하거나 같은 role 이 연속되는 히스토리는 Anthropic / Gemini 에서 거부됩니다. 여기서 한 번 정리합니다. */
-function normalizeTurns(messages) {
+export function normalizeTurns(messages) {
   const out = [];
   for (const m of messages) {
-    if (!m.content?.trim()) continue;
+    if (!hasBody(m)) continue;
     const last = out[out.length - 1];
-    if (last && last.role === m.role) last.content += `\n\n${m.content}`;
-    else out.push({ role: m.role, content: m.content });
+    if (last && last.role === m.role) {
+      last.content = [last.content, m.content].filter((t) => t?.trim()).join('\n\n');
+      if (m.images?.length) last.images = [...(last.images || []), ...m.images];
+    } else {
+      out.push({ role: m.role, content: m.content || '', ...(m.images?.length ? { images: [...m.images] } : {}) });
+    }
   }
   if (out.length && out[0].role === 'assistant') out.unshift({ role: 'user', content: '(장면을 시작한다)' });
   return out;
+}
+
+/** OpenAI 호환 메시지. 그림이 있으면 content 를 조각 배열로 바꾸고, 없으면 글 그대로 둡니다. */
+export function openAiTurns(messages) {
+  return messages.filter(hasBody).map((m) => {
+    if (!m.images?.length) return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: [
+        ...(m.content?.trim() ? [{ type: 'text', text: m.content }] : []),
+        ...m.images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } }))
+      ]
+    };
+  });
+}
+
+/** Anthropic 메시지. 그림을 글보다 앞에 둡니다. */
+export function anthropicTurns(messages) {
+  return normalizeTurns(messages).map((m) => {
+    if (!m.images?.length) return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: [
+        ...m.images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.mime, data: img.data } })),
+        ...(m.content.trim() ? [{ type: 'text', text: m.content }] : [])
+      ]
+    };
+  });
+}
+
+/** Gemini contents. */
+export function geminiTurns(messages) {
+  return normalizeTurns(messages).map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [
+      ...(m.images || []).map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } })),
+      ...(m.content.trim() || !m.images?.length ? [{ text: m.content }] : [])
+    ]
+  }));
 }
 
 /** 같은 주소가 여러 번 나와도 한 번만 담습니다. */
@@ -218,7 +264,7 @@ class OpenAiEngine extends Engine {
   }
 
   body({ system, messages, params, webSearch }, quirks) {
-    const body = { model: this.config.model, stream: true, ...this.extra(params), messages: [{ role: 'system', content: system }, ...messages] };
+    const body = { model: this.config.model, stream: true, ...this.extra(params), messages: [{ role: 'system', content: system }, ...openAiTurns(messages)] };
     // 검색은 전용 모델(gpt-5-search-api, gpt-4o-search-preview 등)에서만 동작합니다.
     if (webSearch) body.web_search_options = {};
     // 마지막 조각에 실제 토큰 수를 받아 컨텍스트 어림을 보정합니다. 모르는 서버면 빼고 다시 보냅니다.
@@ -262,7 +308,9 @@ class OpenAiEngine extends Engine {
 
     for await (const json of sseJson(res, { stopAtDone: true })) {
       if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
-      if (json.usage?.prompt_tokens) onUsage?.({ promptTokens: json.usage.prompt_tokens });
+      if (json.usage?.prompt_tokens || json.usage?.completion_tokens) {
+        onUsage?.({ promptTokens: json.usage.prompt_tokens, completionTokens: json.usage.completion_tokens });
+      }
       const choice = json.choices?.[0];
       for (const a of choice?.delta?.annotations || choice?.message?.annotations || []) {
         if (a?.type === 'url_citation') addSource(sources, a.url_citation?.url, a.url_citation?.title);
@@ -363,7 +411,7 @@ class AnthropicEngine extends Engine {
         system,
         max_tokens: maxTokens,
         ...(webSearch ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] } : {}),
-        messages: normalizeTurns(messages)
+        messages: anthropicTurns(messages)
       };
       if (mode) {
         out.thinking = mode;
@@ -395,6 +443,8 @@ class AnthropicEngine extends Engine {
         const input = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
         if (input) onUsage?.({ promptTokens: input });
       }
+      // 출력 토큰은 message_delta 로 누적값이 옵니다. 사고 토큰도 여기에 들어 있습니다.
+      if (json.type === 'message_delta' && json.usage?.output_tokens) onUsage?.({ completionTokens: json.usage.output_tokens });
       // 검색 결과는 별도 블록으로 옵니다. 본문 앞뒤 어디든 끼어들 수 있습니다.
       if (json.type === 'content_block_start' && json.content_block?.type === 'web_search_tool_result') {
         for (const r of json.content_block.content || []) addSource(sources, r.url, r.title);
@@ -465,7 +515,7 @@ class GeminiEngine extends Engine {
     const maxOutputTokens = thinking ? Math.max(params.maxTokens, 4096) : params.maxTokens;
     const body = () => ({
       systemInstruction: { parts: [{ text: system }] },
-      contents: normalizeTurns(messages).map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+      contents: geminiTurns(messages),
       ...(webSearch ? { tools: [{ google_search: {} }] } : {}),
       generationConfig: {
         temperature: params.temperature,
@@ -492,7 +542,11 @@ class GeminiEngine extends Engine {
 
     for await (const json of sseJson(res)) {
       if (json.error) throw new Error(json.error.message || 'Gemini 오류');
-      if (json.usageMetadata?.promptTokenCount) onUsage?.({ promptTokens: json.usageMetadata.promptTokenCount });
+      if (json.usageMetadata?.promptTokenCount) {
+        const u = json.usageMetadata;
+        // 사고 토큰은 candidatesTokenCount 에 들지 않지만 과금은 출력으로 됩니다.
+        onUsage?.({ promptTokens: u.promptTokenCount, completionTokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) });
+      }
       // 근거 자료는 마지막 청크에 groundingMetadata 로 붙어 옵니다.
       for (const chunk of json.candidates?.[0]?.groundingMetadata?.groundingChunks || []) {
         addSource(sources, chunk.web?.uri, chunk.web?.title);

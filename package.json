@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "user": "node scripts/user.js"
+    "user": "node scripts/user.js",
+    "test": "node --test test/unit"
   },
   "engines": {
     "node": ">=20"

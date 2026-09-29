@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>AI 롤플레이 &amp; 어시스턴트</title>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%2315111a%22%2F%3E%3Cpath%20d%3D%22M7%205.5h18a4.5%204.5%200%200%201%204.5%204.5v8a4.5%204.5%200%200%201-4.5%204.5H14.5L8%2028v-5.5H7A4.5%204.5%200%200%201%202.5%2018v-8A4.5%204.5%200%200%201%207%205.5z%22%20fill%3D%22%23d9b168%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3Ccircle%20cx%3D%2222%22%20cy%3D%2214%22%20r%3D%222.1%22%20fill%3D%22%2315111a%22%2F%3E%3C%2Fsvg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#15111a">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="롤플레이">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
@@ -41,6 +47,11 @@
         <button class="char-tab" type="button" data-group="recent" aria-pressed="true">최근순</button>
         <button class="char-tab" type="button" data-group="character" aria-pressed="false">캐릭터별</button>
       </nav>
+      <div class="chat-search">
+        <input id="chat-search" type="search" placeholder="대화 검색 (제목·내용)" autocomplete="off" spellcheck="false" aria-label="대화 검색" title="Ctrl+K">
+      </div>
+      <p id="search-status" class="search-status" role="status" aria-live="polite" hidden></p>
+      <ul id="search-results" class="rail-list search-results" hidden></ul>
       <ul id="chat-list" class="rail-list"></ul>
     </section>
 
@@ -48,7 +59,9 @@
       <div class="rail-head">
         <h2>캐릭터</h2>
         <span class="head-pair">
+          <button id="btn-import-card" class="ghost-btn" title="다른 곳에서 받은 캐릭터 카드(JSON·PNG)를 가져옵니다">가져오기</button>
           <button id="btn-new-character" class="ghost-btn">새로 만들기</button>
+          <input id="card-file" type="file" accept=".json,.png,application/json,image/png" hidden>
         </span>
       </div>
       <nav id="char-tabs" class="char-tabs" role="tablist" aria-label="캐릭터 분류">
@@ -61,6 +74,7 @@
 
   <footer class="rail-foot">
     <button id="btn-personas" class="foot-btn">내 페르소나</button>
+    <button id="btn-lore" class="foot-btn">세계관</button>
     <button id="btn-settings" class="foot-btn">설정</button>
     <button id="btn-logout" class="foot-btn foot-btn-quiet" title="로그아웃">로그아웃</button>
   </footer>
@@ -86,6 +100,7 @@
         <div id="chat-menu" class="sel-list chat-menu-list" role="menu" hidden>
           <button id="btn-open-origin" class="sel-item" role="menuitem" hidden title="이 대화가 갈라져 나온 원본 대화를 엽니다">원본 대화 열기</button>
           <button id="btn-save-character" class="sel-item" role="menuitem" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
+          <button id="btn-chat-lore" class="sel-item" role="menuitem" hidden title="이 대화에 적용할 세계관 설정집을 고릅니다">세계관 적용</button>
           <button id="btn-rename" class="sel-item" role="menuitem" hidden>이름 바꾸기</button>
           <button id="btn-archive-chat" class="sel-item" role="menuitem" hidden>보관</button>
           <button id="btn-delete-chat" class="sel-item danger" role="menuitem" hidden>대화 삭제</button>
@@ -106,6 +121,8 @@
       <span class="pulse"></span><span id="stream-label">응답 생성 중</span>
       <button id="btn-stop" class="ghost-btn">중지</button>
     </div>
+    <div id="attach-tray" class="attach-tray" hidden></div>
+    <input id="attach-file" type="file" accept="image/*" multiple hidden>
     <div class="composer-row">
       <textarea id="input" rows="1" placeholder="무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다."></textarea>
       <div class="composer-side">
@@ -121,6 +138,8 @@
         <span id="ctx-label" class="ctx-label"></span>
       </span>
       <span class="quick-bar">
+        <button id="btn-attach" class="quick-toggle" type="button" aria-pressed="false"
+                title="그림을 붙여 보냅니다 (붙여넣기·끌어놓기도 됩니다). 그림을 볼 수 있는 모델(GPT-4o, Claude, Gemini, LLaVA 등)에서만 읽힙니다">그림</button>
         <button id="btn-impersonate" class="quick-toggle" type="button" hidden
                 title="내 다음 차례를 AI 가 초안으로 씁니다. 입력창에 적어 둔 글이 있으면 그 방향으로 씁니다. 보내기 전에 고칠 수 있습니다">✍ 대신 쓰기</button>
         <button id="btn-thinking" class="quick-toggle" type="button" aria-pressed="false" hidden>생각</button>
@@ -166,6 +185,7 @@
     </div>
     <div class="sheet-foot">
       <button id="c-delete" class="ghost-btn danger" type="button">삭제</button>
+      <button id="c-export" class="ghost-btn" type="button" title="캐릭터 카드(V2 JSON)로 내려받습니다. 이 캐릭터에 묶은 세계관도 함께 담깁니다" hidden>카드로 내보내기</button>
       <button id="c-copy" class="ghost-btn" type="button" title="이 기본 캐릭터를 원본 그대로 두고, 같은 내용으로 내 캐릭터를 새로 만듭니다" hidden>복사해서 내 캐릭터로</button>
       <span class="spacer"></span>
       <button id="c-once" class="ghost-btn" type="button" title="목록에 남기지 않고 이번 대화에만 씁니다">이번만 쓰기</button>
@@ -312,6 +332,97 @@
   </form>
 </dialog>
 
+<!-- 세계관(로어북) 관리 -->
+<dialog id="dlg-lore" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">세계관 설정집</h2>
+    <div class="sheet-body">
+      <p class="field-hint">
+        키워드가 최근 대화에 나올 때만 프롬프트에 끼워 넣는 설정 조각 모음입니다. 나라·조직·마법 규칙처럼
+        늘 넣기엔 길고 필요할 때만 알려 주면 되는 내용에 씁니다. 대화에 붙이려면 대화 화면의 ⋯ 메뉴에서 「세계관 적용」을 누르세요.
+      </p>
+      <ul id="lore-list" class="persona-list"></ul>
+      <div class="grid-2">
+        <label class="field"><span>검사할 최근 메시지 수 <small class="field-hint">— 1~20 (모든 설정집 공통)</small></span><input id="ls-depth" type="number" min="1" max="20"></label>
+        <label class="field"><span>한 번에 넣을 토큰 상한 <small class="field-hint">— 100~8000</small></span><input id="ls-budget" type="number" min="100" max="8000" step="50"></label>
+      </div>
+      <div class="divider"></div>
+      <h3 id="lb-form-title" class="sheet-sub">새 설정집</h3>
+      <label class="field"><span>이름</span><input id="lb-name" maxlength="80" placeholder="예: 에테르니아 대륙"></label>
+      <label class="field"><span>설명 <small class="field-hint">— 선택</small></span><input id="lb-desc" maxlength="400" placeholder="이 설정집이 무엇인지 한 줄로"></label>
+      <label class="check-row">
+        <input id="lb-global" type="checkbox">
+        <span>모든 롤플레이 대화에 자동으로 적용</span>
+      </label>
+      <div class="field"><span>이 캐릭터와의 대화에 자동으로 적용</span>
+        <ul id="lb-chars" class="persona-list"></ul>
+      </div>
+
+      <div class="divider"></div>
+      <h3 class="sheet-sub">항목 <small id="lb-entry-count" class="field-hint"></small></h3>
+      <ul id="lb-entries" class="persona-list"></ul>
+      <div class="seed-box">
+        <h4 id="le-form-title" class="sheet-sub">새 항목</h4>
+        <label class="field"><span>제목 <small class="field-hint">— 프롬프트에 소제목으로 들어갑니다</small></span><input id="le-title" maxlength="80" placeholder="예: 왕도 카엘른"></label>
+        <label class="field"><span>키워드 <small class="field-hint">— 쉼표로 구분. 하나라도 나오면 발동</small></span><input id="le-keys" placeholder="예: 왕도, 카엘른, 수도"></label>
+        <label class="field"><span>보조 키워드 <small class="field-hint">— 선택. 적으면 이 중에서도 하나가 함께 나와야 발동</small></span><input id="le-secondary" placeholder="예: 성벽, 축제"></label>
+        <label class="field"><span>내용</span><textarea id="le-content" rows="5" maxlength="4000" placeholder="{{char}}와 {{user}} 이름을 쓸 수 있습니다."></textarea></label>
+        <div class="grid-2">
+          <label class="field"><span>우선순위 <small class="field-hint">— 0~100, 높을수록 먼저</small></span><input id="le-priority" type="number" min="0" max="100" value="50"></label>
+          <span></span>
+        </div>
+        <label class="check-row"><input id="le-constant" type="checkbox"><span>항상 넣기 — 키워드와 상관없이 늘 프롬프트에 들어갑니다</span></label>
+        <label class="check-row"><input id="le-case" type="checkbox"><span>대소문자 구분 (영문 키워드)</span></label>
+        <label class="check-row"><input id="le-enabled" type="checkbox" checked><span>사용</span></label>
+        <span class="model-row">
+          <button id="le-apply" class="ghost-btn" type="button">항목 추가</button>
+          <button id="le-cancel" class="ghost-btn" type="button" hidden>편집 취소</button>
+        </span>
+      </div>
+
+      <div class="field"><span>발동 시험 <small class="field-hint">— 저장한 설정집에서 이 글에 어떤 항목이 발동하는지 봅니다</small></span>
+        <span class="model-row">
+          <input id="lb-test-text" class="grow" placeholder="예: 우리 왕도로 가는 길에 축제를 구경하자">
+          <button id="lb-test" class="ghost-btn" type="button">시험</button>
+        </span>
+        <span id="lb-test-result" class="field-hint"></span>
+      </div>
+
+      <span class="model-row">
+        <button id="lb-save" class="ghost-btn" type="button">설정집 추가</button>
+        <button id="lb-cancel" class="ghost-btn" type="button" hidden>편집 취소</button>
+      </span>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button value="close" class="send-btn" type="submit">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 이 대화에 적용할 세계관 -->
+<dialog id="dlg-chat-lore" class="sheet">
+  <form method="dialog" class="sheet-inner">
+    <h2 class="sheet-title">이 대화의 세계관</h2>
+    <div class="sheet-body">
+      <p class="field-hint">
+        고른 설정집의 항목이 키워드가 나올 때 프롬프트에 들어갑니다. 「모든 대화」나 「이 캐릭터」로 묶인 설정집은 여기서 빼지 못하고, 세계관 창에서 바꿉니다.
+      </p>
+      <ul id="cl-list" class="persona-list"></ul>
+      <div class="divider"></div>
+      <div class="field"><span>지금 발동 중인 항목 <small class="field-hint">— 최근 대화 기준</small></span>
+        <ul id="cl-triggered" class="trait-list"></ul>
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button id="cl-manage" class="ghost-btn" type="button">세계관 관리</button>
+      <span class="spacer"></span>
+      <button id="cl-cancel" class="ghost-btn" type="button">취소</button>
+      <button value="save" class="send-btn" type="submit">저장</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- 설정 -->
 <dialog id="dlg-settings" class="sheet sheet-settings">
   <form method="dialog" class="sheet-inner">
@@ -324,6 +435,7 @@
         <button type="button" class="settings-tab" role="tab" data-tab="assistant" aria-controls="pane-assistant">어시스턴트</button>
         <button type="button" class="settings-tab" role="tab" data-tab="image" aria-controls="pane-image">이미지</button>
         <button type="button" class="settings-tab" role="tab" data-tab="display" aria-controls="pane-display">화면</button>
+        <button type="button" class="settings-tab" role="tab" data-tab="usage" aria-controls="pane-usage">사용량</button>
         <button type="button" class="settings-tab" role="tab" data-tab="dev" aria-controls="pane-dev">개발자</button>
         <button type="button" class="settings-tab" role="tab" data-tab="backup" aria-controls="pane-backup">백업/복원</button>
       </nav>
@@ -661,6 +773,25 @@
         <button id="d-show-system" class="ghost-btn" type="button">시스템 프롬프트 열기</button>
         <p class="field-hint">엔진과 주고받은 통신 기록입니다. 응답이 실패했을 때 어떤 요청이 어떤 상태 코드로 거부됐는지 여기서 확인할 수 있습니다. 대화 내용(시스템 프롬프트·메시지)은 담지 않습니다.</p>
         <button id="d-show-logs" class="ghost-btn" type="button">통신 로그 열기</button>
+      </div>
+      <div class="sheet-body settings-pane" id="pane-usage" data-pane="usage" role="tabpanel" hidden>
+        <h3 class="sheet-sub">토큰 사용량</h3>
+        <p class="field-hint">모델을 부를 때마다 엔진이 알려 준 토큰 수를 날짜별로 모읍니다. 답변뿐 아니라 요약·기억·캐릭터 만들기 같은 부가 호출도 들어갑니다.
+        대화 내용은 저장하지 않고 숫자만 남기며, 90일이 지난 날짜는 지웁니다.
+        로컬 서버처럼 토큰 수를 알려 주지 않는 엔진은 글자 수로 어림하고 <b>≈</b> 로 표시합니다. 이 기기의 서버에만 쌓이며 백업에는 담기지 않습니다.</p>
+        <nav id="u-periods" class="char-tabs" aria-label="기간"></nav>
+        <dl id="u-total" class="usage-total"></dl>
+        <table class="usage-table">
+          <thead><tr><th>엔진 · 모델</th><th>호출</th><th>입력</th><th>출력</th></tr></thead>
+          <tbody id="u-rows"></tbody>
+        </table>
+        <p id="u-empty" class="field-hint" hidden>이 기간에는 기록이 없습니다.</p>
+        <h3 class="sheet-sub">최근 30일</h3>
+        <div id="u-bars" class="usage-bars" role="img" aria-label="최근 30일 날짜별 사용량"></div>
+        <div class="divider"></div>
+        <span class="model-row">
+          <button id="u-clear" class="ghost-btn danger" type="button">기록 지우기</button>
+        </span>
       </div>
       <div class="sheet-body settings-pane" id="pane-backup" data-pane="backup" role="tabpanel" hidden>
         <h3 class="sheet-sub">백업 내려받기</h3>

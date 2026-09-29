@@ -6,8 +6,8 @@ import { characterFields, SAFE_ID } from '../../services/records.js';
 import { wrap, fail } from '../helpers.js';
 
 export class ChatRoutes {
-  constructor({ store, context, jobs, images }) {
-    Object.assign(this, { store, context, jobs, images });
+  constructor({ store, context, jobs, images, attachments }) {
+    Object.assign(this, { store, context, jobs, images, attachments });
   }
 
   get chats() {
@@ -38,7 +38,7 @@ export class ChatRoutes {
     app.post('/api/chats', (req, res) => this.create(req, res));
     app.put('/api/chats/:id', (req, res) => this.update(req, res));
     app.delete('/api/chats/:id', wrap((req, res) => this.remove(req, res)));
-    app.post('/api/chats/:id/messages', (req, res) => this.addMessage(req, res));
+    app.post('/api/chats/:id/messages', wrap((req, res) => this.addMessage(req, res)));
     app.post('/api/chats/:id/branch', wrap((req, res) => this.branch(req, res)));
     app.put('/api/chats/:id/messages/:mid', (req, res) => this.editMessage(req, res));
     app.put('/api/chats/:id/messages/:mid/swipe', (req, res) => this.swipe(req, res));
@@ -120,6 +120,12 @@ export class ChatRoutes {
     // 보관한 대화는 목록에서 빠지고 보관함에만 보입니다. 지우지 않으므로 언제든 꺼낼 수 있습니다.
     if (body.archived === true && !chat.archivedAt) chat.archivedAt = Date.now();
     if (body.archived === false) delete chat.archivedAt;
+    if (Array.isArray(body.lorebookIds)) {
+      // 이 대화에 직접 붙일 로어북. 있는 책만, 겹치지 않게 받습니다.
+      chat.lorebookIds = [...new Set(body.lorebookIds)]
+        .filter((id) => typeof id === 'string' && this.store.lorebooks.has(id))
+        .slice(0, 20);
+    }
     if (Array.isArray(body.castIds)) {
       // 함께 등장할 인물. 목록에 있는 캐릭터만, 주인공은 빼고, 겹치지 않게 받습니다.
       chat.castIds = [...new Set(body.castIds)]
@@ -137,19 +143,22 @@ export class ChatRoutes {
     const made = branchFrom(chat, String(req.body?.messageId || ''));
     if (!made) return fail(res, 404, '없는 메시지입니다.');
     const added = this.chats.add(made.chat);
-    await this.images.copyAll(chat.id, added.id, made.files);
+    await Promise.all([
+      this.images.copyAll(chat.id, added.id, made.files),
+      this.attachments.copyAll(chat.id, added.id, made.attachmentFiles)
+    ]);
     res.json({ chat: added, memoryCleared: made.memoryCleared });
   }
 
   async remove(req, res) {
     const { id } = req.params;
     // 이 대화에서 그린 그림도 함께 지웁니다.
-    if (this.chats.has(id) && SAFE_ID.test(id)) await this.images.removeAll(id);
+    if (this.chats.has(id) && SAFE_ID.test(id)) await Promise.all([this.images.removeAll(id), this.attachments.removeAll(id)]);
     if (!(await this.chats.remove(id))) return fail(res, 404, '없는 대화입니다.');
     res.json({ ok: true });
   }
 
-  addMessage(req, res) {
+  async addMessage(req, res) {
     const chat = this.chatOr404(req, res);
     if (!chat) return;
     const msg = {
@@ -158,6 +167,11 @@ export class ChatRoutes {
       content: String(req.body?.content ?? ''),
       at: Date.now()
     };
+    // 붙인 그림은 사용자 메시지에만, 이 대화에 실제로 올라온 파일만 받습니다.
+    if (msg.role === 'user') {
+      const attachments = await this.attachments.resolve(chat.id, req.body?.attachments);
+      if (attachments.length) msg.attachments = attachments;
+    }
     if (chat.kind === 'assistant' && chat.title === '새 채팅' && msg.role === 'user') {
       chat.title = msg.content.trim().slice(0, 24) || '새 채팅';
     }
@@ -204,6 +218,7 @@ export class ChatRoutes {
     const [gone] = chat.messages.splice(i, 1);
     invalidateFacts(chat, gone, { rewind: false });
     for (const img of gone.images || []) this.images.remove(chat.id, img.file);
+    for (const a of gone.attachments || []) this.attachments.remove(chat.id, a.file);
     this.chats.save(chat.id);
     res.json({ ok: true });
   }

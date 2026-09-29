@@ -4,8 +4,9 @@ import { makeThoughtStripper, looksRepetitive } from '../sanitize.js';
 import { isLocalUrl, checkBaseUrl, resolveApiKey } from '../security.js';
 
 export class Engines {
-  constructor(store) {
+  constructor(store, usage) {
     this.store = store;
+    this.usage = usage;
   }
 
   /** 엔진 설정을 쓸 때는 항상 이걸 거칩니다. 환경변수 키가 우선 적용됩니다. */
@@ -74,10 +75,15 @@ export class Engines {
    */
   async complete({ controller, stopOnRepeat = false, ...request }) {
     const stripper = makeThoughtStripper({});
+    const meter = this.usage?.meter(request);
     let text = '';
-    for await (const chunk of streamChat({ ...request, signal: controller.signal })) {
-      text += stripper.feed(chunk);
-      if (stopOnRepeat && looksRepetitive(text)) { controller.abort(); break; }
+    try {
+      for await (const chunk of streamChat({ ...request, onUsage: meter?.onUsage, signal: controller.signal })) {
+        text += stripper.feed(chunk);
+        if (stopOnRepeat && looksRepetitive(text)) { controller.abort(); break; }
+      }
+    } finally {
+      meter?.record(text);
     }
     return text + stripper.flush();
   }

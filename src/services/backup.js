@@ -6,10 +6,13 @@
 import { uid, merge } from '../db.js';
 import { CHARACTER_FIELDS, BUILTIN_CHARACTERS } from '../content/characters.js';
 import { cleanFacts } from '../chat-ops.js';
+import { cleanLorebook } from '../lorebook.js';
 import { SAFE_ID, isObj, str, characterFields, normalizePersona } from './records.js';
 
 const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str(c[f])));
 const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description), str(p.gender), str(p.age), p.traits || []]);
+
+const lorebookSignature = (b) => JSON.stringify([str(b.name), b.entries.map((e) => [e.title, e.keys, e.content])]);
 
 const cleanCharacter = (raw) => (str(raw.name).trim() ? characterFields(raw) : null);
 
@@ -25,6 +28,12 @@ function cleanPersona(raw) {
   // 감독 페르소나는 백업을 옮겨도 감독으로 남아야 합니다.
   if (raw.director === true) persona.director = true;
   return persona;
+}
+
+/** 로어북 하나. characterIds 는 뒤에서 이 앱의 캐릭터 id 로 맞춰 고칩니다. */
+function cleanBook(raw) {
+  if (!str(raw.name).trim()) return null;
+  return { description: '', global: false, characterIds: [], entries: [], ...cleanLorebook(raw) };
 }
 
 const cleanSources = (list) => list.filter(isObj)
@@ -75,6 +84,7 @@ function cleanChat(raw) {
   if (Array.isArray(raw.facts)) chat.facts = cleanFacts(raw.facts);
   if (Number.isFinite(raw.factsUntilAt)) chat.factsUntilAt = raw.factsUntilAt;
   if (Array.isArray(raw.castIds)) chat.castIds = raw.castIds.filter((id) => typeof id === 'string');
+  if (Array.isArray(raw.lorebookIds)) chat.lorebookIds = raw.lorebookIds.filter((id) => typeof id === 'string');
   if (isObj(raw.character)) {
     const c = cleanCharacter(raw.character);
     if (c) chat.character = { ...c, id: null };
@@ -95,6 +105,7 @@ export class Backup {
       settings,
       characters: this.store.characters.all(),
       personas: this.store.personas.all(),
+      lorebooks: this.store.lorebooks.all(),
       chats: this.store.chats.all()
     };
   }
@@ -146,14 +157,21 @@ export class Backup {
       return c;
     }, { signature: characterSignature, remap: characterIds });
     const personas = this.importItems(store.personas, data.personas, cleanPersona, { signature: personaSignature, remap: personaIds });
+    const lorebookIds = new Map();
+    const lorebooks = this.importItems(store.lorebooks, data.lorebooks, (raw) => {
+      const book = cleanBook(raw);
+      if (book) book.characterIds = book.characterIds.map((id) => characterIds.get(id) ?? id);
+      return book;
+    }, { signature: lorebookSignature, remap: lorebookIds });
     const chats = this.importItems(store.chats, data.chats, (raw) => {
       const chat = cleanChat(raw);
       if (chat?.characterId) chat.characterId = characterIds.get(chat.characterId) ?? chat.characterId;
       if (chat?.personaId) chat.personaId = personaIds.get(chat.personaId) ?? chat.personaId;
       if (chat?.castIds) chat.castIds = chat.castIds.map((id) => characterIds.get(id) ?? id);
+      if (chat?.lorebookIds) chat.lorebookIds = chat.lorebookIds.map((id) => lorebookIds.get(id) ?? id);
       return chat;
     });
-    const result = { characters, personas, chats, presets: 0, settings: false };
+    const result = { characters, personas, lorebooks, chats, presets: 0, settings: false };
 
     const s = store.settings;
     const saved = isObj(data.settings) ? data.settings : {};
@@ -175,7 +193,7 @@ export class Backup {
       if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
       // 성인 모드 클라우드 허용은 경고를 직접 보고 켜야 하므로 백업에서 옮겨 오지 않습니다.
       const adultCloud = s.dev.adultCloud;
-      for (const key of ['params', 'assistant', 'dev', 'memory']) {
+      for (const key of ['params', 'assistant', 'dev', 'memory', 'lorebook']) {
         if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
       }
       s.dev.adultCloud = adultCloud;

@@ -13,7 +13,7 @@ function shade(hex, delta) {
 }
 
 /**
- * 파비콘을 테마 색으로 다시 그립니다. 파일 없이 SVG 를 그대로 심기 때문에
+ * 파비콘과 브라우저·홈 화면 앱의 상단 바 색을 테마 색으로 다시 맞춥니다. 파일 없이 SVG 를 그대로 심기 때문에
  * 오프라인에서도 뜨고, 강조색을 바꾸면 탭 아이콘도 따라 바뀝니다.
  */
 function paintFavicon({ bg = '#15111a', accent = '#d9b168' } = {}) {
@@ -24,6 +24,7 @@ function paintFavicon({ bg = '#15111a', accent = '#d9b168' } = {}) {
     [10, 16, 22].map((cx) => `<circle cx="${cx}" cy="14" r="2.1" fill="${bg}"/>`).join('') +
     '</svg>';
   $('favicon').href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', bg);
 }
 
 export function applyTheme(dev) {

@@ -6,11 +6,20 @@ import { Engines } from '../services/engines.js';
 import { ChatContext } from '../services/chat-context.js';
 import { Jobs } from '../services/jobs.js';
 import { ImageFiles } from '../services/image-files.js';
+import { Attachments } from '../services/attachments.js';
+import { LoreBooks } from '../services/lorebooks.js';
+import { UsageLedger } from '../services/usage-ledger.js';
+import { CharacterCards } from '../services/character-cards.js';
 import { SettingsRoutes } from './routes/settings.js';
 import { LibraryRoutes } from './routes/library.js';
 import { ChatRoutes } from './routes/chats.js';
 import { GenerationRoutes } from './routes/generation.js';
 import { ImageRoutes } from './routes/images.js';
+import { AttachmentRoutes } from './routes/attachments.js';
+import { LorebookRoutes } from './routes/lorebooks.js';
+import { CharacterCardRoutes } from './routes/character-cards.js';
+import { SearchRoutes } from './routes/search.js';
+import { UsageRoutes } from './routes/usage.js';
 import { BackupRoutes } from './routes/backup.js';
 
 /**
@@ -28,9 +37,10 @@ export function createApp({ store, auth, publicDir }) {
   trustProxy(app);
 
   // 백업 불러오기는 대화가 쌓이면 수십 MB 가 되므로 그 경로만 한도를 넉넉히 둡니다.
+  // 캐릭터 카드는 PNG 를 base64 로 받으므로 그 경로도 2MB 보다 넉넉히 둡니다.
   const jsonBody = express.json({ limit: '2mb' });
-  const importBody = express.json({ limit: '64mb' });
-  app.use((req, res, next) => (req.path === '/api/import' ? importBody : jsonBody)(req, res, next));
+  const bodyByPath = { '/api/import': express.json({ limit: '64mb' }), '/api/characters/import': express.json({ limit: '16mb' }) };
+  app.use((req, res, next) => (bodyByPath[req.path] || jsonBody)(req, res, next));
 
   // 쿠키를 보고 req.user 를 채웁니다. 로그인하지 않았으면 첫 화면 대신 로그인 페이지로 보냅니다.
   app.use(auth.attachUser);
@@ -57,14 +67,18 @@ export function createApp({ store, auth, publicDir }) {
     models: rateLimit({ windowMs: 60_000, max: 20, message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser })
   };
 
-  const engines = new Engines(store);
+  const usage = new UsageLedger(store.usageDoc);
+  const engines = new Engines(store, usage);
+  const lore = new LoreBooks(store);
   const deps = {
-    store, auth, engines, limits,
-    context: new ChatContext(store, engines),
+    store, auth, engines, limits, lore, usage,
+    cards: new CharacterCards(store),
+    context: new ChatContext(store, engines, lore),
     jobs: new Jobs(),
-    images: new ImageFiles(path.join(store.dir, 'images'))
+    images: new ImageFiles(path.join(store.dir, 'images')),
+    attachments: new Attachments(path.join(store.dir, 'uploads'))
   };
-  for (const Routes of [SettingsRoutes, LibraryRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, BackupRoutes]) {
+  for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes]) {
     new Routes(deps).mount(app);
   }
   return app;

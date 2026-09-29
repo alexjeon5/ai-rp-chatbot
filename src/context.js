@@ -13,6 +13,10 @@
 export const DEFAULT_CONTEXT = { local: 16384, remote: 128000 };
 /** 메시지 하나에 붙는 역할 표시 등 틀 값. */
 const MESSAGE_OVERHEAD = 6;
+/** 그림 한 장이 차지하는 토큰 어림. 회사마다 크기별로 달라 넉넉한 평균을 씁니다. */
+export const IMAGE_TOKENS = 850;
+/** 한 번에 모델에 보내는 그림 수. 넘으면 오래된 그림부터 뺍니다. */
+export const MAX_SENT_IMAGES = 6;
 /** 어림이 조금 틀려도 넘치지 않게 남겨 두는 여유. */
 const SAFETY = 64;
 
@@ -58,7 +62,7 @@ export function contextLimitOf(config = {}, local = false) {
  * @param {number} [o.ratio]     보정값
  */
 export function planContext(messages, { system = '', limit, reserve = 0, maxMessages = 40, extra = '', ratio = 1 }) {
-  const visible = messages.filter((m) => !m.hidden && m.content?.trim());
+  const visible = messages.filter((m) => !m.hidden && (m.content?.trim() || m.attachments?.length));
   const systemTokens = tokensOf(system, ratio);
   const extraTokens = extra ? tokensOf(extra, ratio) : 0;
   const budget = Math.max(0, limit - systemTokens - extraTokens - reserve - SAFETY);
@@ -66,15 +70,26 @@ export function planContext(messages, { system = '', limit, reserve = 0, maxMess
   const kept = [];
   let used = 0;
   for (let i = visible.length - 1; i >= 0 && kept.length < maxMessages; i--) {
-    const cost = Math.ceil((estimateTokens(visible[i].content) + MESSAGE_OVERHEAD) * ratio);
+    const cost = Math.ceil((estimateTokens(visible[i].content) + MESSAGE_OVERHEAD + IMAGE_TOKENS * (visible[i].attachments?.length || 0)) * ratio);
     // 마지막 한 개는 넘치더라도 보냅니다. 아무것도 안 보내면 대답할 거리가 없습니다.
     if (kept.length && used + cost > budget) break;
     kept.unshift(visible[i]);
     used += cost;
   }
 
+  // 그림은 가장 최근 몇 장만 보냅니다. 더 오래된 메시지는 글만 갑니다.
+  let images = MAX_SENT_IMAGES;
+  const history = new Array(kept.length);
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const turn = { role: kept[i].role, content: kept[i].content };
+    const send = (kept[i].attachments || []).slice(0, images);
+    images -= send.length;
+    if (send.length) turn.attachments = send;
+    history[i] = turn;
+  }
+
   return {
-    history: kept.map((m) => ({ role: m.role, content: m.content })),
+    history,
     keptIds: kept.map((m) => m.id),
     usage: {
       limit,
