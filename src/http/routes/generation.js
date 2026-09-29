@@ -220,6 +220,8 @@ export class GenerationRoutes {
       if (sources.length) variant.sources = sources.slice(0, 20);
       if (scene) variant.scene = scene;
       if (check) variant.check = check;
+      // 나중에 등장인물을 넣고 빼도 이 답변 위 이름은 쓸 때 그대로 남게 합니다.
+      if (chat.castIds?.length) variant.castIds = [...chat.castIds];
       if (mode === 'regenerate' && alive) {
         invalidateFacts(chat, target);
         msg = addSwipe(target, variant);

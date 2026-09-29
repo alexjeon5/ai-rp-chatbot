@@ -48,19 +48,25 @@ export class AppState {
     return chat?.kind !== 'assistant' && MESSENGER_PRESETS.has(this.presetOf(chat)?.id);
   }
 
-  /** 이 대화에 함께 등장하는 캐릭터들. 목록에서 지워진 것은 빠집니다. */
-  castOf(chat) {
-    return (chat?.castIds || []).map((id) => this.characters.find((c) => c.id === id)).filter(Boolean);
+  /**
+   * 함께 등장하는 캐릭터들. 목록에서 지워진 것은 빠집니다.
+   * message 를 주면 그 답변을 쓸 때 함께 나온 인물입니다. 등장인물을 나중에 넣고 빼도 지난 답변은 그대로입니다.
+   * 인물을 답변마다 남기기 전에 쓴 답변(castIds 없음)은 주인공 혼자 나온 것으로 봅니다.
+   * 지금 쓰는 중인 답변(pending)은 지금의 등장인물로 씁니다.
+   */
+  castOf(chat, message) {
+    const ids = message && message.id !== 'pending' ? message.castIds : chat?.castIds;
+    return (ids || []).map((id) => this.characters.find((c) => c.id === id)).filter(Boolean);
   }
 
   /** 답변 위에 붙는 이름. 여럿이 함께 나오면 이름을 이어 붙입니다. */
-  charLabel(chat) {
-    return [this.characterOf(chat)?.name, ...this.castOf(chat).map((c) => c.name)].filter(Boolean).join(' · ') || '상대';
+  charLabel(chat, message) {
+    return [this.characterOf(chat)?.name, ...this.castOf(chat, message).map((c) => c.name)].filter(Boolean).join(' · ') || '상대';
   }
 
   /** 답변 이름 옆에 붙일 프로필 그림 주소. 여럿이 함께 나오는 장면에서는 누구의 말인지 알 수 없어 붙이지 않습니다. */
-  turnAvatar(chat) {
-    if (chat?.kind === 'assistant' || this.castOf(chat).length) return '';
+  turnAvatar(chat, message) {
+    if (chat?.kind === 'assistant' || this.castOf(chat, message).length) return '';
     return portraitUrl(this.characterOf(chat));
   }
 

@@ -14,7 +14,8 @@ export const SWIPE_LIMIT = 20;
 
 // 답변 한 장이 따로 들고 있는 값. 본문(content) 외에 사고·출처·엔진 정보가 장마다 다릅니다.
 // scene(표정·장소)과 check(주사위 판정 요청)는 답변 본문에서 떼어 낸 화면 표식입니다.
-const VARIANT_KEYS = ['thought', 'sources', 'provider', 'model', 'scene', 'check'];
+// castIds 는 그 장을 쓸 때 함께 등장한 인물입니다. 답변 위 이름을 그때 기준으로 붙입니다.
+const VARIANT_KEYS = ['thought', 'sources', 'provider', 'model', 'scene', 'check', 'castIds'];
 
 /** 대화별로 켜고 끄는 기능 스위치. 켜 둔 것만 true 로 남기고, 끄면 키를 지웁니다. */
 export const CHAT_FLAGS = ['vn', 'dice', 'autoChoices'];

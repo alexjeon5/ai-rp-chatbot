@@ -296,8 +296,8 @@ export class ChatView {
     this.syncDrawing(state.chat);
     ui.renderThread(state.chat, state.characterOf(state.chat), state.personaOf(state.chat), {
       bubbles: state.isBubbles(state.chat),
-      charLabel: state.charLabel(state.chat),
-      avatar: state.turnAvatar(state.chat)
+      labelOf: (m) => state.charLabel(state.chat, m),
+      avatarOf: (m) => state.turnAvatar(state.chat, m)
     });
   }
 
@@ -311,11 +311,11 @@ export class ChatView {
       message,
       speaker: isUser
         ? (assistant ? '나' : state.personaOf(chat)?.name || '나')
-        : (assistant ? '어시스턴트' : state.charLabel(chat)),
+        : (assistant ? '어시스턴트' : state.charLabel(chat, message)),
       isUser,
       plain: assistant,
       bubbles: state.isBubbles(chat),
-      avatar: isUser ? '' : state.turnAvatar(chat)
+      avatar: isUser ? '' : state.turnAvatar(chat, message)
     });
   }
 

@@ -335,10 +335,10 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
 /**
  * @param {object} [opts]
  * @param {boolean} [opts.bubbles] 메신저 모드 — 줄마다 말풍선
- * @param {string} [opts.charLabel] 답변 위에 붙는 이름. 여럿이 함께 나오는 장면이면 이름을 이어 붙입니다
- * @param {string} [opts.avatar] 답변 이름 옆에 붙는 작은 프로필 그림 주소
+ * @param {(m: object) => string} [opts.labelOf] 답변 위에 붙는 이름. 여럿이 함께 나온 답변이면 이름을 이어 붙입니다
+ * @param {(m: object) => string} [opts.avatarOf] 답변 이름 옆에 붙는 작은 프로필 그림 주소
  */
-export function renderThread(chat, character, persona, { bubbles = false, charLabel, avatar = '' } = {}) {
+export function renderThread(chat, character, persona, { bubbles = false, labelOf = () => '', avatarOf = () => '' } = {}) {
   const box = document.getElementById('messages');
   const plain = chat.kind === 'assistant';
   box.innerHTML = '';
@@ -351,11 +351,11 @@ export function renderThread(chat, character, persona, { bubbles = false, charLa
         message: m,
         speaker: m.role === 'user'
           ? (plain ? '나' : persona?.name || '나')
-          : (plain ? '어시스턴트' : charLabel || character?.name || '상대'),
+          : (plain ? '어시스턴트' : labelOf(m) || character?.name || '상대'),
         isUser: m.role === 'user',
         plain,
         bubbles,
-        avatar: m.role === 'user' ? '' : avatar
+        avatar: m.role === 'user' ? '' : avatarOf(m)
       })
     );
   }

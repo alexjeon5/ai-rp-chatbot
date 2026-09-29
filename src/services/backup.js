@@ -48,6 +48,10 @@ function copyVariantFields(from, to) {
     for (const k of ['expression', 'place']) if (typeof from.scene[k] === 'string') scene[k] = from.scene[k].slice(0, 60);
     if (Object.keys(scene).length) to.scene = scene;
   }
+  if (Array.isArray(from.castIds)) {
+    const ids = from.castIds.filter((id) => typeof id === 'string').slice(0, 8);
+    if (ids.length) to.castIds = ids;
+  }
   const c = from.check;
   if (isObj(c) && typeof c.label === 'string' && Number.isFinite(c.sides) && Number.isFinite(c.dc)) {
     to.check = { label: c.label.slice(0, 20), sides: c.sides, dc: c.dc };
@@ -177,7 +181,13 @@ export class Backup {
       const chat = cleanChat(raw);
       if (chat?.characterId) chat.characterId = characterIds.get(chat.characterId) ?? chat.characterId;
       if (chat?.personaId) chat.personaId = personaIds.get(chat.personaId) ?? chat.personaId;
-      if (chat?.castIds) chat.castIds = chat.castIds.map((id) => characterIds.get(id) ?? id);
+      const castOf = (ids) => ids.map((id) => characterIds.get(id) ?? id);
+      if (chat?.castIds) chat.castIds = castOf(chat.castIds);
+      // 답변마다 남긴 등장인물도 새 id 로 옮깁니다.
+      for (const m of chat?.messages || []) {
+        if (m.castIds) m.castIds = castOf(m.castIds);
+        for (const v of m.swipes || []) if (v.castIds) v.castIds = castOf(v.castIds);
+      }
       if (chat?.lorebookIds) chat.lorebookIds = chat.lorebookIds.map((id) => lorebookIds.get(id) ?? id);
       return chat;
     });
