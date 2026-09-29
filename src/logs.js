@@ -11,6 +11,16 @@
 const MAX_LOGS = 300;
 const logs = [];
 let seq = 0;
+let echo = true;
+
+/**
+ * 한 줄 요약을 콘솔(stdout)에도 찍을지 정합니다. 기본은 켜짐입니다.
+ * node --test 의 자식 프로세스는 stdout 으로 러너와 직렬화된 메시지를 주고받으므로,
+ * 테스트에서는 꺼서 그 흐름에 글자가 끼어들지 않게 합니다. 링버퍼 기록은 그대로 남습니다.
+ */
+export function setConsoleEcho(on) {
+  echo = Boolean(on);
+}
 
 /**
  * @param {object} entry
@@ -30,6 +40,7 @@ export function logHttp(entry) {
   if (logs.length > MAX_LOGS) logs.shift();
 
   // docker compose logs 로도 보이게. 한 줄로 눈에 잘 띄게.
+  if (!echo) return;
   const mark = entry.error ? '✗' : '✓';
   const status = entry.status ?? '—';
   console.log(

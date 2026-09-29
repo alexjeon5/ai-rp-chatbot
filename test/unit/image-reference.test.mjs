@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { renderGemini, renderOpenAi, IMAGE_DEFAULTS, REFERENCE_NOTE } from '../../src/image.js';
+import { setConsoleEcho } from '../../src/logs.js';
+
+// 통신 로그가 stdout 에 찍히면 테스트 러너와 주고받는 직렬화 메시지 사이에 끼어들어
+// 가끔 'Unable to deserialize cloned data' 로 파일 전체가 실패합니다. 콘솔 출력만 끕니다.
+setConsoleEcho(false);
 
 const PIXEL = Buffer.from('픽셀');
 const reference = { buffer: Buffer.from('REFERENCE-BYTES'), mime: 'image/png', ext: 'png' };
