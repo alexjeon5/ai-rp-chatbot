@@ -155,14 +155,16 @@ export function maskProviders(providers = {}) {
  * 창 단위로 세는 간단한 제한기. 의존성을 늘리지 않으려고 직접 만들었습니다.
  * 1인용 앱이라 이 정도로 충분합니다.
  */
-export function rateLimit({ windowMs, max, message, keyOf }) {
+export function rateLimit({ windowMs, max, message, keyOf, since }) {
   const hits = new Map();
 
   return (req, res, next) => {
     const now = Date.now();
     // 기본은 접속 IP. 로그인한 뒤의 요청은 사용자 기준으로 세는 게 정확합니다 (keyOf).
     const key = (keyOf && keyOf(req)) || req.ip || 'unknown';
-    const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
+    // since 가 돌려주는 시각 전의 기록은 세지 않습니다. 터미널에서 제한을 풀 때 씁니다 (npm run user -- unlock).
+    const floor = since ? since() : 0;
+    const list = (hits.get(key) || []).filter((t) => now - t < windowMs && t > floor);
 
     if (list.length >= max) {
       hits.set(key, list);

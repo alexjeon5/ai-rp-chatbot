@@ -2,6 +2,7 @@
 import express from 'express';
 import path from 'node:path';
 import { rateLimit, sameOrigin } from '../security.js';
+import { loginResetAt } from '../auth.js';
 import { Engines } from '../services/engines.js';
 import { ChatContext } from '../services/chat-context.js';
 import { Jobs } from '../services/jobs.js';
@@ -52,7 +53,10 @@ export function createApp({ store, auth, publicDir }) {
   app.use('/api', sameOrigin);
 
   // 로그인 시도는 IP 기준으로 셉니다. IP 를 속이는 경우는 auth.js 의 전체 실패 상한이 막습니다.
-  const loginLimit = rateLimit({ windowMs: 15 * 60_000, max: 10, message: '로그인 시도가 너무 잦습니다. 15분 뒤에 다시 시도해 주세요.' });
+  const loginLimit = rateLimit({
+    windowMs: 15 * 60_000, max: 10, since: loginResetAt,
+    message: '로그인 시도가 너무 잦습니다. 15분 뒤에 다시 시도해 주세요.'
+  });
   app.post('/api/login', loginLimit, (req, res) => auth.login(req, res).catch((e) => {
     console.error(e);
     if (!res.headersSent) res.status(500).json({ error: '로그인을 처리하지 못했습니다.' });

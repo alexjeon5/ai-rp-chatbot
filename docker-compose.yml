@@ -36,3 +36,6 @@ services:
       # --- 계정 ---
       # 로그인 계정은 컨테이너 안에서 만듭니다. 데이터 폴더(./data/users.json)에 저장됩니다.
       #   docker compose exec rp-chat node scripts/user.js add <아이디>
+      # 로그인이 막혀 급히 들어가야 하면 잠시 끌 수 있습니다 (정한 시간이 지나면 저절로 다시 켜짐).
+      #   docker compose exec rp-chat node scripts/user.js auth off 30m
+      #   docker compose exec rp-chat node scripts/user.js auth on

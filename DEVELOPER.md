@@ -42,7 +42,7 @@ src/
   auth.js                  로그인 — 비밀번호 해시, 세션, requireAuth / requireOwner
   security.js              SSRF 허용 목록, 키 마스킹, 요청 제한, 같은 출처 확인
 scripts/
-  user.js                  계정 만들기·지우기·비밀번호 바꾸기 (npm run user)
+  user.js                  계정 관리, 로그인 잠시 끄기·실패 제한 풀기 (npm run user)
 public/
   login.html               로그인 페이지. 앱 스크립트를 읽지 않는 독립 페이지
   index.html               전체 마크업 (사이드바, 대화창, 다이얼로그 다섯 개)

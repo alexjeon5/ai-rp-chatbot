@@ -8,6 +8,8 @@
  *   data/users.json     계정 목록. scripts/user.js 만 씁니다. 서버는 읽기만 하고,
  *                       파일이 바뀌면(수정 시각) 다시 읽습니다. 서버를 껐다 켤 필요가 없습니다.
  *   data/sessions.json  로그인 상태. 서버만 씁니다.
+ *   data/auth.json      터미널에서 건 임시 설정(로그인 잠시 끄기, 실패 기록 지우기).
+ *                       scripts/user.js 만 쓰고, 서버는 users.json 처럼 바뀌면 다시 읽습니다.
  *
  * 쿠키에는 무작위 토큰만 담기고, 서버에는 그 해시만 남습니다.
  * sessions.json 이 새어도 그걸로 로그인할 수는 없습니다.
@@ -77,42 +79,69 @@ const dummy = async () => (dummyHash ||= await hashPassword(randomBytes(16).toSt
 export const NAME_RULE = /^[\p{L}\p{N}_.-]{1,32}$/u;
 export const nameKey = (name) => String(name || '').trim().normalize('NFC').toLowerCase();
 
-let usersCache = { mtimeMs: -1, users: [] };
+/**
+ * 파일을 읽어 두고, 수정 시각이 바뀌었을 때만 다시 읽습니다.
+ * 손으로 고치다 깨졌으면 예전 값을 그대로 씁니다. 아무도 못 들어오는 것보다 낫습니다.
+ */
+function cachedJson(file, parse) {
+  let cache = { mtimeMs: -1, value: parse(null) };
+  return () => {
+    let stat;
+    try {
+      stat = statSync(file);
+    } catch {
+      cache = { mtimeMs: 0, value: parse(null) };
+      return cache.value;
+    }
+    if (stat.mtimeMs !== cache.mtimeMs) {
+      try {
+        cache = { mtimeMs: stat.mtimeMs, value: parse(JSON.parse(readFileSync(file, 'utf8'))) };
+      } catch (e) {
+        console.error(`${path.basename(file)} 을 읽지 못했습니다 (${file}) — ${e.message}`);
+      }
+    }
+    return cache.value;
+  };
+}
+
+/** 임시 파일에 쓴 뒤 바꿔치기해서, 서버가 반쯤 쓰인 파일을 읽지 않게 합니다. */
+function writeJsonAtomic(file, data, mode) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf8', mode });
+  renameSync(tmp, file);
+}
 
 /** users.json 을 읽습니다. 파일이 바뀌었을 때만 다시 읽습니다. */
-export function readUsers() {
-  let stat;
-  try {
-    stat = statSync(USERS_FILE);
-  } catch {
-    usersCache = { mtimeMs: 0, users: [] };
-    return usersCache.users;
-  }
-  if (stat.mtimeMs !== usersCache.mtimeMs) {
-    try {
-      const raw = JSON.parse(readFileSync(USERS_FILE, 'utf8'));
-      usersCache = { mtimeMs: stat.mtimeMs, users: Array.isArray(raw?.users) ? raw.users : [] };
-    } catch (e) {
-      // 손으로 고치다 깨졌으면 예전 목록을 그대로 씁니다. 아무도 못 들어오는 것보다 낫습니다.
-      console.error(`users.json 을 읽지 못했습니다 — ${e.message}`);
-    }
-  }
-  return usersCache.users;
-}
+export const readUsers = cachedJson(USERS_FILE, (raw) => (Array.isArray(raw?.users) ? raw.users : []));
 
-/** scripts/user.js 가 씁니다. 임시 파일에 쓴 뒤 바꿔치기해서, 서버가 반쯤 쓰인 파일을 읽지 않게 합니다. */
-export function writeUsers(users) {
-  mkdirSync(path.dirname(USERS_FILE), { recursive: true });
-  const tmp = `${USERS_FILE}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ users }, null, 2), { encoding: 'utf8', mode: 0o600 });
-  renameSync(tmp, USERS_FILE);
-}
+/** scripts/user.js 가 씁니다. 비밀번호 해시가 들어 있어 주인만 읽을 수 있게 만듭니다. */
+export const writeUsers = (users) => writeJsonAtomic(USERS_FILE, { users }, 0o600);
 
 export const findUser = (name) => readUsers().find((u) => nameKey(u.name) === nameKey(name)) || null;
 const userById = (id) => readUsers().find((u) => u.id === id) || null;
 
 /** 화면으로 내보내도 되는 부분만. */
 const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role });
+
+/* ---------------- 터미널에서 건 임시 설정 ---------------- */
+
+export const CONTROL_FILE = path.join(DATA_DIR, 'auth.json');
+
+/**
+ *   offUntil  이 시각까지는 로그인 없이 주인으로 들어옵니다 (auth off). 지나면 저절로 다시 켜집니다.
+ *   resetAt   이 시각 전의 로그인 실패는 세지 않습니다 (unlock, passwd).
+ */
+export const readAuthControl = cachedJson(CONTROL_FILE, (raw) => ({
+  offUntil: Number(raw?.offUntil) || 0,
+  resetAt: Number(raw?.resetAt) || 0
+}));
+
+/** 비밀이 없어 기본 권한으로 씁니다. sudo 로 만들어도 서버가 읽을 수 있습니다. */
+export const writeAuthControl = (control) => writeJsonAtomic(CONTROL_FILE, control, 0o644);
+
+/** 로그인 실패 제한은 이 시각 뒤의 기록만 봅니다. */
+export const loginResetAt = () => readAuthControl().resetAt;
 
 /* ---------------- 세션 ---------------- */
 
@@ -196,7 +225,8 @@ let failures = [];
 
 function lockedOut() {
   const now = Date.now();
-  failures = failures.filter((t) => now - t < FAIL_WINDOW_MS);
+  const floor = loginResetAt();
+  failures = failures.filter((t) => now - t < FAIL_WINDOW_MS && t > floor);
   return failures.length >= FAIL_MAX;
 }
 
@@ -219,6 +249,25 @@ function resolveDisabled(host) {
 
 const LOCAL_OWNER = Object.freeze({ id: 'local', name: 'local', role: 'owner' });
 
+const clock = (ms) => new Date(ms).toLocaleString('ko-KR');
+
+/*
+ * npm run user -- auth off 로 잠시 끈 상태인지. 배포한 서버에서 로그인이 막혔을 때 들어갈 길입니다.
+ * 켜고 꺼지는 순간을 서버 로그에 남겨, 언제 누구나 들어올 수 있었는지 알 수 있게 합니다.
+ */
+let wasOff = false;
+function tempOff() {
+  const until = readAuthControl().offUntil;
+  const off = until > Date.now();
+  if (off !== wasOff) {
+    wasOff = off;
+    console.warn(off
+      ? `로그인을 잠시 껐습니다 (${clock(until)} 까지). 그동안은 누구나 주인으로 들어옵니다.`
+      : '로그인을 다시 켰습니다.');
+  }
+  return off;
+}
+
 /* ---------------- 조립 ---------------- */
 
 /**
@@ -240,16 +289,29 @@ export async function createAuth({ host }) {
       '  (Docker) docker compose exec rp-chat node scripts/user.js add <아이디>\n'
     );
   }
+  // 꺼 둔 채로 다시 켜졌으면 시작할 때 바로 알립니다.
+  if (!disabled) tempOff();
 
-  /** 쿠키를 보고 req.user 를 채웁니다. 막지는 않습니다. 막는 건 requireAuth 입니다. */
+  /**
+   * 쿠키를 보고 req.user 를 채웁니다. 막지는 않습니다. 막는 건 requireAuth 입니다.
+   * 로그인을 잠시 꺼 두었으면(auth off) 로그인하지 않은 요청도 주인으로 들입니다.
+   * 로그인해 둔 사람은 그대로 자기 계정으로 씁니다.
+   */
   function attachUser(req, res, next) {
     req.user = null;
     if (disabled) {
       req.user = LOCAL_OWNER;
       return next();
     }
+    const done = () => {
+      if (!req.user && tempOff()) {
+        req.user = LOCAL_OWNER;
+        req.authBypass = true;
+      }
+      next();
+    };
     const token = readCookie(req, COOKIE);
-    if (!token) return next();
+    if (!token) return done();
 
     const key = tokenKey(token);
     const session = sessions.data.sessions[key];
@@ -263,7 +325,7 @@ export async function createAuth({ host }) {
         sessions.save();
       }
       clearSessionCookie(req, res);
-      return next();
+      return done();
     }
 
     // 쓰는 동안은 만료가 뒤로 밀립니다. 30일 동안 한 번도 안 쓰면 다시 로그인합니다.
@@ -316,9 +378,11 @@ export async function createAuth({ host }) {
       return res.status(400).json({ error: '아이디나 비밀번호가 너무 깁니다.' });
     }
     if (lockedOut()) {
+      console.warn(`로그인 막힘: 실패가 ${FAIL_MAX}번을 넘었습니다. 서버에서 npm run user -- unlock 으로 풀 수 있습니다.`);
       return res.status(429).json({ error: '로그인 실패가 너무 많아 잠시 막아 두었습니다. 15분 뒤에 다시 시도해 주세요.' });
     }
     if (!readUsers().length) {
+      console.warn(`로그인 실패: 계정이 없습니다 (${USERS_FILE}).`);
       return res.status(503).json({
         error: '아직 계정이 없습니다. 서버에서 npm run user -- add <아이디> 로 먼저 만들어 주세요.'
       });
@@ -328,6 +392,8 @@ export async function createAuth({ host }) {
     const ok = await verifyPassword(password, user?.passwordHash || await dummy());
     if (!user || !ok) {
       failures.push(Date.now());
+      // 화면에는 둘을 구분해 알리지 않지만(아이디 떠보기 방지), 서버 주인은 어디서 틀렸는지 알아야 고칩니다.
+      console.warn(`로그인 실패: ${user ? '비밀번호가 다릅니다' : '없는 아이디입니다'} — ${JSON.stringify(name.trim())} (${req.ip})`);
       // 틀렸을 때만 조금 늦춥니다. 맞출 때까지 두드리는 속도를 떨어뜨립니다.
       await sleep(300 + Math.floor(Math.random() * 400));
       return res.status(401).json({ error: '아이디나 비밀번호가 맞지 않습니다.' });
@@ -347,7 +413,7 @@ export async function createAuth({ host }) {
     res.json({ ok: true });
   }
 
-  const me = (req, res) => res.json({ user: req.user, authDisabled: disabled });
+  const me = (req, res) => res.json({ user: req.user, authDisabled: disabled || Boolean(req.authBypass) });
 
   return { disabled, attachUser, requireAuth, requireOwner, pageGate, login, logout, me };
 }
