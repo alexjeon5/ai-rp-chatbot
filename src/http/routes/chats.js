@@ -1,7 +1,7 @@
 /** 대화와 메시지: 목록·만들기·고치기·지우기, 넘겨보기, 멈추기, 게이지와 미리보기. */
 import { uid } from '../../db.js';
 import { fillVars } from '../../prompt.js';
-import { showSwipe, syncSwipe, invalidateFacts, cleanFacts, pendingForSummary, MEMORY_MAX_CHARS } from '../../chat-ops.js';
+import { showSwipe, syncSwipe, invalidateFacts, cleanFacts, pendingForSummary, branchFrom, MEMORY_MAX_CHARS } from '../../chat-ops.js';
 import { characterFields, SAFE_ID } from '../../services/records.js';
 import { wrap, fail } from '../helpers.js';
 
@@ -39,6 +39,7 @@ export class ChatRoutes {
     app.put('/api/chats/:id', (req, res) => this.update(req, res));
     app.delete('/api/chats/:id', wrap((req, res) => this.remove(req, res)));
     app.post('/api/chats/:id/messages', (req, res) => this.addMessage(req, res));
+    app.post('/api/chats/:id/branch', wrap((req, res) => this.branch(req, res)));
     app.put('/api/chats/:id/messages/:mid', (req, res) => this.editMessage(req, res));
     app.put('/api/chats/:id/messages/:mid/swipe', (req, res) => this.swipe(req, res));
     app.delete('/api/chats/:id/messages/:mid', (req, res) => this.removeMessage(req, res));
@@ -127,6 +128,17 @@ export class ChatRoutes {
     }
     this.chats.save(chat.id);
     res.json(chat);
+  }
+
+  /** body: { messageId } — 그 메시지까지 복사한 새 대화를 만듭니다. */
+  async branch(req, res) {
+    const chat = this.chatOr404(req, res);
+    if (!chat) return;
+    const made = branchFrom(chat, String(req.body?.messageId || ''));
+    if (!made) return fail(res, 404, '없는 메시지입니다.');
+    const added = this.chats.add(made.chat);
+    await this.images.copyAll(chat.id, added.id, made.files);
+    res.json({ chat: added, memoryCleared: made.memoryCleared });
   }
 
   async remove(req, res) {

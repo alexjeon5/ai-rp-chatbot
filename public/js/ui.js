@@ -53,11 +53,91 @@ export async function copyText(text) {
 }
 
 /**
+ * 대화 한 줄. grouped 면 캐릭터 묶음 안이라 아이콘 대신 들여쓰기만 두고,
+ * depth 는 분기한 대화를 원본 아래로 들여 쓸 깊이입니다.
+ */
+function chatRow(c, characters, activeId, { grouped = false, depth = 0 } = {}) {
+  const ch = characters.find((x) => x.id === c.characterId);
+  const icon = c.kind === 'assistant' ? '✳' : c.avatar || ch?.avatar || '◦';
+  const lead = grouped
+    ? (depth ? '<span class="rail-branch" aria-hidden="true">↳</span>' : '')
+    : `<span class="rail-avatar">${esc(icon)}</span>`;
+  const cls = ['rail-item', c.id === activeId ? 'active' : '', grouped ? `is-grouped depth-${Math.min(depth, 3)}` : '']
+    .filter(Boolean).join(' ');
+  return `<li><button class="${cls}" data-chat="${c.id}">
+        ${lead}
+        <span class="rail-body">
+          <span class="rail-name">
+            <span class="label">${esc(c.title)}</span>
+            ${c.adult ? '<span class="badge-adult" title="성인 모드로 진행 중인 대화">19</span>' : ''}
+            ${c.onceOnly ? '<span class="badge-once" title="이 대화에만 있는 1회성 캐릭터">1회</span>' : ''}
+            ${c.branchOf ? '<span class="badge-branch" title="다른 대화에서 갈라져 나온 대화">분기</span>' : ''}
+          </span>
+          <span class="rail-note">${esc(c.preview || '아직 메시지가 없습니다')}</span>
+        </span></button></li>`;
+}
+
+/** 목록 순서를 지키되, 분기한 대화를 원본 바로 아래로 옮깁니다. 원본이 이 목록에 없으면 제자리에 둡니다. */
+function withBranches(list) {
+  const ids = new Set(list.map((c) => c.id));
+  const children = new Map();
+  const roots = [];
+  for (const c of list) {
+    const parent = c.branchOf?.chatId;
+    if (parent && parent !== c.id && ids.has(parent)) {
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(c);
+    } else {
+      roots.push(c);
+    }
+  }
+  const out = [];
+  const seen = new Set();
+  const walk = (c, depth) => {
+    if (seen.has(c.id)) return;
+    seen.add(c.id);
+    out.push({ chat: c, depth });
+    for (const kid of children.get(c.id) || []) walk(kid, depth + 1);
+  };
+  roots.forEach((c) => walk(c, 0));
+  // 서로를 가리키는 기록이 있어도 빠지는 대화가 없게 합니다.
+  list.forEach((c) => walk(c, 0));
+  return out;
+}
+
+/**
+ * 캐릭터별 묶음. 묶음 순서는 그 캐릭터의 가장 최근 대화 순입니다(목록이 이미 최근순).
+ * 접어 둔 묶음이라도 지금 열린 대화가 들어 있으면 펼쳐 보입니다.
+ */
+function groupedRows(chats, characters, activeId, collapsed) {
+  const groups = new Map();
+  for (const c of chats) {
+    const key = c.characterId || 'once';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  return [...groups].map(([key, list]) => {
+    const ch = characters.find((x) => x.id === key);
+    const name = key === 'once' ? '1회성 캐릭터' : ch?.name || '지운 캐릭터';
+    const icon = key === 'once' ? '◦' : ch?.avatar || list[0].avatar || '◦';
+    const open = !collapsed.has(key) || list.some((c) => c.id === activeId);
+    const head = `<li><button class="rail-folder" type="button" data-group-key="${esc(key)}" aria-expanded="${open}">
+        <span class="rail-avatar">${esc(icon)}</span>
+        <span class="label">${esc(name)}</span>
+        <span class="char-count">${list.length}</span>
+        <span class="rail-chev" aria-hidden="true">${open ? '▾' : '▸'}</span></button></li>`;
+    if (!open) return head;
+    return head + withBranches(list).map(({ chat, depth }) => chatRow(chat, characters, activeId, { grouped: true, depth })).join('');
+  }).join('');
+}
+
+/**
  * 대화 목록. archiveView 면 보관한 대화를 보여 주고 맨 위에 돌아가는 줄을,
  * 아니면 보관한 대화가 있을 때만 맨 아래에 보관함으로 가는 줄을 붙입니다.
+ * group 이면 캐릭터별로 묶고, 분기한 대화를 원본 아래에 들여 씁니다.
  */
 export function renderChatList(chats, activeId, characters,
-  { hideAdult = false, mode = 'rp', archiveView = false, archivedCount = 0 } = {}) {
+  { hideAdult = false, mode = 'rp', archiveView = false, archivedCount = 0, group = false, collapsed = new Set() } = {}) {
   const ul = document.getElementById('chat-list');
   const visible = hideAdult ? chats.filter((c) => !c.adult) : chats;
   const hiddenCount = chats.length - visible.length;
@@ -81,22 +161,10 @@ export function renderChatList(chats, activeId, characters,
     return;
   }
 
-  ul.innerHTML = head + visible
-    .map((c) => {
-      const ch = characters.find((x) => x.id === c.characterId);
-      const icon = c.kind === 'assistant' ? '✳' : c.avatar || ch?.avatar || '◦';
-      return `<li><button class="rail-item ${c.id === activeId ? 'active' : ''}" data-chat="${c.id}">
-        <span class="rail-avatar">${esc(icon)}</span>
-        <span class="rail-body">
-          <span class="rail-name">
-            <span class="label">${esc(c.title)}</span>
-            ${c.adult ? '<span class="badge-adult" title="성인 모드로 진행 중인 대화">19</span>' : ''}
-            ${c.onceOnly ? '<span class="badge-once" title="이 대화에만 있는 1회성 캐릭터">1회</span>' : ''}
-          </span>
-          <span class="rail-note">${esc(c.preview || '아직 메시지가 없습니다')}</span>
-        </span></button></li>`;
-    })
-    .join('') +
+  const rows = group && mode === 'rp'
+    ? groupedRows(visible, characters, activeId, collapsed)
+    : visible.map((c) => chatRow(c, characters, activeId)).join('');
+  ul.innerHTML = head + rows +
     (hiddenCount ? `<li class="rail-empty">성인 대화 ${hiddenCount}개 숨김</li>` : '') +
     foot;
 }
@@ -235,6 +303,7 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
       <button class="tool" data-act="edit">수정</button>
       <button class="tool" data-act="copy">복사</button>
       <button class="tool" data-act="delete">삭제</button>
+      <button class="tool" data-act="branch" title="이 메시지까지 복사해 새 대화로 갈라집니다. 원본은 그대로 남습니다">분기</button>
       ${!isUser && !plain && drawing.enabled ? '<button class="tool" data-act="draw" title="이 장면을 ComfyUI 로 그립니다">🎨 그리기</button>' : ''}
     </div>`;
   return li;

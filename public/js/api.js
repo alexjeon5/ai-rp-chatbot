@@ -62,6 +62,7 @@ export const api = {
   saveInlineCharacter: (id) => req(`/api/chats/${id}/save-character`, { method: 'POST', body: {} }),
   updateChat: (id, body) => req(`/api/chats/${id}`, { method: 'PUT', body }),
   deleteChat: (id) => req(`/api/chats/${id}`, { method: 'DELETE' }),
+  branchChat: (id, messageId) => req(`/api/chats/${id}/branch`, { method: 'POST', body: { messageId } }),
 
   addMessage: (chatId, body) => req(`/api/chats/${chatId}/messages`, { method: 'POST', body }),
   swipe: (chatId, mid, index) =>

@@ -488,6 +488,47 @@ button, input, textarea, select { font: inherit; color: inherit; }
   line-height: 15px;
 }
 
+.badge-branch {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* 캐릭터별 보기: 캐릭터 머리줄(누르면 접기·펼치기) 아래에 그 캐릭터의 대화를 들여 씁니다. */
+.rail-folder {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-folder:hover { background: var(--panel-2); color: var(--text); }
+.rail-folder .rail-avatar { width: 26px; height: 26px; font-size: 13px; }
+.rail-folder .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-folder .char-count { font-family: var(--sans); font-size: 12px; }
+.rail-chev { flex: none; width: 1em; text-align: center; font-size: 12px; color: var(--brass-soft); }
+
+.rail-item.is-grouped { padding-left: 46px; }
+.rail-item.is-grouped.depth-1 { padding-left: 60px; }
+.rail-item.is-grouped.depth-2 { padding-left: 76px; }
+.rail-item.is-grouped.depth-3 { padding-left: 92px; }
+.rail-branch { flex: none; margin-left: -18px; width: 12px; color: var(--brass-soft); font-size: 13px; }
+
 .head-select, .sel--sm.head-wrap {
   max-width: 180px;
   padding: 6px 10px;

@@ -19,6 +19,8 @@ export class AppState {
   hideAdult = localStorage.getItem('hideAdult') === '1';
   // 대화 목록 대신 보관함을 보고 있는가
   showArchived = false;
+  // 롤플레이 대화 목록을 캐릭터별로 묶어 보는가 (아니면 최근순)
+  groupByCharacter = localStorage.getItem('chatGroup') === 'character';
   mode = localStorage.getItem('mode') === 'assistant' ? 'assistant' : 'rp';
   // 입력창 아래 게이지가 마지막으로 받은 값
   context = null;

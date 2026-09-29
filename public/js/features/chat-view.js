@@ -5,7 +5,7 @@ import { $, esc, setHidden, on } from '../core/dom.js';
 import { menuKeys } from '../core/menu.js';
 
 // 대화가 열려 있을 때만 보이는 상단 버튼들
-const CHAT_ONLY = ['btn-rename', 'btn-archive-chat', 'btn-delete-chat', 'btn-save-character', 'btn-cast', 'btn-memory',
+const CHAT_ONLY = ['btn-rename', 'btn-archive-chat', 'btn-delete-chat', 'btn-save-character', 'btn-open-origin', 'btn-cast', 'btn-memory',
   'btn-impersonate', 'chat-preset', 'chat-persona', 'btn-websearch', 'btn-thinking'];
 
 export class ChatView {
@@ -33,6 +33,7 @@ export class ChatView {
     on('btn-archive-chat', 'click', withChat((chat) => app.list.setArchived(chat.id, !chat.archivedAt)));
     on('btn-rename', 'click', withChat((chat) => app.list.rename(chat.id)));
     on('btn-save-character', 'click', () => this.saveCharacter());
+    on('btn-open-origin', 'click', withChat((chat) => { if (chat.branchOf) this.open(chat.branchOf.chatId); }));
     on('btn-new-chat', 'click', () => {
       const chat = this.state.chat;
       // 1회성 캐릭터는 목록에 없어도 되므로, 목록이 비었는지는 그다음에 봅니다.
@@ -64,6 +65,7 @@ export class ChatView {
     setHidden(['btn-rename', 'btn-delete-chat'], false);
     this.paintArchiveButton();
     $('btn-save-character').hidden = !state.chat.character;
+    $('btn-open-origin').hidden = !this.originOf(state.chat);
     setHidden(['btn-cast', 'btn-memory', 'btn-impersonate'], assistant);
     $('input').placeholder = assistant
       ? '무엇이든 물어보세요.'
@@ -102,11 +104,13 @@ export class ChatView {
     const chat = state.chat;
     if (!chat) return;
     const archived = chat.archivedAt ? '보관한 대화' : null;
+    const branch = chat.branchOf ? `${this.originOf(chat)?.title || `${chat.branchOf.title} (지워짐)`}에서 분기` : null;
     const cast = state.castOf(chat);
     $('chat-sub').textContent = (chat.kind === 'assistant'
-      ? [archived, '어시스턴트 모드 — 캐릭터 없이 대화합니다']
+      ? [archived, branch, '어시스턴트 모드 — 캐릭터 없이 대화합니다']
       : [
           archived,
+          branch,
           chat.character ? '1회성 캐릭터' : null,
           cast.length ? `함께: ${cast.map((c) => c.name).join(', ')}` : null,
           state.characterOf(chat)?.description,
@@ -174,6 +178,27 @@ export class ChatView {
     // 내 말풍선 위의 이름도 새 페르소나로 바뀌어야 합니다. 생성 중이면 화면을 건드리지 않습니다.
     if (!state.run) this.paintThread();
     ui.toast(`이 대화의 페르소나를 바꿨습니다 — ${state.personaOf(chat)?.name}. 다음 답변부터 반영됩니다.`);
+  }
+
+  /** 분기한 대화의 원본(목록에 남아 있을 때만). */
+  originOf(chat) {
+    return chat?.branchOf ? this.state.chats.find((c) => c.id === chat.branchOf.chatId) : null;
+  }
+
+  /** 이 메시지까지 복사한 새 대화를 만들고 엽니다. 원본은 그대로 둡니다. */
+  async branch(msg) {
+    const { state, app } = this;
+    if (state.run) return ui.toast('답변을 쓰는 중에는 분기할 수 없습니다');
+    try {
+      const { chat, memoryCleared } = await api.branchChat(state.chat.id, msg.id);
+      await app.list.refresh();
+      await this.open(chat.id);
+      ui.toast(memoryCleared
+        ? '분기했습니다. 기억 요약에 분기 지점 뒤의 일이 섞여 있어 요약은 비웠습니다'
+        : '분기한 대화를 열었습니다. 원본은 ⋯ 메뉴에서 열 수 있습니다');
+    } catch (err) {
+      ui.toast(`분기하지 못했습니다 — ${err.message}`);
+    }
   }
 
   paintArchiveButton() {
@@ -273,6 +298,7 @@ export class ChatView {
       app.composer.refreshContext();
       return;
     }
+    if (act === 'branch') return this.branch(msg);
     if (act === 'edit') this.edit(turn, msg);
   }
 

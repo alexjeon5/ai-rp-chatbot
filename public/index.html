@@ -37,6 +37,10 @@
           <button id="btn-new-assistant" class="ghost-btn" hidden>새 채팅</button>
         </span>
       </div>
+      <nav id="chat-view-tabs" class="char-tabs" aria-label="대화 목록 보기">
+        <button class="char-tab" type="button" data-group="recent" aria-pressed="true">최근순</button>
+        <button class="char-tab" type="button" data-group="character" aria-pressed="false">캐릭터별</button>
+      </nav>
       <ul id="chat-list" class="rail-list"></ul>
     </section>
 
@@ -80,6 +84,7 @@
         <button id="btn-chat-menu" class="ghost-btn chat-menu-btn" hidden aria-haspopup="menu" aria-expanded="false"
           aria-controls="chat-menu" title="대화 관리" aria-label="대화 관리">⋯</button>
         <div id="chat-menu" class="sel-list chat-menu-list" role="menu" hidden>
+          <button id="btn-open-origin" class="sel-item" role="menuitem" hidden title="이 대화가 갈라져 나온 원본 대화를 엽니다">원본 대화 열기</button>
           <button id="btn-save-character" class="sel-item" role="menuitem" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
           <button id="btn-rename" class="sel-item" role="menuitem" hidden>이름 바꾸기</button>
           <button id="btn-archive-chat" class="sel-item" role="menuitem" hidden>보관</button>

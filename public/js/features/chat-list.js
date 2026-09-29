@@ -4,11 +4,18 @@ import * as ui from '../ui.js';
 import { $, on } from '../core/dom.js';
 import { menuKeys } from '../core/menu.js';
 
+/** 저장해 둔 JSON. 없거나 깨졌으면 기본값을 씁니다. */
+function readJson(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+
 export class ChatList {
   constructor(app) {
     this.app = app;
     this.state = app.state;
     this.rowMenuChatId = null;
+    // 캐릭터별 보기에서 접어 둔 묶음(캐릭터 id, 1회성은 'once'). 다음에 열어도 그대로입니다.
+    this.collapsed = new Set(readJson('collapsedGroups', []));
 
     for (const tab of document.querySelectorAll('.mode-tab[data-mode]')) {
       tab.addEventListener('click', () => this.switchMode(tab.dataset.mode));
@@ -24,7 +31,24 @@ export class ChatList {
       this.paintAdultToggle();
       this.paint();
     });
+    on('chat-view-tabs', 'click', (e) => {
+      const tab = e.target.closest('[data-group]');
+      if (!tab) return;
+      this.state.groupByCharacter = tab.dataset.group === 'character';
+      localStorage.setItem('chatGroup', tab.dataset.group);
+      this.paintViewTabs();
+      this.paint();
+    });
     on('chat-list', 'click', (e) => {
+      const folder = e.target.closest('[data-group-key]');
+      if (folder) {
+        const key = folder.dataset.groupKey;
+        if (folder.getAttribute('aria-expanded') === 'true') this.collapsed.add(key);
+        else this.collapsed.delete(key);
+        localStorage.setItem('collapsedGroups', JSON.stringify([...this.collapsed]));
+        this.paint();
+        return;
+      }
       const view = e.target.closest('[data-archive-view]');
       if (view) {
         this.state.showArchived = view.dataset.archiveView === 'on';
@@ -62,6 +86,8 @@ export class ChatList {
       hideAdult: state.hideAdult,
       mode: state.mode,
       archiveView: state.showArchived,
+      group: state.groupByCharacter,
+      collapsed: this.collapsed,
       // 숨긴 성인 대화는 세지 않아야, 보관함에 들어갔을 때 보이는 수와 맞습니다.
       archivedCount: state.modeChats().filter((c) => c.archivedAt && !(state.hideAdult && c.adult)).length
     });
@@ -88,6 +114,17 @@ export class ChatList {
     $('btn-new-chat').hidden = !rp;
     $('btn-toggle-adult').hidden = !rp;
     $('btn-new-assistant').hidden = rp;
+    // 어시스턴트 대화에는 캐릭터가 없어 묶을 게 없습니다.
+    $('chat-view-tabs').hidden = !rp;
+    this.paintViewTabs();
+  }
+
+  paintViewTabs() {
+    for (const tab of document.querySelectorAll('#chat-view-tabs [data-group]')) {
+      const on = (tab.dataset.group === 'character') === this.state.groupByCharacter;
+      tab.classList.toggle('is-on', on);
+      tab.setAttribute('aria-pressed', String(on));
+    }
   }
 
   switchMode(mode) {

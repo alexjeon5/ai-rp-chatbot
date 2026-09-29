@@ -307,6 +307,47 @@ export function applyFactOps(chat, ops, window, now = Date.now()) {
 }
 
 /**
+ * 대화를 messageId 까지 복사해 갈라져 나갈 새 대화를 만듭니다. 저장은 부르는 쪽이 합니다.
+ *   - 캐릭터·페르소나·모드·등장인물·작가 노트는 그대로 이어받습니다
+ *   - 자동 기억은 분기 지점 뒤 메시지에서만 나온 항목을 뺍니다. 고정하거나 직접 쓴 항목은 남깁니다
+ *   - 요약이 분기 지점 뒤까지 들어가 있으면 뒤의 일이 섞여 있으므로 비우고, 필요할 때 다시 요약하게 둡니다
+ * @returns {{ chat, files: string[], memoryCleared: boolean } | null}  files 는 복사해 올 그림 파일
+ */
+export function branchFrom(chat, messageId) {
+  const at = chat.messages.findIndex((m) => m.id === messageId);
+  if (at < 0) return null;
+  const messages = structuredClone(chat.messages.slice(0, at + 1));
+  const kept = new Set(messages.map((m) => m.id));
+  const cut = Number(messages[messages.length - 1].at) || 0;
+
+  const facts = (chat.facts || [])
+    .map((f) => ({ ...f, from: f.sourceIds || [], sourceIds: (f.sourceIds || []).filter((id) => kept.has(id)) }))
+    .filter((f) => !f.from.length || f.sourceIds.length || !editable(f))
+    .map(({ from, ...f }) => f);
+
+  const summarizedPast = Number(chat.summaryUntilAt) > cut;
+  const memoryCleared = summarizedPast && Boolean(chat.memory?.trim());
+  const branch = {
+    kind: chat.kind || 'rp',
+    characterId: chat.characterId ?? null,
+    ...(chat.character ? { character: structuredClone(chat.character) } : {}),
+    personaId: chat.personaId ?? null,
+    ...(chat.presetId ? { presetId: chat.presetId } : {}),
+    ...(chat.castIds?.length ? { castIds: [...chat.castIds] } : {}),
+    ...(chat.authorNote ? { authorNote: chat.authorNote } : {}),
+    title: `${chat.title} · 분기`,
+    branchOf: { chatId: chat.id, messageId, title: chat.title },
+    updatedAt: Date.now(),
+    messages,
+    facts,
+    ...(chat.factsUntilAt ? { factsUntilAt: Math.min(Number(chat.factsUntilAt), cut) } : {}),
+    ...(summarizedPast ? {} : { ...(chat.memory ? { memory: chat.memory } : {}), ...(chat.summaryUntilAt ? { summaryUntilAt: chat.summaryUntilAt } : {}) })
+  };
+  const files = messages.flatMap((m) => (m.images || []).map((img) => img.file));
+  return { chat: branch, files, memoryCleared };
+}
+
+/**
  * 메시지 하나가 바뀌었을 때(삭제·수정·다른 답변으로 넘김) 부릅니다.
  * 그 메시지에서 나온 자동 항목을 치우고, 다음 확인 때 그 메시지를 다시 읽도록 되감습니다.
  */
