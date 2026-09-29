@@ -12,12 +12,13 @@ export function setMarkup(next) {
  * 롤플레이 표기를 살려서 HTML 로 바꿉니다. 켜고 끄는 것은 개발자 설정에서 정합니다.
  *   *별표* 또는 (괄호)  → 행동·장면 묘사
  *   이름: "대사"        → 화자 라벨 + 대사
+ * 줄 단위 마크다운(# 제목, *** 구분선, 목록, > 인용, 표, 코드 블록)도 같이 그립니다.
  * plain 모드(어시스턴트)에서는 롤플레이 표기 대신 마크다운으로 그립니다.
  */
 export function formatText(raw = '', { plain = false, bubbles = false } = {}) {
   if (plain) return renderMarkdown(raw);
   if (bubbles) return renderBubbles(raw);
-  return formatLines(raw).join('\n');
+  return renderRoleplay(raw);
 }
 
 /**
@@ -39,30 +40,36 @@ function renderBubbles(raw = '') {
     .join('');
 }
 
-/** 롤플레이 표기를 한 줄씩 HTML 로 바꿉니다. 캐릭터도 $\rightarrow$ 같은 수식 표기를 섞어 쓰므로 먼저 기호로 바꿉니다. */
+/** 롤플레이 표기를 한 줄씩 HTML 로 바꿉니다. 메신저 말풍선이 줄마다 씁니다. */
 function formatLines(raw = '') {
-  return unwrapTex(esc(raw))
-    .split('\n')
-    .map((line) => {
-      /*
-       * 모델이 종종 "(이름: 묘사)" 처럼 이름을 괄호 안쪽에 넣습니다.
-       * 그러면 화자 표시가 묘사체 안에 묻혀 버리므로, 이름을 괄호 밖으로
-       * 꺼내 "이름: (묘사)" 모양으로 바꿔 둔 뒤 아래 규칙을 그대로 태웁니다.
-       */
-      let s = line.replace(/^\(([^:\s()]{1,20}):\s*/, '$1: (');
-      s = markup.speaker
-        ? s.replace(/^([^:\s]{1,20}):(\s|$)/, '<span class="speaker">$1</span>:$2')
-        : s;
-      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      if (markup.asterisk) s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      if (markup.paren) s = s.replace(/\(([^()]{2,})\)/g, '<em>($1)</em>');
-      if (markup.quote) {
-        s = s
-          .replace(/&quot;([^&]*?)&quot;/g, '<q>$1</q>')
-          .replace(/[“]([^”]+)[”]/g, '<q>$1</q>');
-      }
-      return s;
-    });
+  return String(raw).split('\n').map((line) => rpLine(line));
+}
+
+/**
+ * 한 줄의 롤플레이 표기. 캐릭터도 $\rightarrow$ 같은 수식 표기를 섞어 쓰므로 먼저 기호로 바꿉니다.
+ * 제목·목록 줄(lineStart: false)에서는 화자를 찾지 않습니다.
+ * "### [기록: 영상]" 의 "[기록", "- HP: 100" 의 "HP" 는 화자가 아닙니다.
+ */
+function rpLine(raw = '', { lineStart = true } = {}) {
+  let s = unwrapTex(esc(raw));
+  if (lineStart) {
+    /*
+     * 모델이 종종 "(이름: 묘사)" 처럼 이름을 괄호 안쪽에 넣습니다.
+     * 그러면 화자 표시가 묘사체 안에 묻혀 버리므로, 이름을 괄호 밖으로
+     * 꺼내 "이름: (묘사)" 모양으로 바꿔 둔 뒤 아래 규칙을 그대로 태웁니다.
+     */
+    s = s.replace(/^\(([^:\s()]{1,20}):\s*/, '$1: (');
+    if (markup.speaker) s = s.replace(/^([^:\s]{1,20}):(\s|$)/, '<span class="speaker">$1</span>:$2');
+  }
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  if (markup.asterisk) s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  if (markup.paren) s = s.replace(/\(([^()]{2,})\)/g, '<em>($1)</em>');
+  if (markup.quote) {
+    s = s
+      .replace(/&quot;([^&]*?)&quot;/g, '<q>$1</q>')
+      .replace(/[“]([^”]+)[”]/g, '<q>$1</q>');
+  }
+  return s;
 }
 
 /* ----------------------------------------------------------------
@@ -317,6 +324,85 @@ function renderBlocks(lines) {
     i++;
   }
   flushPara();
+  return out.join('');
+}
+
+/* ---------------- 롤플레이 본문 ---------------- */
+
+/*
+ * 롤플레이 본문은 줄바꿈을 그대로 보이게(pre-wrap) 그립니다. 보통 줄은 예전처럼 줄마다 rpLine 을 태워
+ * \n 으로 잇고, 줄 단위 마크다운만 블록으로 바꿔 끼웁니다.
+ * 블록은 스스로 위아래 여백이 있으므로, 블록에 붙은 빈 줄과 줄바꿈은 걷어 냅니다.
+ * 그대로 두면 블록 앞뒤로 빈 줄이 한 번 더 보입니다.
+ */
+
+// "* 항목" 은 목록이지만 "* 웃는다 *" 는 띄어 쓴 행동 묘사일 수 있어, 닫는 별표가 없을 때만 목록으로 봅니다.
+const RP_ITEM = /^\s*(?:([-+])|(\*)|(\d{1,3})[.)])\s+(.*)$/;
+const rpItem = (line) => {
+  const m = RP_ITEM.exec(line);
+  if (!m || (m[2] && m[4].includes('*'))) return null;
+  return { ordered: Boolean(m[3]), text: m[4] };
+};
+
+function readRpList(lines, start) {
+  const ordered = rpItem(lines[start]).ordered;
+  const items = [];
+  let i = start;
+  for (; i < lines.length; i++) {
+    const item = rpItem(lines[i]);
+    if (!item || item.ordered !== ordered) break;
+    items.push(`<li>${rpLine(item.text, { lineStart: false })}</li>`);
+  }
+  const tag = ordered ? 'ol' : 'ul';
+  return { html: `<${tag}>${items.join('')}</${tag}>`, next: i };
+}
+
+/** 이 줄에서 시작하는 블록을 읽어 { html, next } 로. 보통 줄이면 null 입니다. */
+function readRpBlock(lines, i) {
+  const line = lines[i];
+  if (fenceOf(line)) return readFence(lines, i);
+  if (RULE.test(line)) return { html: '<hr>', next: i + 1 };
+  const heading = HEADING.exec(line);
+  if (heading) {
+    const level = heading[1].length;
+    return { html: `<h${level}>${rpLine(heading[2].replace(/\s+#+\s*$/, ''), { lineStart: false })}</h${level}>`, next: i + 1 };
+  }
+  if (isTableStart(lines, i)) return readTable(lines, i);
+  if (QUOTE.test(line)) {
+    const inner = [];
+    let j = i;
+    for (; j < lines.length && QUOTE.test(lines[j]); j++) inner.push(rpLine(QUOTE.exec(lines[j])[1]));
+    return { html: `<blockquote>${inner.join('\n')}</blockquote>`, next: j };
+  }
+  if (rpItem(line)) return readRpList(lines, i);
+  return null;
+}
+
+function renderRoleplay(src = '') {
+  const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let text = [];
+  const flushText = () => {
+    // 블록 바로 앞뒤의 빈 줄은 블록 여백과 겹치므로 뺍니다.
+    while (text.length && !text[0].trim() && out.length) text.shift();
+    if (text.length) out.push(text.join('\n'));
+    text = [];
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    const block = readRpBlock(lines, i);
+    if (block) {
+      while (text.length && !text[text.length - 1].trim()) text.pop();
+      flushText();
+      out.push(block.html);
+      i = block.next;
+      continue;
+    }
+    text.push(rpLine(lines[i]));
+    i++;
+  }
+  flushText();
   return out.join('');
 }
 
