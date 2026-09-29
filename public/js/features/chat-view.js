@@ -106,6 +106,8 @@ export class ChatView {
     const archived = chat.archivedAt ? '보관한 대화' : null;
     const branch = chat.branchOf ? `${this.originOf(chat)?.title || `${chat.branchOf.title} (지워짐)`}에서 분기` : null;
     const cast = state.castOf(chat);
+    // 늘 같은 안내뿐인 줄은 좁은 화면에서 숨깁니다(CSS). 보관·분기 같은 정보가 있으면 보입니다.
+    $('chat-sub').classList.toggle('is-plain', chat.kind === 'assistant' && !archived && !branch);
     $('chat-sub').textContent = (chat.kind === 'assistant'
       ? [archived, branch, '어시스턴트 모드 — 캐릭터 없이 대화합니다']
       : [
