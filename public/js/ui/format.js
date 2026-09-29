@@ -39,9 +39,9 @@ function renderBubbles(raw = '') {
     .join('');
 }
 
-/** 롤플레이 표기를 한 줄씩 HTML 로 바꿉니다. */
+/** 롤플레이 표기를 한 줄씩 HTML 로 바꿉니다. 캐릭터도 $\rightarrow$ 같은 수식 표기를 섞어 쓰므로 먼저 기호로 바꿉니다. */
 function formatLines(raw = '') {
-  return esc(raw)
+  return unwrapTex(esc(raw))
     .split('\n')
     .map((line) => {
       /*
@@ -76,9 +76,13 @@ function formatLines(raw = '') {
  * ---------------------------------------------------------------- */
 
 // 모델이 종종 $\rightarrow$ 같은 수식 표기를 섞어 씁니다. 흔한 것만 기호로 바꿉니다.
+// 롤플레이 표기(formatLines)와 마크다운(inline) 모두 이 표를 씁니다.
 const TEX = {
-  rightarrow: '→', to: '→', leftarrow: '←', leftrightarrow: '↔',
-  Rightarrow: '⇒', Leftarrow: '⇐', Leftrightarrow: '⇔',
+  rightarrow: '→', to: '→', leftarrow: '←', gets: '←', leftrightarrow: '↔',
+  longrightarrow: '⟶', longleftarrow: '⟵', uparrow: '↑', downarrow: '↓', mapsto: '↦',
+  Rightarrow: '⇒', Leftarrow: '⇐', Leftrightarrow: '⇔', implies: '⇒', iff: '⇔',
+  Longrightarrow: '⟹',
+  ldots: '…', cdots: '⋯', dots: '…', sim: '∼', equiv: '≡', propto: '∝', circ: '∘',
   times: '×', div: '÷', cdot: '·', pm: '±', mp: '∓',
   le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', approx: '≈',
   infty: '∞', sum: '∑', prod: '∏', sqrt: '√', degree: '°',
@@ -90,7 +94,10 @@ function unwrapTex(text = '') {
   return text.replace(/\$([^$\n]{1,80})\$/g, (whole, body) => {
     // "$5 에서 $10" 같은 금액은 수식이 아닙니다. \명령 이 있을 때만 봅니다.
     if (!/\\[a-zA-Z]/.test(body)) return whole;
-    const swapped = body.replace(/\\([a-zA-Z]+)/g, (m, name) => TEX[name] ?? m);
+    const swapped = body
+      // 30^\circ, 30^{\circ} 는 각도입니다.
+      .replace(/\^\s*\{?\s*\\circ\s*\}?/g, '°')
+      .replace(/\\([a-zA-Z]+)/g, (m, name) => TEX[name] ?? m);
     // 바꾸지 못한 명령이 남아 있으면 건드리지 않습니다. 어설프게 지우면 뜻이 달라집니다.
     return /\\/.test(swapped) ? whole : swapped.trim();
   });
