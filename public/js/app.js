@@ -88,6 +88,7 @@ class App {
       const { user, authDisabled } = await api.me();
       $('btn-logout').hidden = Boolean(authDisabled);
       $('btn-logout').title = `${user.name} 로그아웃`;
+      $('btn-logout').setAttribute('aria-label', `${user.name} 로그아웃`);
     } catch {
       // 계정 표시는 부가 정보라, 실패해도 앱은 그대로 씁니다.
     }
