@@ -24,8 +24,8 @@ const blockedMessage = (terms) =>
   '이 차단은 설정에서 끌 수 없습니다. 캐릭터 외형이나 장면을 확인해 주세요.';
 
 export class ImageRoutes {
-  constructor({ store, access, auth, engines, context, jobs, images, limits, art }) {
-    Object.assign(this, { store, access, auth, engines, context, jobs, images, limits, art });
+  constructor({ store, access, settings, auth, engines, context, jobs, images, limits, art }) {
+    Object.assign(this, { store, access, settings, auth, engines, context, jobs, images, limits, art });
   }
 
   mount(app) {
@@ -38,7 +38,7 @@ export class ImageRoutes {
 
   /** ComfyUI 에 연결해 체크포인트 목록을 받아 봅니다. 설정 창의 '연결 확인'. query: baseUrl */
   async checkpoints(req, res) {
-    const baseUrl = String(req.query.baseUrl || this.store.settings.image?.baseUrl || '').trim();
+    const baseUrl = String(req.query.baseUrl || this.settings.shared.image?.baseUrl || '').trim();
     const verdict = checkBaseUrl(baseUrl);
     if (!baseUrl || !verdict.ok) return fail(res, 400, verdict.reason || 'ComfyUI 주소를 입력해 주세요.');
     // 샘플러 목록은 덤입니다. 못 받아도 체크포인트 확인은 성공으로 칩니다.
@@ -99,9 +99,9 @@ export class ImageRoutes {
    *              사람이 확인·수정한 것을 prompt 로 다시 보내면 그때 그립니다.
    */
   async draw(req, res) {
-    const s = this.store.settings;
     const body = req.body;
-    const cfg = imageConfig(s.image);
+    // 그리는 곳(ComfyUI·회사 API)은 공용 설정입니다.
+    const cfg = imageConfig(this.settings.shared.image);
     const backend = API_BACKENDS[cfg.backend] ? cfg.backend : 'comfyui';
     const viaApi = backend !== 'comfyui';
     const picked = typeof body?.checkpoint === 'string' ? body.checkpoint.trim() : '';
@@ -136,8 +136,8 @@ export class ImageRoutes {
     }
     const typed = typeof body?.prompt === 'string' ? body.prompt.trim().slice(0, 4000) : '';
 
-    // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 기본적으로 로컬 엔진으로만.
-    const provider = s.activeProvider;
+    // 장면을 태그로 바꾸는 LLM 도 같은 규칙: 성인 대화는 기본적으로 로컬 엔진으로만. 엔진은 대화 주인이 고른 것입니다.
+    const provider = this.context.settingsOf(chat).activeProvider;
     const config = this.engines.config(provider);
     if (!typed) {
       const problem = this.engines.check(config, provider, ctx.preset);
@@ -298,11 +298,12 @@ export class ImageRoutes {
   }
 
   /** 장면을 태그나 묘사로 옮기는 LLM 호출. 사고 블록을 먼저 쓰는 모델도 끝까지 쓸 수 있게 길이를 넉넉히 둡니다. */
-  askScene({ provider, config, controller, system }) {
+  askScene({ chat, provider, config, controller, system }) {
+    const { params } = this.context.settingsOf(chat);
     return (messages, temperature) => this.engines.complete({
       provider, config, controller, messages,
       system: withThinking(system, false),
-      params: { ...this.store.settings.params, temperature, maxTokens: 700 }
+      params: { ...params, temperature, maxTokens: 700 }
     });
   }
 
@@ -310,7 +311,7 @@ export class ImageRoutes {
   async sceneDescription({ chat, msg, ctx, provider, config, controller, stage }) {
     stage('prompt', '장면을 묘사로 옮기는 중');
     const { scene, userName } = this.sceneOf(chat, msg, ctx);
-    const ask = this.askScene({ provider, config, controller, system: IMAGE_DESCRIBE_SYSTEM });
+    const ask = this.askScene({ chat, provider, config, controller, system: IMAGE_DESCRIBE_SYSTEM });
     const messages = buildDescribeMessages({ cast: [ctx.character, ...ctx.cast], scene, userName });
     let raw = await ask(messages, 0.5);
     let description = parseDescription(raw);
@@ -333,7 +334,7 @@ export class ImageRoutes {
   async sceneTags({ chat, msg, ctx, provider, config, controller, stage }) {
     stage('prompt', '장면을 태그로 옮기는 중');
     const { scene, userName } = this.sceneOf(chat, msg, ctx);
-    const ask = this.askScene({ provider, config, controller, system: IMAGE_PROMPT_SYSTEM });
+    const ask = this.askScene({ chat, provider, config, controller, system: IMAGE_PROMPT_SYSTEM });
     const messages = buildImageMessages({ cast: [ctx.character, ...ctx.cast], scene, userName });
     let raw = await ask(messages, 0.4);
     let parsed = parseSceneOutput(raw);

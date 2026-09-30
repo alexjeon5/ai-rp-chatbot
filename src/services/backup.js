@@ -4,6 +4,7 @@
  * id 는 그대로 파일 이름이 되므로 안전한 글자만 받고, 아니면 새로 붙입니다.
  */
 import { uid, merge } from '../db.js';
+import { pickPrefs } from './prefs.js';
 import { CHARACTER_FIELDS, BUILTIN_CHARACTERS } from '../content/characters.js';
 import { cleanFacts, CHAT_FLAGS } from '../chat-ops.js';
 import { cleanLorebook } from '../lorebook.js';
@@ -104,14 +105,20 @@ function cleanChat(raw) {
 }
 
 export class Backup {
-  constructor(store, access = new Access(store)) {
+  /**
+   * @param {object} store
+   * @param {Access} access
+   * @param {import('./settings.js').Settings} settings 내보낼 설정 보기와, 불러온 설정을 담을 계정별 설정
+   */
+  constructor(store, access, settings) {
     this.store = store;
-    this.access = access;
+    this.access = access || new Access(store);
+    this.settings = settings;
   }
 
-  /** actor 가 볼 수 있는 항목과 설정의 사본. API 키는 뺍니다. */
+  /** actor 가 볼 수 있는 항목과 actor 에게 적용되는 설정의 사본. API 키는 뺍니다. */
   export(actor) {
-    const { providers, ...settings } = this.store.settings;
+    const { providers, ...settings } = this.settings.view(actor);
     return {
       exportedAt: new Date().toISOString(),
       settings,
@@ -189,8 +196,9 @@ export class Backup {
     });
     const result = { characters, personas, lorebooks, chats, presets: 0, settings: false };
 
-    const s = store.settings;
-    const saved = isObj(data.settings) ? data.settings : {};
+    // 설정은 불러온 사람의 계정별 설정에만 들어갑니다. 공용 설정(엔진·이미지·클라우드 허용)은 받지 않습니다.
+    const s = this.settings.prefs.of(actor);
+    const saved = isObj(data.settings) ? pickPrefs(data.settings) : {};
     // 가져온 대화가 쓰던 커스텀 모드가 없으면 대화가 엉뚱한 모드로 돌아가므로, 없는 모드는 늘 추가합니다.
     for (const p of Array.isArray(saved.presets) ? saved.presets : []) {
       if (!isObj(p) || !str(p.id) || !str(p.name) || s.presets.some((x) => x.id === p.id)) continue;
@@ -207,15 +215,13 @@ export class Backup {
       }
       const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
       if (this.access.findPersona(actor, personaId)) s.activePersonaId = personaId;
-      // 성인 모드 클라우드 허용은 경고를 직접 보고 켜야 하므로 백업에서 옮겨 오지 않습니다.
-      const adultCloud = s.dev.adultCloud;
+      // 성인 모드 클라우드 허용은 공용이고 경고를 직접 보고 켜야 하므로, pickPrefs 가 이미 뺐습니다.
       for (const key of ['params', 'assistant', 'dev', 'memory', 'lorebook']) {
         if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
       }
-      s.dev.adultCloud = adultCloud;
       result.settings = true;
     }
-    store.saveSettings();
+    this.settings.prefs.save(actor);
     return result;
   }
 }

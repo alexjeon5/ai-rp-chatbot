@@ -80,5 +80,6 @@ test('라우트는 대화·캐릭터·페르소나·로어북·배경을 저장�
 
 test('서비스도 Access 를 거쳐 읽습니다', async () => {
   const direct = /store\.(chats|characters|personas|lorebooks|backgrounds)\.(get|all|size)\b|collection\.(get|all|size)\b/;
-  assert.deepEqual(await directReads('src/services', direct, ['access.js']), []);
+  // prefs.js 의 컬렉션은 계정별 설정이라 actor.id 로만 찾습니다.
+  assert.deepEqual(await directReads('src/services', direct, ['access.js', 'prefs.js']), []);
 });

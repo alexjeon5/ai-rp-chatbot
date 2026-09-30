@@ -29,7 +29,7 @@ export class SearchRoutes {
           title: chat.title,
           kind: chat.kind || 'rp',
           archived: Boolean(chat.archivedAt),
-          adult: assistant ? false : this.context.presetOf(chat.presetId).adult,
+          adult: assistant ? false : this.context.presetOf(chat).adult,
           character: assistant ? '' : this.context.characterOf(chat)?.name || ''
         });
       }

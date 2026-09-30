@@ -7,9 +7,15 @@ import { Access } from './access.js';
 import { AppError } from './errors.js';
 
 export class LoreBooks {
-  constructor(store, access = new Access(store)) {
+  /**
+   * @param {object} store
+   * @param {Access} [access]
+   * @param {import('./settings.js').Settings} [settings] 스캔 깊이·토큰 상한을 계정별 설정에서 읽습니다. 없으면 공용 설정
+   */
+  constructor(store, access = new Access(store), settings = null) {
     this.store = store;
     this.access = access;
+    this.settings = settings;
   }
 
   /* ---------------- 목록 ---------------- */
@@ -45,7 +51,7 @@ export class LoreBooks {
   trial(actor, id, { text, entries } = {}) {
     const book = this.access.lorebook(actor, id);
     const draft = Array.isArray(entries) ? { ...book, ...cleanLorebook({ entries }) } : book;
-    return this.test(draft, text).map(({ entry, tokens }) => ({ id: entry.id, title: entry.title, tokens }));
+    return this.test(draft, text, actor).map(({ entry, tokens }) => ({ id: entry.id, title: entry.title, tokens }));
   }
 
   /** 이 대화에 적용되는 책(적용 이유 포함)과 지금 발동 중인 항목, 스캔 설정. */
@@ -54,19 +60,20 @@ export class LoreBooks {
     return {
       applied: this.appliedTo(chat).map(({ book, via }) => ({ id: book.id, name: book.name, via })),
       triggered: this.triggered(chat).map(({ book, entry, tokens }) => ({ bookId: book.id, id: entry.id, title: entry.title, tokens })),
-      settings: this.settings
+      settings: this.scanSettings(this.access.ownerOf(chat))
     };
   }
 
   /* ---------------- 대화에 적용 ---------------- */
 
-  /** 스캔 깊이·토큰 상한. 저장된 설정 위에 기본값을 깝니다. */
-  get settings() {
-    return { ...LORE_DEFAULTS, ...(this.store.settings.lorebook || {}) };
+  /** 이 사람의 스캔 깊이·토큰 상한. 저장된 설정 위에 기본값을 깝니다. */
+  scanSettings(actor) {
+    const own = this.settings ? this.settings.view(actor).lorebook : this.store.settings?.lorebook;
+    return { ...LORE_DEFAULTS, ...(own || {}) };
   }
 
-  scanner() {
-    return new LoreScanner(this.settings);
+  scanner(actor) {
+    return new LoreScanner(this.scanSettings(actor));
   }
 
   /**
@@ -93,7 +100,7 @@ export class LoreBooks {
 
   /** 지금 발동하는 항목들. messages 는 검사할 대화(다시 쓰기라면 마지막 답변을 뺀 것). */
   triggered(chat, messages = chat.messages) {
-    return this.scanner().select(this.appliedTo(chat).map((a) => a.book), messages);
+    return this.scanner(this.access.ownerOf(chat)).select(this.appliedTo(chat).map((a) => a.book), messages);
   }
 
   /** 시스템 프롬프트에 붙일 세계관 설정 글. */
@@ -101,9 +108,9 @@ export class LoreBooks {
     return renderLore(this.triggered(chat, messages));
   }
 
-  /** 책 하나만 놓고 이 글에서 무엇이 발동하는지 시험해 봅니다. */
-  test(book, text) {
-    return this.scanner().select([book], [{ role: 'user', content: String(text ?? '') }]);
+  /** 책 하나만 놓고 이 글에서 무엇이 발동하는지 시험해 봅니다. actor 의 스캔 설정을 씁니다. */
+  test(book, text, actor = this.access.ownerOf(book)) {
+    return this.scanner(actor).select([book], [{ role: 'user', content: String(text ?? '') }]);
   }
 
   /** 책을 지우면 그 책을 붙여 둔 대화(책 주인의 대화)에서도 뺍니다. */

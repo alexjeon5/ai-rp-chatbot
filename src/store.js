@@ -2,50 +2,26 @@ import path from 'node:path';
 import { readFile, rename } from 'node:fs/promises';
 import { Collection, JsonDoc, flushAll, DATA_DIR } from './db.js';
 import { IMAGE_DEFAULTS } from './image.js';
-import { BUILTIN_TEMPLATES, DEFAULT_SYSTEM_TEMPLATE, ASSISTANT_PROMPT } from './content/templates.js';
 import { CHARACTER_FIELDS, characterSig, OLD_BUILTIN_APPEARANCE, BUILTIN_CHARACTERS } from './content/characters.js';
 import { BUILTIN_PERSONAS } from './content/personas.js';
+import { normalizePresets, PREF_KEYS } from './services/prefs.js';
 
 /* ---------------- 설정 기본값 ---------------- */
 
+/**
+ * 서버에 하나뿐인 공용 설정. 계정마다 다른 값(엔진 고르기·모드·파라미터·테마 등)은
+ * data/prefs/<계정 id>.json 에 따로 둡니다 — services/prefs.js 참고.
+ */
 const defaultSettings = () => ({
-  activeProvider: 'lmstudio',
-  activePersonaId: null,
-  historyLimit: 40,
-  activePresetId: 'default',
-  askModeOnNewChat: true,
-  // 기억할 메시지 수 밖으로 밀려난 대화를 자동으로 요약해 둘지.
-  memory: { autoSummarize: true, autoFacts: true },
-  // 로어북(세계관 설정집). 최근 몇 개 메시지에서 키워드를 찾고, 붙이는 글은 몇 토큰까지 허용할지.
-  lorebook: { scanDepth: 4, tokenBudget: 1200 },
+  // 새 계정이나 엔진을 고르지 않은 계정이 쓰는 엔진. 주인이 설정 → 엔진에서 바꿉니다.
+  defaultProvider: 'lmstudio',
   // ComfyUI 로 장면 그리기. src/image.js 의 IMAGE_DEFAULTS 참고.
   image: IMAGE_DEFAULTS(),
   // 엔진별 토큰 어림 보정값. 엔진이 알려 준 실제 토큰 수로 스스로 맞춰 갑니다.
   tokenRatio: {},
-  presets: BUILTIN_TEMPLATES(),
-  params: { temperature: 1.0, maxTokens: 2048, topP: 0.95, topK: 64, repeatPenalty: 1.1 },
-  assistant: {
-    systemPrompt: ASSISTANT_PROMPT,
-    webSearch: false,
-    thinking: false,
-    params: { temperature: 0.7, maxTokens: 2048, topP: 0.95, topK: 40, repeatPenalty: 1.05 }
-  },
   dev: {
-    particleFix: true,
     // 성인 모드를 클라우드(외부 API) 엔진에도 보낼지. 개발자 설정에서 경고를 확인해야 켜집니다.
-    adultCloud: false,
-    markup: { asterisk: true, paren: true, speaker: true, quote: true },
-    theme: {
-      bg: '#15111a',
-      panel: '#1d1822',
-      line: '#372f42',
-      text: '#ede7ee',
-      muted: '#9c90a8',
-      accent: '#d9b168',
-      fontSans: "'Pretendard Variable', Pretendard, system-ui, sans-serif",
-      fontSerif: "'Gowun Batang', 'Nanum Myeongjo', serif",
-      fontSize: 15
-    }
+    adultCloud: false
   },
   providers: {
     // contextTokens: 모델이 한 번에 받는 토큰 수. LM Studio 는 Context Length 설정과 같게 맞춥니다.
@@ -67,7 +43,8 @@ const defaultSettings = () => ({
  * 데이터는 항목별 파일로 나뉩니다. 하나를 찾으려고 전체를 뒤질 일이 없고,
  * 편집기로 열어 직접 고치기도 쉽습니다.
  *
- *   data/settings.json
+ *   data/settings.json           공용 설정 (엔진·이미지 등)
+ *   data/prefs/<계정 id>.json     계정별 설정
  *   data/characters/<id>.json
  *   data/personas/<id>.json
  *   data/lorebooks/<id>.json
@@ -84,6 +61,7 @@ export class Store {
     this.lorebooks = new Collection(path.join(dir, 'lorebooks'), (a, b) => String(a.name).localeCompare(String(b.name), 'ko'));
     this.chats = new Collection(path.join(dir, 'chats'));
     this.backgrounds = new Collection(path.join(dir, 'backgrounds'), (a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    this.prefs = new Collection(path.join(dir, 'prefs'));
     this.usageDoc = new JsonDoc(path.join(dir, 'usage.json'), () => ({ days: {} }));
   }
 
@@ -105,6 +83,7 @@ export class Store {
       this.lorebooks.load(),
       this.chats.load(),
       this.backgrounds.load(),
+      this.prefs.load(),
       this.usageDoc.load()
     ]);
     this.normalizeSettings();
@@ -144,43 +123,13 @@ export class Store {
   normalizeSettings() {
     const s = this.settings;
 
+    // 계정별로 나누기 전의 설정 파일에는 모드 틀 같은 계정별 값이 아직 남아 있습니다 (legacyPrefs 참고).
+    // 옮겨 가기 전까지는 예전처럼 다듬어 둡니다.
     const legacy = s.systemTemplate;
     delete s.systemTemplate;
-    if (!Array.isArray(s.presets) || !s.presets.length) s.presets = BUILTIN_TEMPLATES();
+    if (legacy || Array.isArray(s.presets)) normalizePresets(s, legacy);
 
-    const RENAMED = {
-      default: ['기본 롤플레이', '롤플레이'],
-      novelist: ['소설가 모드', '소설 모드'],
-      adult: ['성인 모드 (로컬 전용)', '성인 롤플레이']
-    };
-    for (const p of s.presets) {
-      const pair = RENAMED[p.id];
-      if (pair && p.name === pair[0]) p.name = pair[1];
-      p.adult = Boolean(p.adult);
-    }
-
-    // 성인 모드는 경고를 확인하면 클라우드 엔진으로도 나가므로, 저장된 틀 첫 줄의 '로컬 엔진 전용' 표기를 지웁니다.
-    for (const p of s.presets) {
-      if (typeof p.template === 'string') p.template = p.template.replace(/^(\[[^\]\n]*?) — 로컬 엔진 전용\]/, '$1]');
-    }
-
-    for (const builtin of BUILTIN_TEMPLATES()) {
-      if (!s.presets.some((p) => p.id === builtin.id)) s.presets.push(builtin);
-    }
-
-    // 내장 모드는 일반/성인이 섞이지 않도록 정해진 순서로 다시 앞쪽에 모읍니다.
-    // 사용자가 만든 커스텀 모드는 순서를 건드리지 않고 그 뒤로 보냅니다.
-    const order = new Map(BUILTIN_TEMPLATES().map((t, i) => [t.id, i]));
-    const builtinPresets = s.presets.filter((p) => order.has(p.id)).sort((a, b) => order.get(a.id) - order.get(b.id));
-    const customPresets = s.presets.filter((p) => !order.has(p.id));
-    s.presets = [...builtinPresets, ...customPresets];
-
-    if (legacy && legacy !== DEFAULT_SYSTEM_TEMPLATE &&
-        !s.presets.some((p) => p.template === legacy)) {
-      s.presets.push({ id: 'legacy', name: '이전에 쓰던 틀', template: legacy, adult: false });
-      s.activePresetId = 'legacy';
-    }
-    if (!s.presets.some((p) => p.id === s.activePresetId)) s.activePresetId = s.presets[0].id;
+    if (!s.providers[s.defaultProvider]) s.defaultProvider = 'lmstudio';
 
     for (const cfg of Object.values(s.providers)) {
       if (!Array.isArray(cfg.unavailableModels)) cfg.unavailableModels = [];
@@ -311,6 +260,16 @@ export class Store {
     }
     this.saveSettings();
     return added;
+  }
+
+  /**
+   * 계정별로 나누기 전의 설정 파일에 남아 있는 계정별 값. 아직 주인에게 옮기지 않았을 때만 있습니다.
+   */
+  legacyPrefs() {
+    const s = this.settings;
+    const out = {};
+    for (const key of PREF_KEYS) if (key in s) out[key] = s[key];
+    return out;
   }
 
   seed() {

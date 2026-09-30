@@ -15,6 +15,8 @@ import { CharacterArt } from '../services/character-art.js';
 import { Backgrounds } from '../services/backgrounds.js';
 import { Chats } from '../services/chats.js';
 import { Library } from '../services/library.js';
+import { UserPrefs } from '../services/prefs.js';
+import { Settings } from '../services/settings.js';
 import { SettingsRoutes } from './routes/settings.js';
 import { LibraryRoutes } from './routes/library.js';
 import { ChatRoutes } from './routes/chats.js';
@@ -78,19 +80,22 @@ export function createApp({ store, auth, publicDir }) {
   const access = new Access(store);
   const usage = new UsageLedger(store.usageDoc);
   const engines = new Engines(store, usage);
-  const lore = new LoreBooks(store, access);
+  // 처음 보는 계정은 설정 파일에 아직 남아 있는 옛 값(계정별로 나누기 전의 값)으로 시작합니다.
+  const prefs = new UserPrefs(store, { initial: () => store.legacyPrefs() });
+  const settings = new Settings({ store, prefs, engines });
+  const lore = new LoreBooks(store, access, settings);
   const art = new CharacterArt(store, path.join(store.dir, 'portraits'), access);
   const backgrounds = new Backgrounds(store, path.join(store.dir, 'backgrounds', 'img'), access);
-  const context = new ChatContext(store, access, engines, lore, backgrounds);
+  const context = new ChatContext({ store, access, settings, engines, lore, backgrounds });
   const jobs = new Jobs();
   const images = new ImageFiles(path.join(store.dir, 'images'));
   const attachments = new Attachments(path.join(store.dir, 'uploads'));
   // 서비스는 req 를 모르고 actor 를 받습니다. 디스코드 봇도 이 묶음을 그대로 씁니다.
   const deps = {
-    store, access, auth, engines, limits, lore, usage, art, backgrounds, context, jobs, images, attachments,
+    store, access, prefs, settings, auth, engines, limits, lore, usage, art, backgrounds, context, jobs, images, attachments,
     cards: new CharacterCards(store, art, access),
     library: new Library({ store, access, art }),
-    chats: new Chats({ store, access, context, jobs, images, attachments })
+    chats: new Chats({ store, access, settings, context, jobs, images, attachments })
   };
   for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, CharacterArtRoutes, BackgroundRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes]) {
     new Routes(deps).mount(app);

@@ -76,10 +76,18 @@ export class Settings {
   }
 
   paintProviderOptions() {
-    $('s-provider').innerHTML = Object.entries(this.draftProviders)
+    const options = Object.entries(this.draftProviders)
       .map(([key, cfg]) => `<option value="${key}">${cfg.label}${key === 'lmstudio' ? ' (로컬)' : ''}</option>`)
       .join('');
+    $('s-provider').innerHTML = options;
     $('s-provider').value = this.shownProvider || this.state.settings.activeProvider;
+    // 새 계정 기본 엔진은 공용 설정이라 주인에게만 보입니다.
+    const { canManage, defaultProvider } = this.state.settings;
+    $('s-default-provider-field').hidden = !canManage;
+    $('s-default-provider-hint').hidden = !canManage;
+    const before = $('s-default-provider').value;
+    $('s-default-provider').innerHTML = options;
+    $('s-default-provider').value = this.draftProviders[before] ? before : defaultProvider;
   }
 
   fillProviderBox(key) {
@@ -281,6 +289,8 @@ export class Settings {
     this.draftProviders = structuredClone(s.providers);
     this.draftPresets = structuredClone(s.presets);
     this.paintTemplateSources();
+    // 저장하지 않고 닫았던 기본 엔진 선택은 버리고, 지금 저장된 값으로 다시 채웁니다.
+    $('s-default-provider').innerHTML = '';
     this.shownProvider = s.activeProvider;
     this.fillProviderBox(s.activeProvider);
     this.showPreset(s.activePresetId);
@@ -327,6 +337,7 @@ export class Settings {
         repeatPenalty: Number($('s-repeat').value)
       },
       providers: this.draftProviders,
+      defaultProvider: $('s-default-provider').value || undefined,
       assistant: {
         systemPrompt: $('s-assistant-prompt').value,
         params: {

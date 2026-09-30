@@ -4,9 +4,9 @@ import { isObj } from '../../services/records.js';
 import { fail } from '../helpers.js';
 
 export class BackupRoutes {
-  constructor({ store, access, auth }) {
+  constructor({ store, access, settings, auth }) {
     this.auth = auth;
-    this.backup = new Backup(store, access);
+    this.backup = new Backup(store, access, settings);
   }
 
   mount(app) {

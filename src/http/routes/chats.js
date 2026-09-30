@@ -3,8 +3,8 @@ import { pendingForSummary } from '../../chat-ops.js';
 import { wrap, fail } from '../helpers.js';
 
 export class ChatRoutes {
-  constructor({ store, access, chats, context }) {
-    Object.assign(this, { store, access, chats, context });
+  constructor({ access, chats, context }) {
+    Object.assign(this, { access, chats, context });
   }
 
   mount(app) {
@@ -35,7 +35,7 @@ export class ChatRoutes {
   /** 컨텍스트 게이지. 지금 보낸다면 설정·기억 / 대화 / 답변 여유가 한도에서 얼마씩 차지하는지. query: provider */
   gauge(req, res) {
     const chat = this.access.chat(req.user, req.params.id);
-    const plan = this.context.plan(chat, { provider: String(req.query.provider || this.store.settings.activeProvider) });
+    const plan = this.context.plan(chat, { provider: req.query.provider ? String(req.query.provider) : undefined });
     res.json({
       ...plan.usage,
       pendingSummary: chat.kind === 'assistant' ? 0 : pendingForSummary(chat, plan.usage.kept).length
@@ -46,7 +46,7 @@ export class ChatRoutes {
   systemPreview(req, res) {
     const chat = this.access.chat(req.user, req.params.id);
     if (chat.kind === 'assistant') {
-      return res.json({ system: this.store.settings.assistant.systemPrompt, turns: this.context.plan(chat).usage.kept });
+      return res.json({ system: this.context.settingsOf(chat).assistant.systemPrompt, turns: this.context.plan(chat).usage.kept });
     }
     const ctx = this.context.roleplay(chat);
     if (!ctx) return fail(res, 400, '이 대화의 캐릭터가 삭제되었습니다.');

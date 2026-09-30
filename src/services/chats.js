@@ -11,10 +11,10 @@ import { AppError, NotFound } from './errors.js';
 
 export class Chats {
   /**
-   * @param {{ store, access, context, jobs, images, attachments }} deps
+   * @param {{ store, access, settings, context, jobs, images, attachments }} deps
    */
-  constructor({ store, access, context, jobs, images, attachments }) {
-    Object.assign(this, { store, access, context, jobs, images, attachments });
+  constructor({ store, access, settings, context, jobs, images, attachments }) {
+    Object.assign(this, { store, access, settings, context, jobs, images, attachments });
   }
 
   get collection() {
@@ -26,7 +26,7 @@ export class Chats {
     const time = (c) => c.updatedAt || c.createdAt || 0;
     return this.access.chats(actor).sort((a, b) => time(b) - time(a)).map(({ messages, ...rest }) => {
       const assistant = rest.kind === 'assistant';
-      const preset = this.context.presetOf(rest.presetId);
+      const preset = this.context.presetOf(rest);
       const character = assistant ? null : this.context.characterOf(rest);
       return {
         ...rest,
@@ -50,7 +50,7 @@ export class Chats {
    * 캐릭터에 첫 대사가 있으면 그걸 첫 메시지로 넣습니다.
    */
   create(actor, body) {
-    const s = this.store.settings;
+    const s = this.settings.view(actor);
     if (body?.kind === 'assistant') {
       return this.collection.add(this.access.stamp(actor, {
         kind: 'assistant', characterId: null, personaId: null, title: '새 채팅', updatedAt: Date.now(), messages: []

@@ -9,8 +9,8 @@ import {
 import { wrap, fail, abortOnClose } from '../helpers.js';
 
 export class LibraryRoutes {
-  constructor({ store, library, engines, limits }) {
-    Object.assign(this, { store, library, engines, limits });
+  constructor({ library, settings, engines, limits }) {
+    Object.assign(this, { library, settings, engines, limits });
   }
 
   mount(app) {
@@ -50,7 +50,7 @@ export class LibraryRoutes {
    * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 기본은 로컬 엔진으로만 나갑니다.
    */
   async generatePersona(req, res) {
-    const s = this.store.settings;
+    const s = this.settings.view(req.user);
     const adult = Boolean(req.body?.adult);
     const seeds = rollSeeds(sanitizeSeeds(req.body?.seeds || {}), null, adult);
     const provider = req.body?.provider || s.activeProvider;
@@ -92,7 +92,7 @@ export class LibraryRoutes {
    * body: { brief, current?, provider? }  current 는 사용자가 이미 채워 둔 칸(그대로 유지됩니다).
    */
   async draftCharacter(req, res) {
-    const s = this.store.settings;
+    const s = this.settings.view(req.user);
     const brief = String(req.body?.brief || '').trim().slice(0, 4000);
     if (!brief) return fail(res, 400, '어떤 캐릭터인지 먼저 적어 주세요.');
 
