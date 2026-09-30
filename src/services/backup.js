@@ -3,16 +3,25 @@
  * 같은 id 가 이미 있으면 건너뛰므로, 같은 파일을 두 번 불러와도 겹치지 않습니다.
  * id 는 그대로 파일 이름이 되므로 안전한 글자만 받고, 아니면 새로 붙입니다.
  */
+import { createHash } from 'node:crypto';
 import { uid, merge } from '../db.js';
+import { pickPrefs } from './prefs.js';
 import { CHARACTER_FIELDS, BUILTIN_CHARACTERS } from '../content/characters.js';
 import { cleanFacts, CHAT_FLAGS } from '../chat-ops.js';
 import { cleanLorebook } from '../lorebook.js';
 import { SAFE_ID, isObj, str, characterFields, normalizePersona } from './records.js';
+import { Access } from './access.js';
 
 const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str(c[f])));
 const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description), str(p.gender), str(p.age), p.traits || []]);
 
 const lorebookSignature = (b) => JSON.stringify([str(b.name), b.entries.map((e) => [e.title, e.keys, e.content])]);
+
+/**
+ * 다른 계정이 이미 쓰는 id 를 대신할 id. 불러오는 사람과 원래 id 로 정해지므로,
+ * 같은 백업을 두 번 불러오면 두 번째에는 같은 id 가 나와 '이미 있음'으로 건너뜁니다.
+ */
+const localId = (actor, id) => createHash('sha256').update(`${actor?.id}:${id}`).digest('hex').slice(0, 12);
 
 const cleanCharacter = (raw) => (str(raw.name).trim() ? characterFields(raw) : null);
 
@@ -107,38 +116,56 @@ function cleanChat(raw) {
 }
 
 export class Backup {
-  constructor(store) {
+  /**
+   * @param {object} store
+   * @param {Access} access
+   * @param {import('./settings.js').Settings} settings 내보낼 설정 보기와, 불러온 설정을 담을 계정별 설정
+   */
+  constructor(store, access, settings) {
     this.store = store;
+    this.access = access || new Access(store);
+    this.settings = settings;
   }
 
-  /** API 키를 뺀 전체 사본. */
-  export() {
-    const { providers, ...settings } = this.store.settings;
+  /**
+   * actor 의 항목과 actor 의 계정별 설정 사본. 엔진·API 키·이미지 같은 공용 설정은 담지 않습니다.
+   * 사용량 기록과 그림 파일(프로필·배경·장면)도 담지 않습니다.
+   */
+  export(actor) {
     return {
       exportedAt: new Date().toISOString(),
-      settings,
-      characters: this.store.characters.all(),
-      personas: this.store.personas.all(),
-      lorebooks: this.store.lorebooks.all(),
-      chats: this.store.chats.all()
+      settings: pickPrefs(this.settings.view(actor)),
+      characters: this.access.characters(actor),
+      personas: this.access.personas(actor),
+      lorebooks: this.access.lorebooks(actor),
+      chats: this.access.chats(actor)
     };
   }
 
   /**
+   * @param {string} kind Access 의 종류 이름
    * @param {(raw) => object|null} clean  읽을 수 있는 항목만 골라 다듬습니다.
    * @param {(item) => string} [signature] 내용이 같은지 가리는 열쇠. 새로 설치한 앱은 기본 캐릭터를
-   *   다른 id 로 이미 갖고 있으므로, 내용이 똑같으면 같은 항목으로 보고 건너뜁니다.
+   *   다른 id 로 이미 갖고 있으므로, 내용이 똑같으면 같은 항목으로 보고 건너뜁니다. actor 의 항목과만 비교합니다.
    * @param {Map} [remap] 백업의 id → 이 앱의 id. 대화가 가리키는 캐릭터·페르소나를 고칠 때 씁니다.
    */
-  importItems(collection, list, clean, { signature, remap } = {}) {
+  importItems(actor, kind, list, clean, { signature, remap } = {}) {
+    const collection = this.access.collectionOf(kind);
     let added = 0;
     let skipped = 0;
-    const known = new Map(signature ? collection.all().map((x) => [signature(x), x.id]) : []);
+    const known = new Map(signature ? this.access.list(kind, actor).map((x) => [signature(x), x.id]) : []);
     for (const raw of Array.isArray(list) ? list : []) {
       const item = isObj(raw) ? clean(raw) : null;
       if (!item) { skipped += 1; continue; }
       item.id = SAFE_ID.test(str(raw.id)) ? raw.id : uid();
       if (typeof raw.id === 'string') remap?.set(raw.id, item.id);
+      // id 는 파일 이름이라 모든 계정이 한 공간을 씁니다. 그래서 여기만은 Access 가 아니라 저장소 전체를 봅니다.
+      // 내 항목이면 이미 불러온 것이라 건너뛰고, 남의 항목이면 내 몫의 다른 id 로 들어옵니다.
+      if (collection.has(item.id) && !this.access.find(kind, actor, item.id)) {
+        item.id = localId(actor, item.id);
+        if (collection.has(item.id) && !this.access.find(kind, actor, item.id)) item.id = uid();
+        if (typeof raw.id === 'string') remap?.set(raw.id, item.id);
+      }
       if (collection.has(item.id)) { skipped += 1; continue; }
       const same = signature && known.get(signature(item));
       if (same) {
@@ -147,21 +174,22 @@ export class Backup {
         continue;
       }
       if (Number.isFinite(raw.createdAt)) item.createdAt = raw.createdAt;
-      collection.add(item);
+      // 백업에 적힌 ownerId 는 믿지 않습니다. 불러온 사람의 항목이 됩니다.
+      collection.add(this.access.stamp(actor, item));
       added += 1;
     }
     return { added, skipped };
   }
 
   /** 백업 데이터를 합칩니다. includeSettings 면 샘플링 값·프롬프트·테마 같은 설정도 덮습니다. */
-  import(data, includeSettings) {
+  import(actor, data, includeSettings) {
     const { store } = this;
     const characterIds = new Map();
     const personaIds = new Map();
     // 백업 속 내장 캐릭터는 '기본' 탭 표시를 살립니다. 같은 내장 캐릭터가 이미 있으면 표시 없이 들어옵니다.
-    const builtinTaken = new Set(store.characters.all().map((c) => c.builtin).filter(Boolean));
+    const builtinTaken = new Set(this.access.characters(actor).map((c) => c.builtin).filter(Boolean));
     const builtinNames = new Set(BUILTIN_CHARACTERS.map((c) => c.name));
-    const characters = this.importItems(store.characters, data.characters, (raw) => {
+    const characters = this.importItems(actor, 'character', data.characters, (raw) => {
       const c = cleanCharacter(raw);
       if (c && builtinNames.has(raw.builtin) && !builtinTaken.has(raw.builtin)) {
         builtinTaken.add(raw.builtin);
@@ -170,14 +198,14 @@ export class Backup {
       }
       return c;
     }, { signature: characterSignature, remap: characterIds });
-    const personas = this.importItems(store.personas, data.personas, cleanPersona, { signature: personaSignature, remap: personaIds });
+    const personas = this.importItems(actor, 'persona', data.personas, cleanPersona, { signature: personaSignature, remap: personaIds });
     const lorebookIds = new Map();
-    const lorebooks = this.importItems(store.lorebooks, data.lorebooks, (raw) => {
+    const lorebooks = this.importItems(actor, 'lorebook', data.lorebooks, (raw) => {
       const book = cleanBook(raw);
       if (book) book.characterIds = book.characterIds.map((id) => characterIds.get(id) ?? id);
       return book;
     }, { signature: lorebookSignature, remap: lorebookIds });
-    const chats = this.importItems(store.chats, data.chats, (raw) => {
+    const chats = this.importItems(actor, 'chat', data.chats, (raw) => {
       const chat = cleanChat(raw);
       if (chat?.characterId) chat.characterId = characterIds.get(chat.characterId) ?? chat.characterId;
       if (chat?.personaId) chat.personaId = personaIds.get(chat.personaId) ?? chat.personaId;
@@ -193,8 +221,9 @@ export class Backup {
     });
     const result = { characters, personas, lorebooks, chats, presets: 0, settings: false };
 
-    const s = store.settings;
-    const saved = isObj(data.settings) ? data.settings : {};
+    // 설정은 불러온 사람의 계정별 설정에만 들어갑니다. 공용 설정(엔진·이미지·클라우드 허용)은 받지 않습니다.
+    const s = this.settings.prefs.of(actor);
+    const saved = isObj(data.settings) ? pickPrefs(data.settings) : {};
     // 가져온 대화가 쓰던 커스텀 모드가 없으면 대화가 엉뚱한 모드로 돌아가므로, 없는 모드는 늘 추가합니다.
     for (const p of Array.isArray(saved.presets) ? saved.presets : []) {
       if (!isObj(p) || !str(p.id) || !str(p.name) || s.presets.some((x) => x.id === p.id)) continue;
@@ -210,16 +239,14 @@ export class Backup {
         s.activePresetId = saved.activePresetId;
       }
       const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
-      if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
-      // 성인 모드 클라우드 허용은 경고를 직접 보고 켜야 하므로 백업에서 옮겨 오지 않습니다.
-      const adultCloud = s.dev.adultCloud;
+      if (this.access.findPersona(actor, personaId)) s.activePersonaId = personaId;
+      // 성인 모드 클라우드 허용은 공용이고 경고를 직접 보고 켜야 하므로, pickPrefs 가 이미 뺐습니다.
       for (const key of ['params', 'assistant', 'dev', 'memory', 'lorebook']) {
         if (isObj(saved[key])) s[key] = merge(s[key], saved[key]);
       }
-      s.dev.adultCloud = adultCloud;
       result.settings = true;
     }
-    store.saveSettings();
+    this.settings.prefs.save(actor);
     return result;
   }
 }

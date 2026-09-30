@@ -50,7 +50,8 @@ export const api = {
   discardAttachment: (chatId, file) => req(`/api/chats/${chatId}/attachments/${encodeURIComponent(file)}`, { method: 'DELETE' }),
   deleteImage: (chatId, mid, imgId) =>
     req(`/api/chats/${chatId}/messages/${mid}/images/${imgId}`, { method: 'DELETE' }),
-  usage: () => req('/api/usage'),
+  // scope: 'mine'(기본) 또는 'all'(주인만 — 모든 계정의 합계와 계정별 숫자)
+  usage: (scope) => req(scope === 'all' ? '/api/usage?scope=all' : '/api/usage'),
   clearUsage: () => req('/api/usage', { method: 'DELETE' }),
   logs: () => req('/api/logs'),
   clearLogs: () => req('/api/logs', { method: 'DELETE' }),

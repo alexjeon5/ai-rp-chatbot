@@ -21,6 +21,9 @@ function png(...chunks) {
 const tEXt = (key, value) => ['tEXt', Buffer.concat([Buffer.from(key, 'latin1'), Buffer.from([0]), Buffer.from(value, 'latin1')])];
 const b64 = (obj) => Buffer.from(JSON.stringify(obj), 'utf8').toString('base64');
 
+/** 요청한 사람. 서비스는 이 사람이 볼 수 있는 항목만 다룹니다. */
+const ME = { id: 'me', name: 'me', role: 'owner' };
+
 test('parseCard: V2 카드를 이 앱의 칸으로 옮기고 <START>·<USER> 를 다듬음', () => {
   const { character, dropped } = parseCard(v2({
     name: '리아', description: '기사단의 <BOT>.', personality: '과묵함', scenario: '성문 앞',
@@ -98,7 +101,8 @@ test('PNG 카드: iTXt 도 읽음', () => {
 function fakeStore() {
   const table = () => {
     const items = [];
-    return { items, add: (o) => { const it = { id: `id${items.length + 1}`, ...o }; items.push(it); return it; },
+    // 테스트의 항목은 모두 ME 의 것입니다.
+    return { items, add: (o) => { const it = { id: `id${items.length + 1}`, ownerId: 'me', ...o }; items.push(it); return it; },
       get: (id) => items.find((i) => i.id === id), all: () => items, get size() { return items.length; } };
   };
   return { characters: table(), lorebooks: table() };
@@ -106,15 +110,15 @@ function fakeStore() {
 
 test('CharacterCards.import: 캐릭터를 만들고 세계관은 그 캐릭터에 묶인 로어북으로', async () => {
   const store = fakeStore();
-  const cards = new CharacterCards(store, { setPortrait: async (id) => store.characters.get(id) });
+  const cards = new CharacterCards(store, { setPortrait: async (actor, id) => store.characters.get(id) });
   const card = v2({ name: '리아', character_book: { name: '왕국', entries: [{ keys: ['왕도'], content: '수도' }] } });
-  const out = await cards.import({ png: png(tEXt('chara', b64(card))).toString('base64') });
+  const out = await cards.import(ME, { png: png(tEXt('chara', b64(card))).toString('base64') });
   assert.equal(out.character.name, '리아');
   assert.equal(out.lorebook.name, '왕국');
   assert.deepEqual(out.lorebook.characterIds, [out.character.id]);
   assert.equal(out.lorebook.global, false);
-  await assert.rejects(() => cards.import({}), /카드 파일이 없습니다/);
-  assert.equal((await cards.import({ card: { name: '세계관 없음' } })).lorebook, null);
+  await assert.rejects(() => cards.import(ME, {}), /카드 파일이 없습니다/);
+  assert.equal((await cards.import(ME, { card: { name: '세계관 없음' } })).lorebook, null);
 });
 
 test('CharacterCards.export: 묶인 로어북만 담고 파일 이름을 안전하게', () => {
@@ -123,8 +127,8 @@ test('CharacterCards.export: 묶인 로어북만 담고 파일 이름을 안전�
   const ch = store.characters.add({ name: 'a/b:c', greeting: '안녕' });
   store.lorebooks.add({ name: '묶임', characterIds: [ch.id], ...cleanLorebook({ entries: [{ keys: 'k', content: 'v' }] }) });
   store.lorebooks.add({ name: '남의 책', characterIds: ['other'], ...cleanLorebook({ entries: [{ keys: 'k', content: 'v' }] }) });
-  const out = cards.export(ch.id);
+  const out = cards.export(ME, ch.id);
   assert.equal(out.filename, 'a_b_c.json');
   assert.equal(out.card.data.character_book.name, '묶임');
-  assert.equal(cards.export('none'), null);
+  assert.throws(() => cards.export(ME, 'none'), /없는 캐릭터/);
 });

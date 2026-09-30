@@ -23,12 +23,17 @@ function fakeStore() {
   const items = new Map();
   const characters = {
     items,
+    all: () => [...items.values()],
     get: (id) => items.get(id) || null,
-    add: (o) => { const it = { id: `c${items.size + 1}`, ...o }; items.set(it.id, it); return it; },
+    // 테스트의 항목은 모두 ME 의 것입니다.
+    add: (o) => { const it = { id: `c${items.size + 1}`, ownerId: 'me', ...o }; items.set(it.id, it); return it; },
     update: (id, patch) => { const it = items.get(id); if (!it) return null; Object.assign(it, patch); return it; }
   };
-  return { characters, lorebooks: { size: 0, add: (o) => o } };
+  return { characters, lorebooks: { size: 0, all: () => [], add: (o) => o } };
 }
+
+/** 요청한 사람. 서비스는 이 사람이 볼 수 있는 항목만 다룹니다. */
+const ME = { id: 'me', name: 'me', role: 'owner' };
 
 test('stripCardText: 카드 글 조각만 빼고 나머지 조각은 그대로', () => {
   const src = png(chunk('IHDR', Buffer.alloc(13)), text('chara', card), text('ccv3', card), text('Comment', '남김'), chunk('IDAT', Buffer.from('픽셀')));
@@ -65,14 +70,14 @@ const pic = () => png(chunk('IHDR', Buffer.alloc(13)));
 test('CharacterArt: 프로필 그림을 넣고 바꾸면 옛 파일은 지워지고, 지우면 비워짐', async () => {
   const { dir, art, ch, done } = await setup();
   try {
-    const a = await art.setPortrait(ch.id, pic());
+    const a = await art.setPortrait(ME, ch.id, pic());
     assert.match(a.portrait, /\.png$/);
     assert.ok(existsSync(art.path(ch.id, a.portrait)));
     const first = a.portrait;
-    const b = await art.setPortrait(ch.id, pic());
+    const b = await art.setPortrait(ME, ch.id, pic());
     assert.notEqual(b.portrait, first);
     assert.ok(!existsSync(art.path(ch.id, first)));
-    assert.equal((await art.clearPortrait(ch.id)).portrait, '');
+    assert.equal((await art.clearPortrait(ME, ch.id)).portrait, '');
     assert.deepEqual(await readdir(path.join(dir, ch.id)), []);
   } finally { await done(); }
 });
@@ -80,35 +85,35 @@ test('CharacterArt: 프로필 그림을 넣고 바꾸면 옛 파일은 지워지
 test('CharacterArt: 그림이 아니거나 너무 크면 거절', async () => {
   const { art, ch, done } = await setup();
   try {
-    await assert.rejects(() => art.setPortrait(ch.id, Buffer.from('not an image at all')), ArtError);
-    await assert.rejects(() => art.setPortrait(ch.id, Buffer.alloc(ART_LIMITS.bytes + 1, 1)), /너무 큽니다/);
-    await assert.rejects(() => art.setPortrait('nope', pic()), /없는 캐릭터/);
+    await assert.rejects(() => art.setPortrait(ME, ch.id, Buffer.from('not an image at all')), ArtError);
+    await assert.rejects(() => art.setPortrait(ME, ch.id, Buffer.alloc(ART_LIMITS.bytes + 1, 1)), /너무 큽니다/);
+    await assert.rejects(() => art.setPortrait(ME, 'nope', pic()), /없는 캐릭터/);
   } finally { await done(); }
 });
 
 test('CharacterArt: 표정은 같은 이름이면 그림만 바꾸고, 개수 제한이 있고, 지울 수 있음', async () => {
   const { art, ch, done } = await setup();
   try {
-    await art.setExpression(ch.id, '기쁨', pic());
-    const again = await art.setExpression(ch.id, ' 기쁨 ', pic());
+    await art.setExpression(ME, ch.id, '기쁨', pic());
+    const again = await art.setExpression(ME, ch.id, ' 기쁨 ', pic());
     assert.equal(again.expressions.length, 1);
-    await art.setExpression(ch.id, 'Angry', pic());
-    assert.equal((await art.setExpression(ch.id, 'angry', pic())).expressions.length, 2);
-    await assert.rejects(() => art.setExpression(ch.id, '[]', pic()), /이름/);
+    await art.setExpression(ME, ch.id, 'Angry', pic());
+    assert.equal((await art.setExpression(ME, ch.id, 'angry', pic())).expressions.length, 2);
+    await assert.rejects(() => art.setExpression(ME, ch.id, '[]', pic()), /이름/);
     for (let i = 0; i < ART_LIMITS.expressions; i += 1) {
-      await art.setExpression(ch.id, `e${i}`, pic()).catch(() => {});
+      await art.setExpression(ME, ch.id, `e${i}`, pic()).catch(() => {});
     }
     assert.equal(ch.expressions.length, ART_LIMITS.expressions);
-    await assert.rejects(() => art.setExpression(ch.id, '새 표정', pic()), /까지/);
-    assert.equal((await art.removeExpression(ch.id, '기쁨')).expressions.length, ART_LIMITS.expressions - 1);
-    await assert.rejects(() => art.removeExpression(ch.id, '없음'), /없는 표정/);
+    await assert.rejects(() => art.setExpression(ME, ch.id, '새 표정', pic()), /까지/);
+    assert.equal((await art.removeExpression(ME, ch.id, '기쁨')).expressions.length, ART_LIMITS.expressions - 1);
+    await assert.rejects(() => art.removeExpression(ME, ch.id, '없음'), /없는 표정/);
   } finally { await done(); }
 });
 
 test('CharacterArt.removeAll: 캐릭터의 그림 폴더를 통째로 지움', async () => {
   const { dir, art, ch, done } = await setup();
   try {
-    await art.setPortrait(ch.id, pic());
+    await art.setPortrait(ME, ch.id, pic());
     await art.removeAll(ch.id);
     assert.ok(!existsSync(path.join(dir, ch.id)));
   } finally { await done(); }
@@ -119,14 +124,14 @@ test('CharacterCards.import: PNG 카드의 그림이 카드 글 없이 프로필
   try {
     const cards = new CharacterCards(store, art);
     const src = png(chunk('IHDR', Buffer.alloc(13)), text('chara', card));
-    const out = await cards.import({ png: src.toString('base64') });
+    const out = await cards.import(ME, { png: src.toString('base64') });
     assert.ok(out.character.portrait);
     const saved = await (await import('node:fs/promises')).readFile(art.path(out.character.id, out.character.portrait));
     assert.throws(() => cardFromPng(saved));
     assert.deepEqual(out.dropped, []);
-    const viaClient = await cards.import({ png: src.toString('base64'), portrait: pic().toString('base64') });
+    const viaClient = await cards.import(ME, { png: src.toString('base64'), portrait: pic().toString('base64') });
     assert.ok(viaClient.character.portrait);
-    const bad = await cards.import({ png: src.toString('base64'), portrait: Buffer.from('nope, not an image').toString('base64') });
+    const bad = await cards.import(ME, { png: src.toString('base64'), portrait: Buffer.from('nope, not an image').toString('base64') });
     assert.ok(!bad.character.portrait);
     assert.match(bad.dropped.join(), /프로필 그림/);
     assert.equal(dir.length > 0, true);

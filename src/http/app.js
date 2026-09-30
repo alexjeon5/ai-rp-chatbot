@@ -1,18 +1,8 @@
 /** Express 앱 조립: 공통 미들웨어, 로그인, 정적 파일, 기능별 라우트. */
 import express from 'express';
-import path from 'node:path';
 import { rateLimit, sameOrigin } from '../security.js';
 import { loginResetAt } from '../auth.js';
-import { Engines } from '../services/engines.js';
-import { ChatContext } from '../services/chat-context.js';
-import { Jobs } from '../services/jobs.js';
-import { ImageFiles } from '../services/image-files.js';
-import { Attachments } from '../services/attachments.js';
-import { LoreBooks } from '../services/lorebooks.js';
-import { UsageLedger } from '../services/usage-ledger.js';
-import { CharacterCards } from '../services/character-cards.js';
-import { CharacterArt } from '../services/character-art.js';
-import { Backgrounds } from '../services/backgrounds.js';
+import { createServices } from '../services/index.js';
 import { SettingsRoutes } from './routes/settings.js';
 import { LibraryRoutes } from './routes/library.js';
 import { ChatRoutes } from './routes/chats.js';
@@ -37,7 +27,11 @@ function trustProxy(app) {
   if (value) app.set('trust proxy', /^\d+$/.test(value) ? Number(value) : value);
 }
 
-export function createApp({ store, auth, publicDir }) {
+/**
+ * @param {{ store, auth, publicDir: string, services?: ReturnType<typeof createServices> }} o
+ *   services 를 주지 않으면 여기서 만듭니다. 서버는 부팅 때 만든 묶음(마이그레이션을 마친 것)을 넘깁니다.
+ */
+export function createApp({ store, auth, publicDir, services = createServices({ store, auth }) }) {
   const app = express();
   trustProxy(app);
 
@@ -65,29 +59,16 @@ export function createApp({ store, auth, publicDir }) {
 
   // 여기부터 /api 는 전부 로그인해야 쓸 수 있습니다. 위 두 경로만 예외입니다.
   app.use('/api', auth.requireAuth);
+  // 처음 들어온 계정에 기본 페르소나와 내장 캐릭터를 넣습니다. 계정마다 한 번만 일합니다.
+  app.use('/api', (req, res, next) => {
+    services.setup.ensure(req.user);
+    next();
+  });
   app.get('/api/me', auth.me);
   app.use(express.static(publicDir));
 
-  // 밖으로 요청을 내보내는 경로만 제한합니다. 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.
-  const byUser = (req) => req.user && `user:${req.user.id}`;
-  const limits = {
-    generate: rateLimit({ windowMs: 60_000, max: 30, message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser }),
-    models: rateLimit({ windowMs: 60_000, max: 20, message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser })
-  };
-
-  const usage = new UsageLedger(store.usageDoc);
-  const engines = new Engines(store, usage);
-  const lore = new LoreBooks(store);
-  const art = new CharacterArt(store, path.join(store.dir, 'portraits'));
-  const backgrounds = new Backgrounds(store, path.join(store.dir, 'backgrounds', 'img'));
-  const deps = {
-    store, auth, engines, limits, lore, usage, art, backgrounds,
-    cards: new CharacterCards(store, art),
-    context: new ChatContext(store, engines, lore, backgrounds),
-    jobs: new Jobs(),
-    images: new ImageFiles(path.join(store.dir, 'images')),
-    attachments: new Attachments(path.join(store.dir, 'uploads'))
-  };
+  // 밖으로 요청을 내보내는 경로만 제한합니다 (services.limits). 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.
+  const deps = { ...services, auth };
   for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, CharacterArtRoutes, BackgroundRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes]) {
     new Routes(deps).mount(app);
   }

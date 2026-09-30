@@ -49,12 +49,13 @@ async function sent() {
   return (await fetch(`http://127.0.0.1:${MOCK_PORT}/__requests`)).json();
 }
 
-/** API 한 번. SSE 면 이벤트 배열을, 아니면 JSON 을 남깁니다. */
+/** API 한 번. SSE 면 이벤트 배열을, 아니면 JSON 을 남깁니다. 본문이 Buffer 면 그림 파일로 그대로 보냅니다. */
 async function call(name, method, url, body) {
+  const raw = Buffer.isBuffer(body);
   const res = await fetch(base + url, {
     method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body)
+    headers: { 'Content-Type': raw ? 'image/png' : 'application/json' },
+    body: body === undefined ? undefined : raw ? body : JSON.stringify(body)
   });
   const type = res.headers.get('content-type') || '';
   let out;

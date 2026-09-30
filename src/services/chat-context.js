@@ -3,39 +3,47 @@ import { buildSystem, fillVars, withThinking } from '../prompt.js';
 import { planContext, contextLimitOf, estimateTokens, IMAGE_TOKENS } from '../context.js';
 import { isLocalUrl } from '../security.js';
 import { sceneBlock } from '../scene-prompt.js';
+import { Access } from './access.js';
 
 /** 보정 전 어림. 엔진이 알려 준 실제 토큰 수와 비교해 보정값을 만듭니다. */
 export const rawPromptTokens = (system, history) =>
   estimateTokens(system) + history.reduce((n, m) => n + estimateTokens(m.content) + 6 + IMAGE_TOKENS * (m.attachments?.length || 0), 0);
 
+/**
+ * 대화에 딸린 캐릭터·페르소나·배경과 설정(모드·파라미터·기억할 메시지 수)은 요청한 사람이 아니라
+ * '그 대화의 주인' 것을 씁니다. 그래서 누가 부르든(웹, 디스코드) 같은 대화는 같은 프롬프트가 됩니다.
+ */
 export class ChatContext {
-  constructor(store, engines, lore, backgrounds) {
-    this.store = store;
-    this.engines = engines;
-    this.lore = lore;
-    this.backgrounds = backgrounds;
+  /**
+   * @param {{ store, access, settings: import('./settings.js').Settings, engines, lore, backgrounds }} deps
+   */
+  constructor({ store, access, settings, engines, lore, backgrounds }) {
+    Object.assign(this, { store, access: access || new Access(store), settings, engines, lore, backgrounds });
   }
 
-  get settings() {
-    return this.store.settings;
+  /** 이 대화에 적용되는 설정 (대화 주인의 설정). 읽기 전용입니다. */
+  settingsOf(chat) {
+    return this.settings.view(this.access.ownerOf(chat));
   }
 
   /** 대화에 박혀 있는 1회성 캐릭터가 우선입니다. */
   characterOf(chat) {
-    return chat.character || this.store.characters.get(chat.characterId);
+    return chat.character || this.access.findCharacter(this.access.ownerOf(chat), chat.characterId);
   }
 
-  presetOf(id) {
-    const s = this.settings;
-    return s.presets.find((p) => p.id === id) || s.presets.find((p) => p.id === s.activePresetId) || s.presets[0];
+  /** 이 대화의 모드 틀. 대화가 고른 틀이 지워졌으면 주인이 고른 틀, 그것도 없으면 첫 틀입니다. */
+  presetOf(chat) {
+    const s = this.settingsOf(chat);
+    return s.presets.find((p) => p.id === chat.presetId) || s.presets.find((p) => p.id === s.activePresetId) || s.presets[0];
   }
 
   /** 함께 등장하는 인물. 목록에서 지워진 캐릭터나 주인공 자신은 빼고 돌려줍니다. */
   castOf(chat) {
     if (!Array.isArray(chat.castIds)) return [];
+    const owner = this.access.ownerOf(chat);
     return chat.castIds
       .filter((id) => id && id !== chat.characterId)
-      .map((id) => this.store.characters.get(id))
+      .map((id) => this.access.findCharacter(owner, id))
       .filter(Boolean);
   }
 
@@ -45,7 +53,7 @@ export class ChatContext {
     const character = this.characterOf(chat);
     return {
       expressions: (character?.expressions || []).map((e) => e.label),
-      places: this.backgrounds ? this.backgrounds.names() : []
+      places: this.backgrounds ? this.backgrounds.names(this.access.ownerOf(chat)) : []
     };
   }
 
@@ -54,11 +62,12 @@ export class ChatContext {
    * basis 는 세계관 키워드를 찾을 메시지 묶음입니다 (다시 쓰기면 지워질 마지막 답변을 뺀 것).
    */
   roleplay(chat, { basis = chat } = {}) {
-    const s = this.settings;
+    const s = this.settingsOf(chat);
     const character = this.characterOf(chat);
     if (!character) return null;
-    const persona = this.store.personas.get(chat.personaId) || this.store.personas.get(s.activePersonaId);
-    const preset = this.presetOf(chat.presetId);
+    const owner = this.access.ownerOf(chat);
+    const persona = this.access.findPersona(owner, chat.personaId) || this.access.findPersona(owner, s.activePersonaId);
+    const preset = this.presetOf(chat);
     const cast = this.castOf(chat);
     const system = buildSystem({
       character, persona, template: preset.template, cast,
@@ -78,7 +87,7 @@ export class ChatContext {
   /** 이름을 채운 작가 노트. 없거나 캐릭터가 없으면 빈 글입니다. */
   authorNote(chat, ctx) {
     if (!ctx || !chat.authorNote?.trim()) return '';
-    return fillVars(chat.authorNote, { char: ctx.character.name, user: ctx.persona?.name, particleFix: this.settings.dev.particleFix });
+    return fillVars(chat.authorNote, { char: ctx.character.name, user: ctx.persona?.name, particleFix: this.settingsOf(chat).dev.particleFix });
   }
 
   /** 요약·기억 요청에 쓰는 이름. 여럿이 함께 나오면 이름을 이어 붙입니다. */
@@ -96,8 +105,9 @@ export class ChatContext {
    * @param {object} [o.basis] 히스토리를 뽑을 메시지 묶음 (다시 쓰기면 마지막 답변을 뺀 것)
    * @param {string} [o.extra] 히스토리 뒤에 더 붙는 글 (이어쓰기·대신 쓰기 지시)
    */
-  plan(chat, { provider = this.settings.activeProvider, basis = chat, extra = '' } = {}) {
-    const s = this.settings;
+  plan(chat, { provider, basis = chat, extra = '' } = {}) {
+    const s = this.settingsOf(chat);
+    provider ||= s.activeProvider;
     const config = this.engines.config(provider) || {};
     const assistant = chat.kind === 'assistant';
     const ctx = assistant ? null : this.roleplay(chat, { basis });

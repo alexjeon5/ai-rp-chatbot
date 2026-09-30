@@ -36,6 +36,8 @@ test('auth off: 시간 안에는 로그인 없이 주인, 지나거나 auth on �
   await control({ offUntil: Date.now() + 60_000 });
   const req = run(auth);
   assert.equal(req.user.role, 'owner');
+  // 데이터가 계정별이라, 따로 된 local 이 아니라 주인 계정으로 들어와야 주인의 데이터가 보입니다.
+  assert.equal(req.user.id, 'u1');
   const res = fakeRes();
   auth.me(req, res);
   assert.equal(res.body.authDisabled, true);

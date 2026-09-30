@@ -1,5 +1,4 @@
 /** 캐릭터와 페르소나: 목록·추가·수정·삭제, 그리고 모델에게 채우게 하는 기능들. */
-import { CHARACTER_FIELDS } from '../../content/characters.js';
 import { withThinking } from '../../prompt.js';
 import { isLocalUrl, checkBaseUrl } from '../../security.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from '../../persona-seeds.js';
@@ -7,78 +6,32 @@ import { genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from '
 import {
   CHAR_GEN_SYSTEM, CHAR_FIELDS as CHAR_GEN_FIELDS, buildCharPrompt, parseCharacter, looksUsable, mergeCharacters, roughFallback
 } from '../../character-gen.js';
-import { characterFields, PERSONA_FIELDS, normalizePersona } from '../../services/records.js';
 import { wrap, fail, abortOnClose } from '../helpers.js';
 
 export class LibraryRoutes {
-  constructor({ store, engines, limits, art }) {
-    Object.assign(this, { store, engines, limits, art });
+  constructor({ library, settings, engines, limits }) {
+    Object.assign(this, { library, settings, engines, limits });
   }
 
   mount(app) {
-    this.crud(app, 'characters', this.store.characters, CHARACTER_FIELDS, { beforeRemove: (c) => this.releaseCharacter(c) });
-    this.crud(app, 'personas', this.store.personas, PERSONA_FIELDS, { normalize: normalizePersona });
+    this.crud(app, 'characters', this.library.characters);
+    this.crud(app, 'personas', this.library.personas);
     app.post('/api/personas/roll', (req, res) => this.rollPersona(req, res));
-    app.post('/api/personas/generate', this.limits.generate, wrap((req, res) => this.generatePersona(req, res)));
+    app.post('/api/personas/generate', this.limits.generate.middleware, wrap((req, res) => this.generatePersona(req, res)));
     // 내장 캐릭터 중 아직 없는 것만 추가합니다. 기존 캐릭터는 손대지 않습니다.
-    app.post('/api/characters/seed', (req, res) => {
-      const added = this.store.addMissingBuiltins();
-      res.json({ added, characters: this.store.characters.all() });
-    });
-    app.post('/api/characters/draft', this.limits.generate, wrap((req, res) => this.draftCharacter(req, res)));
+    app.post('/api/characters/seed', wrap((req, res) => res.json(this.library.addMissingBuiltins(req.user))));
+    app.post('/api/characters/draft', this.limits.generate.middleware, wrap((req, res) => this.draftCharacter(req, res)));
   }
 
-  /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
-  crud(app, name, collection, fields, { beforeRemove, normalize = (x) => x } = {}) {
-    app.get(`/api/${name}`, (req, res) => res.json(collection.all()));
-
-    app.post(`/api/${name}`, (req, res) => {
-      const draft = {};
-      for (const f of fields) draft[f] = req.body?.[f] ?? '';
-      if (!String(draft.name ?? '').trim()) return fail(res, 400, '이름을 입력해 주세요.');
-      res.json(collection.add(normalize(draft)));
-    });
-
-    app.put(`/api/${name}/:id`, (req, res) => {
-      const patch = {};
-      for (const f of fields) if (f in (req.body || {})) patch[f] = req.body[f];
-      if ('name' in patch && !String(patch.name ?? '').trim()) return fail(res, 400, '이름을 입력해 주세요.');
-      const item = collection.update(req.params.id, normalize(patch));
-      if (!item) return fail(res, 404, '없는 항목입니다.');
-      res.json(item);
-    });
-
+  /** 항목 한 종류(Shelf)에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
+  crud(app, name, shelf) {
+    app.get(`/api/${name}`, wrap((req, res) => res.json(shelf.list(req.user))));
+    app.post(`/api/${name}`, wrap((req, res) => res.json(shelf.add(req.user, req.body))));
+    app.put(`/api/${name}/:id`, wrap((req, res) => res.json(shelf.update(req.user, req.params.id, req.body))));
     app.delete(`/api/${name}/:id`, wrap(async (req, res) => {
-      const item = collection.get(req.params.id);
-      if (item) beforeRemove?.(item);
-      if (!(await collection.remove(req.params.id))) return fail(res, 404, '없는 항목입니다.');
+      await shelf.remove(req.user, req.params.id);
       res.json({ ok: true });
     }));
-  }
-
-  releaseCharacter(character) {
-    this.detachCharacter(character);
-    this.art.removeAll(character.id);
-  }
-
-  /**
-   * 캐릭터를 지워도 그 캐릭터와 나눈 대화는 계속 이어갈 수 있어야 합니다.
-   * 지우기 전에 캐릭터 정보를 대화 안에 복사해 1회성 캐릭터로 바꿔 둡니다.
-   * 마음이 바뀌면 대화 상단의 '캐릭터 저장' 으로 다시 목록에 넣을 수 있습니다.
-   */
-  detachCharacter(character) {
-    const copy = { ...characterFields(character), id: null };
-    const chats = this.store.chats;
-    for (const chat of chats.all()) {
-      if (Array.isArray(chat.castIds) && chat.castIds.includes(character.id)) {
-        chat.castIds = chat.castIds.filter((id) => id !== character.id);
-        chats.save(chat.id);
-      }
-      if (chat.characterId !== character.id || chat.character) continue;
-      chat.character = { ...copy };
-      chat.characterId = null;
-      chats.save(chat.id);
-    }
   }
 
   /**
@@ -97,7 +50,7 @@ export class LibraryRoutes {
    * adult 가 켜져 있으면 대화의 성인 프리셋과 같은 규칙을 씁니다 — 기본은 로컬 엔진으로만 나갑니다.
    */
   async generatePersona(req, res) {
-    const s = this.store.settings;
+    const s = this.settings.view(req.user);
     const adult = Boolean(req.body?.adult);
     const seeds = rollSeeds(sanitizeSeeds(req.body?.seeds || {}), null, adult);
     const provider = req.body?.provider || s.activeProvider;
@@ -116,7 +69,7 @@ export class LibraryRoutes {
     let text;
     try {
       text = await this.engines.complete({
-        provider, config, controller, stopOnRepeat: true,
+        provider, config, controller, stopOnRepeat: true, userId: req.user?.id,
         system: withThinking(genSystem(adult), false),
         messages: [{ role: 'user', content: buildGenPrompt(seeds) }],
         // 소개 한 문단이면 충분하므로 길이를 짧게 잡고, 온도는 설정값을 따릅니다.
@@ -139,7 +92,7 @@ export class LibraryRoutes {
    * body: { brief, current?, provider? }  current 는 사용자가 이미 채워 둔 칸(그대로 유지됩니다).
    */
   async draftCharacter(req, res) {
-    const s = this.store.settings;
+    const s = this.settings.view(req.user);
     const brief = String(req.body?.brief || '').trim().slice(0, 4000);
     if (!brief) return fail(res, 400, '어떤 캐릭터인지 먼저 적어 주세요.');
 
@@ -162,7 +115,7 @@ export class LibraryRoutes {
      * 라벨 형식은 짧은 줄이 반복되는 모양이라 반복 감지가 오작동하기 쉬워, 대신 maxTokens 로 상한을 둡니다.
      */
     const ask = (known) => this.engines.complete({
-      provider, config, controller,
+      provider, config, controller, userId: req.user?.id,
       system: withThinking(CHAR_GEN_SYSTEM, false),
       messages: [{ role: 'user', content: buildCharPrompt(brief, known) }],
       params: { ...s.params, temperature: Math.min(s.params.temperature ?? 1, 0.5), maxTokens: Math.max(s.params.maxTokens ?? 2048, 1500) }

@@ -89,6 +89,10 @@ await http('로그아웃', 'POST', '/api/logout', {});
 await http('me(로그아웃 후)', 'GET', '/api/me');
 await http('로그인: 앨리스', 'POST', '/api/login', { name: '앨리스', password: 'password1' });
 await http('멤버가 아닌 주인: 로그', 'GET', '/api/logs');
+// 데이터를 옮기는 명령은 켜져 있는 서버가 처리합니다. 앨리스가 로그인하며 받은 기본 콘텐츠를 bob 에게 옮깁니다.
+await user(['claim', 'bob', '--from', '앨리스']);
+await user(['claim', 'nobody']);
+await http('옮긴 뒤 앨리스의 캐릭터', 'GET', '/api/characters');
 server.kill();
 await sleep(300);
 

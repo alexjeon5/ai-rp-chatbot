@@ -7,21 +7,30 @@
  *   npm run user -- add <아이디> [--owner | --member]
  *   npm run user -- passwd <아이디>
  *   npm run user -- logout-all <아이디>
- *   npm run user -- remove <아이디>
+ *   npm run user -- remove <아이디> [--purge]
+ *   npm run user -- claim <아이디> [--from <아이디|계정 id>]
  *   npm run user -- check <아이디>          비밀번호가 맞는지 확인
  *   npm run user -- unlock                  로그인 실패 제한 풀기
  *   npm run user -- auth off [30m|2h]       로그인 잠시 끄기 (기본 30분)
  *   npm run user -- auth on | status
+ *
+ * 데이터(대화·캐릭터 등)를 바꾸는 명령은 파일을 직접 고치지 않고 서버에 요청만 남깁니다 (src/admin-requests.js).
+ * 서버가 켜져 있으면 몇 초 안에, 꺼져 있으면 다음에 켤 때 처리됩니다.
  *
  * Docker 에서는:
  *   docker compose exec rp-chat node scripts/user.js add <아이디>
  */
 import readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   USERS_FILE, ROLES, NAME_RULE, nameKey, readUsers, writeUsers, hashPassword, verifyPassword,
   readAuthControl, writeAuthControl
 } from '../src/auth.js';
+import { DATA_DIR } from '../src/db.js';
+import { AdminRequests } from '../src/admin-requests.js';
+import { Ownership } from '../src/services/ownership.js';
 
 const MIN_PASSWORD = 8;
 /** 로그인을 끌 수 있는 가장 긴 시간. 켜는 걸 잊어도 하루 안에는 다시 켜집니다. */
@@ -29,6 +38,12 @@ const MAX_OFF_MINUTES = 24 * 60;
 const HANGUL = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7A3]/;
 
 const [, , command, name, ...flags] = process.argv;
+
+/** --from 값처럼 이름 뒤에 오는 값. */
+const flagValue = (flag) => {
+  const i = flags.indexOf(flag);
+  return i >= 0 ? flags[i + 1] : undefined;
+};
 
 function fail(message) {
   console.error(message);
@@ -98,6 +113,34 @@ const clock = (ms) => new Date(ms).toLocaleString('ko-KR');
 
 /** 로그인 실패 기록을 이 시각부터 새로 셉니다. 켜져 있는 서버가 파일을 보고 따릅니다. */
 const resetFailures = () => writeAuthControl({ ...readAuthControl(), resetAt: Date.now() });
+
+/* ---------------- 데이터 ---------------- */
+
+/** 이 계정 id 가 주인인 항목 수. 파일을 읽기만 합니다. */
+function countOwned(ownerId) {
+  const counts = {};
+  for (const [kind, dir] of [['chat', 'chats'], ['character', 'characters'], ['persona', 'personas'], ['lorebook', 'lorebooks'], ['background', 'backgrounds']]) {
+    counts[kind] = 0;
+    let files = [];
+    try { files = readdirSync(path.join(DATA_DIR, dir)).filter((f) => f.endsWith('.json')); } catch { /* 폴더가 아직 없음 */ }
+    for (const f of files) {
+      try {
+        if (JSON.parse(readFileSync(path.join(DATA_DIR, dir, f), 'utf8')).ownerId === ownerId) counts[kind] += 1;
+      } catch { /* 읽지 못한 파일은 건너뜁니다 */ }
+    }
+  }
+  return counts;
+}
+
+/** 서버에 요청을 남기고 결과를 잠깐 기다립니다. */
+async function request(body) {
+  const requests = new AdminRequests(path.join(DATA_DIR, 'admin'));
+  const id = requests.submit(body);
+  const result = await requests.wait(id);
+  if (!result) return console.log('요청을 남겼습니다. 서버가 꺼져 있으면 다음에 켤 때 처리됩니다.');
+  if (!result.ok) fail(result.message);
+  console.log(result.message);
+}
 
 /* ---------------- 명령 ---------------- */
 
@@ -177,7 +220,32 @@ async function main() {
       if (users[i].role === 'owner' && owners().length === 1) fail('마지막 주인 계정은 지울 수 없습니다.');
       const [gone] = users.splice(i, 1);
       writeUsers(users);
-      return console.log(`지웠습니다: ${gone.name}. 이 계정의 로그인은 바로 끊깁니다.`);
+      console.log(`지웠습니다: ${gone.name} (id ${gone.id}). 이 계정의 로그인은 바로 끊깁니다.`);
+      if (flags.includes('--purge')) return request({ type: 'purge', userId: gone.id });
+      const left = countOwned(gone.id);
+      if (!Ownership.total(left)) return;
+      return console.log([
+        `이 계정의 데이터는 남아 있습니다 (${Ownership.describe(left)}). 아무에게도 보이지 않습니다.`,
+        `  다른 계정으로 옮기기: npm run user -- claim <받을 아이디> --from ${gone.id}`,
+        `  모두 지우기:         npm run user -- purge ${gone.id}`
+      ].join('\n'));
+    }
+
+    case 'purge': {
+      // 이미 지운 계정의 남은 데이터를 지웁니다. 아직 있는 계정이면 remove --purge 를 쓰세요.
+      if (!name) fail('지운 계정의 id 를 적어 주세요.');
+      if (indexOf(name) >= 0 || users.some((u) => u.id === name)) fail('아직 있는 계정입니다. npm run user -- remove <아이디> --purge 를 쓰세요.');
+      return request({ type: 'purge', userId: name });
+    }
+
+    case 'claim': {
+      const to = users[need(name)];
+      const fromArg = flagValue('--from');
+      if (flags.includes('--from') && !fromArg) fail('--from 뒤에 옮겨 올 아이디나 계정 id 를 적어 주세요.');
+      // 있는 계정이면 이름으로, 지운 계정이면 id 로 적습니다.
+      const from = fromArg && (users.find((u) => nameKey(u.name) === nameKey(fromArg))?.id || fromArg);
+      if (from === to.id) fail('같은 계정으로는 옮길 수 없습니다.');
+      return request({ type: 'claim', to: to.id, ...(from ? { from } : {}) });
     }
 
     case 'check': {
@@ -237,7 +305,9 @@ async function main() {
         '  passwd <아이디>                 비밀번호 바꾸기 (모든 기기 로그아웃)',
         '  logout-all <아이디>             모든 기기 로그아웃',
         '  role <아이디> <owner|member>     역할 바꾸기',
-        '  remove <아이디>                 계정 지우기',
+        '  remove <아이디> [--purge]       계정 지우기. --purge 면 그 계정의 대화·캐릭터 등도 지움',
+        '  claim <아이디> [--from <아이디|id>]  주인 없는 데이터(또는 --from 계정의 데이터)를 이 계정으로',
+        '  purge <지운 계정 id>            지운 계정의 남은 데이터 지우기',
         '  check <아이디>                  비밀번호가 맞는지 확인',
         '  unlock                         로그인 실패 제한 풀기',
         '  auth off [30m|2h]              로그인 잠시 끄기 (기본 30분, 최대 24시간)',

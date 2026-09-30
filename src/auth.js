@@ -1,9 +1,9 @@
 /**
  * 로그인과 세션.
  *
- * 지금은 사용자 목록만 있고 데이터(캐릭터·대화·설정)는 모두가 같이 씁니다.
- * 사용자 개념을 먼저 넣어 두면, 나중에 데이터를 사용자별로 나눌 때
- * 모든 요청이 누가 보낸 것인지 이미 알고 있습니다 (req.user).
+ * 모든 요청은 누가 보낸 것인지 req.user({ id, name, role })에 담깁니다. 캐릭터·대화·계정별 설정은
+ * 이 id 로 나뉩니다 (src/services/access.js). 주인(owner)은 엔진·이미지 같은 공용 설정을 바꿀 수 있을 뿐,
+ * 남의 데이터는 보지 못합니다.
  *
  *   data/users.json     계정 목록. scripts/user.js 만 씁니다. 서버는 읽기만 하고,
  *                       파일이 바뀌면(수정 시각) 다시 읽습니다. 서버를 껐다 켤 필요가 없습니다.
@@ -268,6 +268,26 @@ function tempOff() {
   return off;
 }
 
+/**
+ * 로그인을 껐을 때 누구로 행동할지. 기본은 'local' 이라는 따로 된 계정이고,
+ * AUTH_DISABLED_AS=<아이디> 를 주면 그 계정으로 행동합니다 — 운영 데이터 사본을 내 PC 에서 로그인 없이 열어 볼 때 씁니다.
+ */
+function disabledUser() {
+  const as = (process.env.AUTH_DISABLED_AS || '').trim();
+  const user = as && findUser(as);
+  return user ? publicUser(user) : LOCAL_OWNER;
+}
+
+/**
+ * 로그인을 잠시 꺼 둔 동안(auth off) 들어온 사람이 누구로 행동할지. 데이터가 계정별로 나뉘어 있어서
+ * 따로 된 'local' 계정으로 들이면 빈 화면만 보입니다. 그래서 주인 계정(여럿이면 목록의 첫 주인)으로 들입니다.
+ * 주인 계정이 없으면 local 입니다.
+ */
+function bypassUser() {
+  const owner = readUsers().find((u) => u.role === 'owner');
+  return owner ? publicUser(owner) : LOCAL_OWNER;
+}
+
 /* ---------------- 조립 ---------------- */
 
 /**
@@ -282,6 +302,10 @@ export async function createAuth({ host }) {
 
   if (disabled) {
     console.warn('로그인 없이 시작합니다 (AUTH_DISABLED=1). 이 PC 에서만 접속할 수 있습니다.');
+    const as = (process.env.AUTH_DISABLED_AS || '').trim();
+    if (as) {
+      console.warn(findUser(as) ? `${as} 계정으로 행동합니다 (AUTH_DISABLED_AS).` : `AUTH_DISABLED_AS 의 계정이 없습니다 (${as}). local 로 행동합니다.`);
+    }
   } else if (!readUsers().length) {
     console.warn(
       '\n아직 계정이 없어 아무도 로그인할 수 없습니다. 먼저 계정을 만드세요.\n' +
@@ -300,12 +324,12 @@ export async function createAuth({ host }) {
   function attachUser(req, res, next) {
     req.user = null;
     if (disabled) {
-      req.user = LOCAL_OWNER;
+      req.user = disabledUser();
       return next();
     }
     const done = () => {
       if (!req.user && tempOff()) {
-        req.user = LOCAL_OWNER;
+        req.user = bypassUser();
         req.authBypass = true;
       }
       next();
@@ -366,7 +390,7 @@ export async function createAuth({ host }) {
   }
 
   async function login(req, res) {
-    if (disabled) return res.json({ user: LOCAL_OWNER });
+    if (disabled) return res.json({ user: disabledUser() });
 
     const name = typeof req.body?.name === 'string' ? req.body.name : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';

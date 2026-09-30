@@ -53,32 +53,44 @@ export const PERIODS = [
   { key: 'month', label: '최근 30일', days: 30 }
 ];
 
+const byTokens = (a, b) => b.promptTokens + b.completionTokens - (a.promptTokens + a.completionTokens);
+
 /**
- * days: { 'YYYY-MM-DD': [{ provider, model, requests, promptTokens, completionTokens, estimated }] }
+ * days: { 'YYYY-MM-DD': [{ userId?, provider, model, requests, promptTokens, completionTokens, estimated }] }
  * 기간별 합계·엔진/모델별 표·날짜별 추이를 만듭니다.
+ * @param {object} [o]
+ * @param {string} [o.userId] 이 계정의 줄만 셉니다. 주지 않으면 모든 줄
+ * @param {boolean} [o.byUser] 기간마다 계정별 합계(users)도 만듭니다. userId 가 없는 옛 줄은 userId: null 로 묶입니다
  */
-export function summarizeUsage(days, now = Date.now()) {
+export function summarizeUsage(days, now = Date.now(), { userId, byUser = false } = {}) {
   const dates = [];
   for (let i = 0; i < 30; i++) dates.push(dayKey(now - i * 86_400_000));
+  const rowsOf = (date) => (days[date] || []).filter((row) => userId === undefined || row.userId === userId);
 
   const periods = PERIODS.map(({ key, label, days: span }) => {
     const total = blank();
     const byModel = new Map();
+    const users = new Map();
     for (const date of dates.slice(0, span)) {
-      for (const row of days[date] || []) {
+      for (const row of rowsOf(date)) {
         add(total, row);
         const id = `${row.provider}\u0000${row.model}`;
         if (!byModel.has(id)) byModel.set(id, { provider: row.provider, model: row.model, ...blank() });
         add(byModel.get(id), row);
+        if (byUser) {
+          const who = row.userId ?? null;
+          if (!users.has(who)) users.set(who, { userId: who, ...blank() });
+          add(users.get(who), row);
+        }
       }
     }
-    const rows = [...byModel.values()].sort((a, b) => b.promptTokens + b.completionTokens - (a.promptTokens + a.completionTokens));
-    return { key, label, total, rows };
+    const rows = [...byModel.values()].sort(byTokens);
+    return { key, label, total, rows, ...(byUser ? { users: [...users.values()].sort(byTokens) } : {}) };
   });
 
   const daily = dates.map((date) => {
     const sum = blank();
-    for (const row of days[date] || []) add(sum, row);
+    for (const row of rowsOf(date)) add(sum, row);
     return { date, ...sum };
   }).reverse();
 

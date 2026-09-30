@@ -18,12 +18,12 @@ import { wrap, fail, abortOnClose, EventStream } from '../helpers.js';
 const LOOP_NOTICE = '\n\n(같은 말이 되풀이되어 생성을 멈췄습니다. 재전송을 누르거나, 설정에서 반복 억제 값을 올려 보세요.)';
 
 export class GenerationRoutes {
-  constructor({ store, engines, context, jobs, limits, attachments, usage }) {
-    Object.assign(this, { store, engines, context, jobs, limits, attachments, usage });
+  constructor({ store, access, settings, engines, context, jobs, limits, attachments, usage }) {
+    Object.assign(this, { store, access, settings, engines, context, jobs, limits, attachments, usage });
   }
 
   mount(app) {
-    const post = (path, fn) => app.post(path, this.limits.generate, wrap((req, res) => fn.call(this, req, res)));
+    const post = (path, fn) => app.post(path, this.limits.generate.middleware, wrap((req, res) => fn.call(this, req, res)));
     post('/api/chats/:id/generate', this.generate);
     post('/api/chats/:id/summarize', this.summarize);
     post('/api/chats/:id/impersonate', this.impersonate);
@@ -38,9 +38,10 @@ export class GenerationRoutes {
    *   continue    마지막 답변 끝에 이어 씁니다
    */
   async generate(req, res) {
-    const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
+    // 대화에 관한 설정은 그 대화 주인의 것을 씁니다.
+    const s = this.context.settingsOf(chat);
     const assistant = chat.kind === 'assistant';
 
     // 뒤에서 돌던 요약·기억 확인이 있으면 멈춥니다. 로컬 엔진은 한 번에 하나만 처리해서,
@@ -102,14 +103,12 @@ export class GenerationRoutes {
     out.send({ context: plan.usage });
 
     // 엔진이 실제 프롬프트 토큰 수를 알려 주면 어림 보정값을 갱신하고 게이지에도 알려 줍니다.
-    const meter = this.usage.meter({ provider, config, promptEstimate: rawPrompt });
+    const meter = this.usage.meter({ provider, config, promptEstimate: rawPrompt, userId: req.user?.id });
     const onUsage = (used) => {
       meter.onUsage(used);
       const { promptTokens } = used;
       if (!promptTokens) return;
-      const ratio = nextRatio(s.tokenRatio?.[provider], promptTokens, rawPrompt);
-      s.tokenRatio = { ...(s.tokenRatio || {}), [provider]: ratio };
-      this.store.saveSettings();
+      this.settings.noteTokenRatio(provider, nextRatio(this.settings.shared.tokenRatio?.[provider], promptTokens, rawPrompt));
       out.send({ context: { ...plan.usage, actual: promptTokens } });
     };
 
@@ -243,7 +242,7 @@ export class GenerationRoutes {
   engineFor(req, res, chat, { auto, reply }) {
     const ctx = this.context.roleplay(chat);
     if (!ctx) return fail(res, 400, '이 대화의 캐릭터가 삭제되었습니다.') && null;
-    const provider = req.body?.provider || this.store.settings.activeProvider;
+    const provider = req.body?.provider || this.context.settingsOf(chat).activeProvider;
     const config = this.engines.config(provider);
     const problem = this.engines.check(config, provider, ctx.preset);
     if (problem) return (auto ? reply({ skipped: true, reason: problem }) : fail(res, 400, problem)) && null;
@@ -256,9 +255,10 @@ export class GenerationRoutes {
    * 손으로 누르면 밀린 것을 여러 묶음까지 따라잡습니다.
    */
   async summarize(req, res) {
-    const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
+    // 대화에 관한 설정은 그 대화 주인의 것을 씁니다.
+    const s = this.context.settingsOf(chat);
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화는 요약하지 않습니다.');
     const auto = Boolean(req.body?.auto);
 
@@ -288,7 +288,7 @@ export class GenerationRoutes {
       while (pending.length && rounds-- > 0) {
         const chunk = takeChunk(pending);
         const out = cleanSummary(await this.engines.complete({
-          provider, config, params, controller,
+          provider, config, params, controller, userId: req.user?.id,
           system: withThinking(SUMMARY_SYSTEM, false),
           messages: [{ role: 'user', content: buildSummaryPrompt(chat.memory, chunk, names) }]
         }));
@@ -320,9 +320,10 @@ export class GenerationRoutes {
    * body: { hint?, provider? }  hint 는 입력창에 미리 적어 둔 방향입니다.
    */
   async impersonate(req, res) {
-    const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
+    // 대화에 관한 설정은 그 대화 주인의 것을 씁니다.
+    const s = this.context.settingsOf(chat);
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화에서는 쓸 수 없습니다.');
     const engine = this.engineFor(req, res, chat, {});
     if (!engine) return;
@@ -346,7 +347,7 @@ export class GenerationRoutes {
     const controller = abortOnClose(res);
     const stripper = makeThoughtStripper({});
     const asked = [...past, { role: 'user', content: instruction }];
-    const meter = this.usage.meter({ provider, config, system: ctx.system, messages: asked });
+    const meter = this.usage.meter({ provider, config, system: ctx.system, messages: asked, userId: req.user?.id });
     let text = '';
     try {
       const stream = streamChat({
@@ -378,9 +379,10 @@ export class GenerationRoutes {
    * body: { count? }  → { choices: [{ text, check? }] }
    */
   async choices(req, res) {
-    const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
+    // 대화에 관한 설정은 그 대화 주인의 것을 씁니다.
+    const s = this.context.settingsOf(chat);
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화에서는 쓸 수 없습니다.');
     const engine = this.engineFor(req, res, chat, {});
     if (!engine) return;
@@ -401,7 +403,7 @@ export class GenerationRoutes {
     let text;
     try {
       text = await this.engines.complete({
-        provider, config, controller, system: withThinking(ctx.system, false),
+        provider, config, controller, userId: req.user?.id, system: withThinking(ctx.system, false),
         messages: [...past, { role: 'user', content: instruction }],
         params: { ...s.params, maxTokens: 600 }
       });
@@ -419,9 +421,10 @@ export class GenerationRoutes {
    * body: { auto }  auto 면 마지막 확인 뒤 답변이 FACT_EVERY 개 이상 쌓였을 때만 돕니다.
    */
   async extractFacts(req, res) {
-    const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
+    // 대화에 관한 설정은 그 대화 주인의 것을 씁니다.
+    const s = this.context.settingsOf(chat);
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화는 기억을 쓰지 않습니다.');
     const auto = Boolean(req.body?.auto);
     const reply = (extra = {}) => res.json({
@@ -443,7 +446,7 @@ export class GenerationRoutes {
     let text;
     try {
       text = await this.engines.complete({
-        provider, config, controller,
+        provider, config, controller, userId: req.user?.id,
         system: withThinking(FACTS_SYSTEM, false),
         messages: [{ role: 'user', content: buildFactsPrompt(chat.facts, window, this.context.names(ctx)) }],
         params: { ...s.params, temperature: 0.2, maxTokens: 700 }
