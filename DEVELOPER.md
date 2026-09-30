@@ -23,6 +23,7 @@ src/
     errors.js              AppError, NotFound — 서비스가 던지고 라우트가 상태 코드로 바꾸는 오류
     chats.js               Chats — 대화·메시지 다루기 (목록·만들기·고치기·분기·지우기·멈추기)
     replies.js             Replies — 모델에게 글 쓰게 하기 (답변·대신 쓰기·선택지·요약·자동 기억). 조각은 emit 으로
+    discord-links.js       DiscordLinks — 디스코드 계정과 앱 계정 잇기 (1회용 코드, 연결 검사)
     library.js             Library, Shelf — 캐릭터·페르소나 목록, 내장 캐릭터 추가
     prefs.js               UserPrefs — 계정별 설정(data/prefs/<id>.json), 모드 틀 다듬기
     settings.js            Settings — 공용 설정과 계정별 설정을 합쳐 보여 주고 나눠 저장
@@ -253,6 +254,7 @@ data/
   images/<chatId>/       # 장면 그리기로 그린 그림 (대화 권한을 따름)
   uploads/<chatId>/      # 사용자가 메시지에 붙인 그림 (대화 권한을 따름)
   portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
+  discord.json           # 디스코드 연결 { links: { 디스코드 id: { userId, epoch, name, linkedAt } }, codes: { sha256(코드): { userId, expiresAt } }, threads }
   admin/requests/, admin/results/  # 계정 명령 ↔ 서버 요청 파일
 ```
 
@@ -485,6 +487,18 @@ data: {"done": true, "message": {...}}   완료
 - 계정별로 나누기 전의 줄에는 `userId` 가 없습니다. 옛 데이터를 받는 계정이 함께 받습니다(`UsageLedger.reassign`). 계정을 지워도(`purge`) 줄은 요금 기록이라 남깁니다
 - `GET /api/usage` 는 내 줄만 모은 `summarizeUsage` 결과(`periods`: 오늘·7일·30일 합계와 모델별 행, `daily`: 30일 날짜별)에 `scope`·`canSeeAll` 을 붙입니다. 주인은 `?scope=all` 로 모든 줄과 기간별 계정별 합계(`periods[].users: [{ userId, name, requests, ... }]`, 숫자만)를 봅니다
 
+### 디스코드 계정 잇기 — `src/services/discord-links.js`
+
+- 디스코드 봇은 **이어 둔 앱 계정(actor)으로만** 일합니다. 연결이 곧 권한이라 따로 허용 목록을 두지 않습니다
+- 잇는 방향은 **웹 → 디스코드** 하나뿐입니다. 로그인한 화면에서 코드를 받고(`issueCode`) 디스코드 `/rp link` 에 넣습니다(`redeem`).
+  반대 방향(봇이 준 링크를 웹에서 승인)은 남이 자기 디스코드용 링크를 보내 누르게 하면 그 디스코드가 내 계정에 붙으므로 쓰지 않습니다
+- 코드는 헷갈리는 글자를 뺀 31자 중 8자리, 5분, 1회용이고, 저장은 sha256 해시만 합니다. 같은 계정이 새 코드를 받으면 앞의 코드는 무효입니다.
+  맞춰 보기는 디스코드 사용자마다 10분에 5번(`RateLimiter.hit`)입니다
+- 앱 계정 하나에 디스코드 하나입니다. 다시 이으면 앞의 연결은 끊깁니다
+- `actorOf(discordId)` 는 쓸 때마다 계정이 있는지, `epoch` 가 이을 때와 같은지 봅니다. 비밀번호 변경·`logout-all` 이면 연결이 끊깁니다(세션과 같은 규칙)
+- 로그인을 잠시 꺼 둔 동안(`req.authBypass`)은 코드를 내주지 않습니다. 그 틈에 남의 디스코드가 주인 계정에 영영 붙을 수 있어서입니다
+- 로그인을 끈 개발 모드에서는 목록에 없는 `local` 도 이을 수 있습니다(`createServices` 의 `resolveUser`)
+
 ### 대화 검색 — `src/chat-search.js`, `src/http/routes/search.js`
 
 - `searchChats(chats, query, { kind })` 는 순수 함수입니다. 검색어를 공백으로 나눠(최대 6개, 소문자·NFC) **모두 포함한** 메시지만 찾고, 대화는 최근 수정 순, 한 대화에서는 최근 메시지부터 3개까지(`moreInChat`), 전체 60개까지입니다(`truncated`)
@@ -562,6 +576,9 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/search?q=&kind=rp\|assistant` | 대화 제목·본문 검색. `{ terms, truncated, hits: [{ chatId, messageId, role, snippet, title, character, archived, adult, moreInChat }] }` |
 | GET | `/api/usage[?scope=all]` | 내 토큰 사용량 요약(오늘·7일·30일, 모델별, 날짜별). `scope=all` 은 주인만 — 모든 계정의 합계와 계정별 숫자 |
 | DELETE | `/api/usage` | 모든 계정의 사용량 기록 지우기. 주인 계정만 |
+| GET | `/api/discord/link` | 이 계정의 디스코드 연결 `{ linked: { name, linkedAt } \| null, pending: { expiresAt } \| null, bot: { enabled, name } }` |
+| POST | `/api/discord/link-code` | 1회용 연결 코드 `{ code: 'XXXX-XXXX', expiresAt }`. 전에 받은 코드는 무효. 로그인을 잠시 꺼 둔 동안(auth off)은 403 |
+| DELETE | `/api/discord/link` | 이 계정의 디스코드 연결 끊기 `{ ok, removed }` |
 | GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
@@ -671,7 +688,7 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 | `lorebooks` | `features/lorebooks.js` | 세계관 설정집 창 — 목록·이름·적용 범위·발동 시험. 항목 편집은 `lore-entry.js` 의 `LoreEntryEditor` |
 | `chatLore` | `features/chat-lore.js` | 대화의 ⋯ 메뉴 「세계관 적용」 창 — 이 대화에 붙일 설정집과 지금 발동 중인 항목 |
 | `cardTransfer` | `features/card-transfer.js` | 캐릭터 카드 가져오기(JSON·PNG)·내보내기 버튼 |
-| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js`, 사용량 탭은 `settings-usage.js` |
+| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js`, 사용량 탭은 `settings-usage.js`, 디스코드 탭은 `settings-discord.js` |
 
 `theme.js` 의 `applyTheme(dev)` 는 테마 색·글꼴·파비콘·표기법을 화면에 적용합니다.
 

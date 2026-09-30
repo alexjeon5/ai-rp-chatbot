@@ -2243,6 +2243,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .usage-bar:last-child i { background: var(--brass); }
 @media (max-width: 640px) { .usage-total { grid-template-columns: repeat(2, 1fr); } }
 
+/* 설정 → 디스코드: 받은 연결 코드는 크게, 한 번에 골라 복사하기 쉽게 */
+.discord-code { margin: 6px 0 12px; }
+.discord-code code { font-size: 20px; letter-spacing: 2px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); user-select: all; }
+
 /* 캐릭터 창의 그림 칸 */
 .art-box { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .art-portrait { display: flex; gap: 14px; align-items: flex-start; }

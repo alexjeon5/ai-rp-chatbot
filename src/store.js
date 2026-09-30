@@ -51,6 +51,7 @@ const defaultSettings = () => ({
  *   data/chats/<id>.json
  *   data/backgrounds/<id>.json   배경 그림 목록 (그림 파일은 data/backgrounds/img/)
  *   data/usage.json     날짜별 토큰 사용량
+ *   data/discord.json   디스코드 연결: 계정 연결, 연결 코드, 스레드와 대화 (src/services/discord-links.js)
  */
 export class Store {
   constructor(dir = DATA_DIR) {
@@ -63,6 +64,7 @@ export class Store {
     this.backgrounds = new Collection(path.join(dir, 'backgrounds'), (a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     this.prefs = new Collection(path.join(dir, 'prefs'));
     this.usageDoc = new JsonDoc(path.join(dir, 'usage.json'), () => ({ days: {} }));
+    this.discordDoc = new JsonDoc(path.join(dir, 'discord.json'), () => ({ links: {}, codes: {}, threads: {} }));
   }
 
   /** 설정 객체. 고친 뒤에는 saveSettings() 를 부르세요. */
@@ -84,7 +86,8 @@ export class Store {
       this.chats.load(),
       this.backgrounds.load(),
       this.prefs.load(),
-      this.usageDoc.load()
+      this.usageDoc.load(),
+      this.discordDoc.load()
     ]);
     this.normalizeSettings();
     this.tagBuiltinCharacters();
