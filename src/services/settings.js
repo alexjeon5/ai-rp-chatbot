@@ -53,7 +53,7 @@ export class Settings {
    */
   view(actor) {
     const shared = this.shared;
-    const { id, createdAt, ...mine } = this.prefs.of(actor);
+    const { id, createdAt, onboarded, seededPersonas, ...mine } = this.prefs.of(actor);
     return {
       ...mine,
       activeProvider: this.providerFor(actor),

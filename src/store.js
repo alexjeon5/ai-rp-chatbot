@@ -4,7 +4,7 @@ import { Collection, JsonDoc, flushAll, DATA_DIR } from './db.js';
 import { IMAGE_DEFAULTS } from './image.js';
 import { CHARACTER_FIELDS, characterSig, OLD_BUILTIN_APPEARANCE, BUILTIN_CHARACTERS } from './content/characters.js';
 import { BUILTIN_PERSONAS } from './content/personas.js';
-import { normalizePresets, PREF_KEYS } from './services/prefs.js';
+import { normalizePresets } from './services/prefs.js';
 
 /* ---------------- 설정 기본값 ---------------- */
 
@@ -89,10 +89,8 @@ export class Store {
     this.normalizeSettings();
     this.tagBuiltinCharacters();
     this.syncBuiltinCharacters();
-
-    if (!this.characters.size && !this.personas.size) this.seed();
     this.tagBuiltinPersonas();
-    this.addMissingBuiltinPersonas();
+    // 기본 페르소나와 내장 캐릭터·페르소나는 계정마다 따로 받습니다 (services/account-setup.js).
     await flushAll();
     return this;
   }
@@ -239,47 +237,6 @@ export class Store {
     s.builtinPersonasTagged = true;
     this.saveSettings();
     return tagged;
-  }
-
-  /**
-   * 내장 페르소나 중 아직 한 번도 넣지 않은 것만 추가합니다. 넣은 이름은 설정에 적어 두어,
-   * 사용자가 지운 페르소나가 다음 실행 때 되살아나지 않게 합니다.
-   */
-  addMissingBuiltinPersonas() {
-    const s = this.settings;
-    if (!Array.isArray(s.seededPersonas)) s.seededPersonas = [];
-    const names = new Set(this.personas.all().map((p) => p.name));
-    let added = 0;
-    for (const p of BUILTIN_PERSONAS) {
-      if (s.seededPersonas.includes(p.name)) continue;
-      if (!names.has(p.name)) {
-        this.personas.add({ ...p, traits: [...p.traits] });
-        added += 1;
-      }
-      s.seededPersonas.push(p.name);
-    }
-    this.saveSettings();
-    return added;
-  }
-
-  /**
-   * 계정별로 나누기 전의 설정 파일에 남아 있는 계정별 값. 아직 주인에게 옮기지 않았을 때만 있습니다.
-   */
-  legacyPrefs() {
-    const s = this.settings;
-    const out = {};
-    for (const key of PREF_KEYS) if (key in s) out[key] = s[key];
-    return out;
-  }
-
-  seed() {
-    const persona = this.personas.add({
-      name: '나',
-      description: '평범한 대학생. 호기심이 많고 말수가 적은 편이다.'
-    });
-    this.settings.activePersonaId = persona.id;
-    this.saveSettings();
-    this.addMissingBuiltins();
   }
 }
 

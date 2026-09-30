@@ -51,6 +51,13 @@ export const defaultPrefs = () => ({
   }
 });
 
+/**
+ * 계정 준비(AccountSetup)가 남기는 부기. 화면으로 보내지 않습니다.
+ *   onboarded       기본 페르소나·내장 캐릭터를 넣어 준 계정인지
+ *   seededPersonas  넣어 준 적 있는 내장 페르소나 이름. 사용자가 지운 것이 되살아나지 않게 합니다
+ */
+export const BOOK_KEYS = ['onboarded', 'seededPersonas'];
+
 /** 어떤 설정 묶음에서 계정별 항목만 골라 냅니다. dev 의 adultCloud 는 공용이라 뺍니다. */
 export function pickPrefs(source = {}) {
   const out = {};
@@ -124,9 +131,11 @@ export class UserPrefs {
     return typeof actor?.id === 'string' && SAFE_ID.test(actor.id);
   }
 
-  /** 기본값 위에 값을 깔고 틀 목록을 다듬은 새 설정. */
+  /** 기본값 위에 값을 깔고 틀 목록을 다듬은 새 설정. 부기는 그대로 옮깁니다. */
   build(raw = {}) {
-    return normalizePresets(merge(defaultPrefs(), pickPrefs(raw)));
+    const out = normalizePresets(merge(defaultPrefs(), pickPrefs(raw)));
+    for (const key of BOOK_KEYS) if (key in raw) out[key] = raw[key];
+    return out;
   }
 
   /**
@@ -151,6 +160,12 @@ export class UserPrefs {
   /** 있는지만 봅니다. 없는 계정의 파일을 만들지 않습니다. */
   has(actor) {
     return UserPrefs.storable(actor) && this.collection.has(actor.id);
+  }
+
+  /** 계정의 설정 파일을 지웁니다 (계정 데이터를 모두 지울 때). */
+  remove(actor) {
+    this.ready.delete(actor?.id);
+    return UserPrefs.storable(actor) ? this.collection.remove(actor.id) : Promise.resolve(false);
   }
 
   save(actor) {
