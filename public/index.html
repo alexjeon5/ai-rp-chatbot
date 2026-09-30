@@ -863,7 +863,9 @@
         <h3 class="sheet-sub">토큰 사용량</h3>
         <p class="field-hint">모델을 부를 때마다 엔진이 알려 준 토큰 수를 날짜별로 모읍니다. 답변뿐 아니라 요약·기억·캐릭터 만들기 같은 부가 호출도 들어갑니다.
         대화 내용은 저장하지 않고 숫자만 남기며, 90일이 지난 날짜는 지웁니다.
-        로컬 서버처럼 토큰 수를 알려 주지 않는 엔진은 글자 수로 어림하고 <b>≈</b> 로 표시합니다. 이 기기의 서버에만 쌓이며 백업에는 담기지 않습니다.</p>
+        로컬 서버처럼 토큰 수를 알려 주지 않는 엔진은 글자 수로 어림하고 <b>≈</b> 로 표시합니다. 이 기기의 서버에만 쌓이며 백업에는 담기지 않습니다.
+        보이는 것은 내 계정의 사용량입니다. 주인 계정은 모든 계정의 합계와 계정별 숫자도 볼 수 있습니다(대화 내용은 없음).</p>
+        <nav id="u-scope" class="char-tabs" aria-label="보는 범위" hidden></nav>
         <nav id="u-periods" class="char-tabs" aria-label="기간"></nav>
         <dl id="u-total" class="usage-total"></dl>
         <table class="usage-table">
@@ -871,23 +873,30 @@
           <tbody id="u-rows"></tbody>
         </table>
         <p id="u-empty" class="field-hint" hidden>이 기간에는 기록이 없습니다.</p>
+        <div id="u-users-box" hidden>
+          <h3 class="sheet-sub">계정별</h3>
+          <table class="usage-table">
+            <thead><tr><th>계정</th><th>호출</th><th>입력</th><th>출력</th></tr></thead>
+            <tbody id="u-users"></tbody>
+          </table>
+        </div>
         <h3 class="sheet-sub">최근 30일</h3>
         <div id="u-bars" class="usage-bars" role="img" aria-label="최근 30일 날짜별 사용량"></div>
         <div class="divider"></div>
-        <span class="model-row">
-          <button id="u-clear" class="ghost-btn danger" type="button">기록 지우기</button>
+        <span id="u-clear-row" class="model-row">
+          <button id="u-clear" class="ghost-btn danger" type="button">모든 계정의 기록 지우기</button>
         </span>
       </div>
       <div class="sheet-body settings-pane" id="pane-backup" data-pane="backup" role="tabpanel" hidden>
         <h3 class="sheet-sub">백업 내려받기</h3>
-        <p class="field-hint">캐릭터·페르소나·대화와 설정(샘플링 값·대화 모드·어시스턴트 프롬프트·테마·표기법)을 JSON 파일 하나로 받습니다.
-        엔진 주소와 API 키는 담기지 않습니다.</p>
+        <p class="field-hint">내 계정의 캐릭터·페르소나·로어북·대화와 내 설정(샘플링 값·대화 모드·어시스턴트 프롬프트·테마·표기법)을 JSON 파일 하나로 받습니다.
+        다른 계정의 데이터, 엔진 주소와 API 키, 그림 파일은 담기지 않습니다.</p>
         <span class="model-row">
           <a href="/api/export" download class="ghost-btn as-link">백업 내려받기</a>
         </span>
         <div class="divider"></div>
         <h3 class="sheet-sub">백업 불러오기</h3>
-        <p class="field-hint">내려받은 백업 파일을 지금 데이터에 합칩니다. 이미 있는 항목은 건너뛰고, 설정까지 덮어쓸지는 불러올 때 따로 묻습니다.
+        <p class="field-hint">내려받은 백업 파일을 내 계정에 합칩니다. 이미 있는 항목은 건너뛰고, 내 설정까지 덮어쓸지는 불러올 때 따로 묻습니다.
         불러오면 이 창에서 저장하지 않은 입력은 버려집니다.</p>
         <span class="model-row">
           <button id="s-import" class="ghost-btn" type="button">백업 불러오기</button>

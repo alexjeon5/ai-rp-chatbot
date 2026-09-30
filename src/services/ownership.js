@@ -30,11 +30,12 @@ export class Ownership {
    * @param {import('./prefs.js').UserPrefs} deps.prefs
    * @param {() => {id: string, name: string, role: string}[]} deps.users  지금 계정 목록 (users.json)
    * @param {{ images, attachments, art, backgrounds }} deps.files  항목에 딸린 그림 파일을 지우는 서비스들
+   * @param {import('./usage-ledger.js').UsageLedger} [deps.usage] 사용량 기록. 옛 줄의 주인도 함께 옮깁니다
    * @param {boolean} [deps.authDisabled] 로그인을 끈 개발 모드인지
    * @param {(msg: string) => void} [deps.log]
    */
-  constructor({ store, prefs, users, files, authDisabled = false, log = console.log }) {
-    Object.assign(this, { store, prefs, users, files, authDisabled, log });
+  constructor({ store, prefs, users, files, usage = null, authDisabled = false, log = console.log }) {
+    Object.assign(this, { store, prefs, users, files, usage, authDisabled, log });
     this.unownedLeft = null;
   }
 
@@ -111,7 +112,8 @@ export class Ownership {
   /**
    * 항목을 to 계정으로 옮깁니다.
    * from 을 주면 ownerId 가 from 인 항목만, 안 주면 주인 없는 항목과 고아 항목을 모두 옮깁니다.
-   * from 없이 옮길 때는 옛 설정 파일에 남은 계정별 값도 to 계정의 설정으로 옮깁니다.
+   * from 없이 옮길 때는 옛 설정 파일에 남은 계정별 값과 userId 가 없는 사용량 기록도 to 계정으로 옮깁니다.
+   * 지운 계정의 사용량은 요금 기록이라 from 을 준 경우에만 옮깁니다.
    * @returns 종류별로 옮긴 수와 settings(설정을 옮겼는지)
    */
   async claim(to, { from } = {}) {
@@ -127,6 +129,7 @@ export class Ownership {
       moved[kind] += 1;
     }
     if (!from) moved.settings = await this.adoptLegacySettings(to);
+    this.usage?.reassign(to, { from });
     this.unownedLeft = null;
     return moved;
   }

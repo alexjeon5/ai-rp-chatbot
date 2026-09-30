@@ -103,7 +103,7 @@ export class GenerationRoutes {
     out.send({ context: plan.usage });
 
     // 엔진이 실제 프롬프트 토큰 수를 알려 주면 어림 보정값을 갱신하고 게이지에도 알려 줍니다.
-    const meter = this.usage.meter({ provider, config, promptEstimate: rawPrompt });
+    const meter = this.usage.meter({ provider, config, promptEstimate: rawPrompt, userId: req.user?.id });
     const onUsage = (used) => {
       meter.onUsage(used);
       const { promptTokens } = used;
@@ -286,7 +286,7 @@ export class GenerationRoutes {
       while (pending.length && rounds-- > 0) {
         const chunk = takeChunk(pending);
         const out = cleanSummary(await this.engines.complete({
-          provider, config, params, controller,
+          provider, config, params, controller, userId: req.user?.id,
           system: withThinking(SUMMARY_SYSTEM, false),
           messages: [{ role: 'user', content: buildSummaryPrompt(chat.memory, chunk, names) }]
         }));
@@ -345,7 +345,7 @@ export class GenerationRoutes {
     const controller = abortOnClose(res);
     const stripper = makeThoughtStripper({});
     const asked = [...past, { role: 'user', content: instruction }];
-    const meter = this.usage.meter({ provider, config, system: ctx.system, messages: asked });
+    const meter = this.usage.meter({ provider, config, system: ctx.system, messages: asked, userId: req.user?.id });
     let text = '';
     try {
       const stream = streamChat({
@@ -401,7 +401,7 @@ export class GenerationRoutes {
     let text;
     try {
       text = await this.engines.complete({
-        provider, config, controller, system: withThinking(ctx.system, false),
+        provider, config, controller, userId: req.user?.id, system: withThinking(ctx.system, false),
         messages: [...past, { role: 'user', content: instruction }],
         params: { ...s.params, maxTokens: 600 }
       });
@@ -444,7 +444,7 @@ export class GenerationRoutes {
     let text;
     try {
       text = await this.engines.complete({
-        provider, config, controller,
+        provider, config, controller, userId: req.user?.id,
         system: withThinking(FACTS_SYSTEM, false),
         messages: [{ role: 'user', content: buildFactsPrompt(chat.facts, window, this.context.names(ctx)) }],
         params: { ...s.params, temperature: 0.2, maxTokens: 700 }

@@ -1,4 +1,4 @@
-/** 설정 창의 사용량 탭: 기간별 합계, 엔진·모델별 표, 최근 30일 막대. */
+/** 설정 창의 사용량 탭: 기간별 합계, 엔진·모델별 표, 최근 30일 막대. 주인은 전체와 계정별 합계도 봅니다. */
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, on, esc } from '../core/dom.js';
@@ -10,8 +10,16 @@ export class UsageSettings {
     this.app = app;
     this.data = null;
     this.period = 'today';
+    // 'mine' 은 내 계정만, 'all' 은 모든 계정(주인만)
+    this.scope = 'mine';
     this.seq = 0;
 
+    on('u-scope', 'click', (e) => {
+      const btn = e.target.closest('[data-scope]');
+      if (!btn || btn.dataset.scope === this.scope) return;
+      this.scope = btn.dataset.scope;
+      this.load();
+    });
     on('u-periods', 'click', (e) => {
       const btn = e.target.closest('[data-period]');
       if (!btn) return;
@@ -24,7 +32,7 @@ export class UsageSettings {
   async load() {
     const seq = ++this.seq;
     try {
-      const data = await api.usage();
+      const data = await api.usage(this.scope);
       if (seq !== this.seq) return;
       this.data = data;
       this.paint();
@@ -34,7 +42,7 @@ export class UsageSettings {
   }
 
   async clear() {
-    if (!confirm('토큰 사용량 기록을 모두 지울까요? 되돌릴 수 없습니다.')) return;
+    if (!confirm('모든 계정의 토큰 사용량 기록을 지울까요? 되돌릴 수 없습니다.')) return;
     try {
       await api.clearUsage();
     } catch (err) {
@@ -53,6 +61,18 @@ export class UsageSettings {
     const { data } = this;
     if (!data) return;
     const current = data.periods.find((p) => p.key === this.period) || data.periods[0];
+
+    // 주인만 범위를 고르고 기록을 지웁니다.
+    $('u-scope').hidden = !data.canSeeAll;
+    $('u-clear-row').hidden = !data.canSeeAll;
+    $('u-scope').innerHTML = [['mine', '내 사용량'], ['all', '모든 계정']].map(([key, label]) => `<button type="button"
+      class="char-tab ${key === data.scope ? 'is-on' : ''}" data-scope="${key}" aria-pressed="${key === data.scope}">${label}</button>`).join('');
+    const users = current.users || [];
+    $('u-users-box').hidden = !users.length;
+    $('u-users').innerHTML = users.map((u) => {
+      const mark = u.estimated ? '≈' : '';
+      return `<tr><td>${esc(u.name)}</td><td>${fmt(u.requests)}</td><td>${mark}${fmt(u.promptTokens)}</td><td>${mark}${fmt(u.completionTokens)}</td></tr>`;
+    }).join('');
 
     $('u-periods').innerHTML = data.periods.map((p) => `<button type="button" class="char-tab ${p.key === current.key ? 'is-on' : ''}"
       data-period="${p.key}" aria-pressed="${p.key === current.key}">${esc(p.label)}</button>`).join('');

@@ -69,7 +69,7 @@ export class LibraryRoutes {
     let text;
     try {
       text = await this.engines.complete({
-        provider, config, controller, stopOnRepeat: true,
+        provider, config, controller, stopOnRepeat: true, userId: req.user?.id,
         system: withThinking(genSystem(adult), false),
         messages: [{ role: 'user', content: buildGenPrompt(seeds) }],
         // 소개 한 문단이면 충분하므로 길이를 짧게 잡고, 온도는 설정값을 따릅니다.
@@ -115,7 +115,7 @@ export class LibraryRoutes {
      * 라벨 형식은 짧은 줄이 반복되는 모양이라 반복 감지가 오작동하기 쉬워, 대신 maxTokens 로 상한을 둡니다.
      */
     const ask = (known) => this.engines.complete({
-      provider, config, controller,
+      provider, config, controller, userId: req.user?.id,
       system: withThinking(CHAR_GEN_SYSTEM, false),
       messages: [{ role: 'user', content: buildCharPrompt(brief, known) }],
       params: { ...s.params, temperature: Math.min(s.params.temperature ?? 1, 0.5), maxTokens: Math.max(s.params.maxTokens ?? 2048, 1500) }

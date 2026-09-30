@@ -147,6 +147,18 @@ test('다른 계정의 대화·그림·검색 결과·백업이 보이지 않습
     assert.equal(aSettings.canManage, false);
     assert.equal((await bob('GET', '/api/settings')).body.historyLimit, 7);
 
+    /* ---- 사용량: 기본은 내 것, 전체는 주인만 ---- */
+    t.services.usage.add('p', 'm', { promptTokens: 7, completionTokens: 1, estimated: false }, Date.now(), 'alice01');
+    t.services.usage.add('p', 'm', { promptTokens: 90, completionTokens: 1, estimated: false }, Date.now(), 'bob0001');
+    const aUsage = (await alice('GET', '/api/usage')).body;
+    assert.equal(aUsage.periods[0].total.promptTokens, 7);
+    assert.equal(aUsage.canSeeAll, false);
+    assert.equal((await alice('GET', '/api/usage?scope=all')).status, 403);
+    assert.equal((await alice('DELETE', '/api/usage')).status, 403);
+    const allUsage = (await bob('GET', '/api/usage?scope=all')).body;
+    assert.equal(allUsage.periods[0].total.promptTokens, 97);
+    assert.deepEqual(allUsage.periods[0].users.map((u) => u.name), ['bob', 'alice']);
+
     /* ---- 남의 백업을 불러와도 원본은 그대로이고, 내 몫의 새 항목이 생깁니다 ---- */
     const aliceBackup = (await alice('GET', '/api/export')).body;
     const first = (await bob('POST', '/api/import', { data: aliceBackup })).body;

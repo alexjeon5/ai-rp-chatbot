@@ -87,3 +87,37 @@ test('summarizeUsage: 오늘·7일·30일 합계와 모델별 표(많이 쓴 순
   assert.equal(s.daily.at(-1).date, dayKey(NOW));
   assert.equal(s.daily.at(-1).completionTokens, 510);
 });
+
+test('UsageLedger: 계정마다 따로 쌓고, 내 요약은 내 줄만, 전체 요약은 계정별 합계를 붙임', () => {
+  const d = doc();
+  const ledger = new UsageLedger(d);
+  const u = (p, c) => ({ promptTokens: p, completionTokens: c, estimated: false });
+  ledger.add('a', 'm', u(10, 1), NOW, 'alice');
+  ledger.add('a', 'm', u(20, 2), NOW, 'alice');
+  ledger.add('a', 'm', u(300, 3), NOW, 'bob');
+  ledger.add('a', 'm', u(4000, 4), NOW);
+  assert.equal(d.data.days[dayKey(NOW)].length, 3, '같은 모델이라도 계정이 다르면 다른 줄');
+
+  const alice = ledger.summary({ userId: 'alice' }, NOW);
+  assert.equal(alice.periods[0].total.promptTokens, 30);
+  assert.equal(alice.periods[0].users, undefined, '내 요약에는 계정별 합계가 없습니다');
+  assert.equal(alice.daily.at(-1).promptTokens, 30);
+
+  const all = ledger.summary({ all: true, nameOf: (id) => id.toUpperCase() }, NOW);
+  assert.equal(all.periods[0].total.promptTokens, 4330);
+  assert.deepEqual(all.periods[0].users.map((x) => [x.name, x.promptTokens]), [['(계정 나누기 전)', 4000], ['BOB', 300], ['ALICE', 30]]);
+
+  assert.equal(ledger.reassign('alice'), 1, '주인 없는 옛 줄을 옮깁니다');
+  assert.equal(ledger.summary({ userId: 'alice' }, NOW).periods[0].total.promptTokens, 4030);
+  assert.equal(ledger.reassign('carol', { from: 'bob' }), 1);
+  assert.equal(ledger.summary({ userId: 'bob' }, NOW).periods[0].total.promptTokens, 0);
+});
+
+test('UsageLedger.meter: 부른 사람(userId)으로 남김', () => {
+  const d = doc();
+  const ledger = new UsageLedger(d);
+  const m = ledger.meter({ userId: 'alice', provider: 'p', config: { model: 'x' } });
+  m.onUsage({ promptTokens: 5, completionTokens: 5 });
+  m.record('답');
+  assert.equal(Object.values(d.data.days)[0][0].userId, 'alice');
+});

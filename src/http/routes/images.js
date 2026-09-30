@@ -301,7 +301,7 @@ export class ImageRoutes {
   askScene({ chat, provider, config, controller, system }) {
     const { params } = this.context.settingsOf(chat);
     return (messages, temperature) => this.engines.complete({
-      provider, config, controller, messages,
+      provider, config, controller, messages, userId: chat.ownerId,
       system: withThinking(system, false),
       params: { ...params, temperature, maxTokens: 700 }
     });

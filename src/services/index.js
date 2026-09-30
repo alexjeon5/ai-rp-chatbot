@@ -51,7 +51,7 @@ export function createServices({ store, auth = {}, users = readUsers }) {
   const attachments = new Attachments(path.join(store.dir, 'uploads'));
   const library = new Library({ store, access, art });
   const ownership = new Ownership({
-    store, prefs, users, authDisabled: Boolean(auth.disabled),
+    store, prefs, users, usage, authDisabled: Boolean(auth.disabled),
     files: { images, attachments, art, backgrounds }
   });
 

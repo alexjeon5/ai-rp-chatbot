@@ -123,12 +123,14 @@ export class Backup {
     this.settings = settings;
   }
 
-  /** actor 가 볼 수 있는 항목과 actor 에게 적용되는 설정의 사본. API 키는 뺍니다. */
+  /**
+   * actor 의 항목과 actor 의 계정별 설정 사본. 엔진·API 키·이미지 같은 공용 설정은 담지 않습니다.
+   * 사용량 기록과 그림 파일(프로필·배경·장면)도 담지 않습니다.
+   */
   export(actor) {
-    const { providers, ...settings } = this.settings.view(actor);
     return {
       exportedAt: new Date().toISOString(),
-      settings,
+      settings: pickPrefs(this.settings.view(actor)),
       characters: this.access.characters(actor),
       personas: this.access.personas(actor),
       lorebooks: this.access.lorebooks(actor),

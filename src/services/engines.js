@@ -73,9 +73,9 @@ export class Engines {
    * 엔진에 한 번 묻고, 사고 블록을 걸러 낸 답 전체를 돌려줍니다.
    * stopOnRepeat 면 같은 말을 되풀이할 때 controller 를 멈추고 거기까지만 씁니다.
    */
-  async complete({ controller, stopOnRepeat = false, ...request }) {
+  async complete({ controller, stopOnRepeat = false, userId = null, ...request }) {
     const stripper = makeThoughtStripper({});
-    const meter = this.usage?.meter(request);
+    const meter = this.usage?.meter({ ...request, userId });
     let text = '';
     try {
       for await (const chunk of streamChat({ ...request, onUsage: meter?.onUsage, signal: controller.signal })) {
