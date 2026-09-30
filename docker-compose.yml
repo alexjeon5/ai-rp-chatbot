@@ -33,6 +33,12 @@ services:
       # (로그인 시도는 IP 와 상관없는 전체 상한이 따로 막습니다.)
       TRUST_PROXY: "1"
 
+      # --- 디스코드 봇 (선택) ---
+      # 토큰이 없으면 봇은 켜지지 않고 웹만 돕니다. 값은 .env 에 두고 깃에는 올리지 마세요.
+      # 서버 id 를 적으면 명령이 그 서버에 바로 올라갑니다(쉼표로 여럿). 비우면 전역이라 반영에 시간이 걸립니다.
+      DISCORD_TOKEN: "${DISCORD_TOKEN:-}"
+      DISCORD_GUILD_IDS: "${DISCORD_GUILD_IDS:-}"
+
       # --- 계정 ---
       # 로그인 계정은 컨테이너 안에서 만듭니다. 데이터 폴더(./data/users.json)에 저장됩니다.
       #   docker compose exec rp-chat node scripts/user.js add <아이디>

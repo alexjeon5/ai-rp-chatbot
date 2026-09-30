@@ -43,6 +43,13 @@ src/
     records.js             입력값 정리 — SAFE_ID, characterFields, normalizePersona
     backup.js              Backup — 내 데이터 내려받기·불러오기(합치기)
   admin-requests.js        AdminRequests — 계정 명령과 서버 사이의 요청 파일 (data/admin/)
+  discord/                 디스코드 봇 — 서비스(createServices)를 웹과 같이 씀. DISCORD_TOKEN 이 있을 때만 켜짐
+    bot.js                 startDiscord — Client 만들기, 명령 올리기, 이벤트를 DiscordController 로
+    controller.js          DiscordController — 명령·자동완성·버튼·스레드 메시지를 서비스로 잇기
+    commands.js            슬래시 명령 정의(/rp start·end·link·unlink, API JSON 그대로)
+    relay.js               ReplyRelay — 답변 조각을 모아 메시지 편집으로 옮기기(간격, 길면 다음 메시지로)
+    split.js               splitMessage — 2000자 한도에 맞춰 문단·줄·문장 순으로 나누기
+    bindings.js            ThreadBindings — 스레드 ↔ 대화, 가장 최근 답변의 메시지 id
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
   store.js                 Store 클래스, 공용 설정 기본값
@@ -82,7 +89,7 @@ mock-lmstudio.mjs           로컬 통합 테스트용 가짜 OpenAI 호환 서�
 Dockerfile, docker-compose.yml
 ```
 
-의존성은 `express` 하나뿐입니다. 프런트엔드는 빌드 스텝 없이 브라우저가 ES 모듈을 직접 읽습니다.
+의존성은 `express` 와 디스코드 봇용 `discord.js` 뿐입니다. 프런트엔드는 빌드 스텝 없이 브라우저가 ES 모듈을 직접 읽습니다.
 
 ---
 
@@ -498,6 +505,20 @@ data: {"done": true, "message": {...}}   완료
 - `actorOf(discordId)` 는 쓸 때마다 계정이 있는지, `epoch` 가 이을 때와 같은지 봅니다. 비밀번호 변경·`logout-all` 이면 연결이 끊깁니다(세션과 같은 규칙)
 - 로그인을 잠시 꺼 둔 동안(`req.authBypass`)은 코드를 내주지 않습니다. 그 틈에 남의 디스코드가 주인 계정에 영영 붙을 수 있어서입니다
 - 로그인을 끈 개발 모드에서는 목록에 없는 `local` 도 이을 수 있습니다(`createServices` 의 `resolveUser`)
+
+### 디스코드 봇 — `src/discord/`
+
+- `server.js` 가 웹을 띄운 뒤 `startDiscord({ services })` 를 기다리지 않고 부릅니다. 토큰이 없으면 `null`, 접속이 실패해도 로그만 남기고 웹은 돕니다
+- 봇은 웹과 **같은 서비스 인스턴스**를 씁니다. 그래서 `Jobs`(중복 생성 막기·멈추기), 요청 한도(`limits.generate.hit(userKey(actor))`), 저장소가 하나입니다
+- **스레드 하나 = 대화 하나**(`ThreadBindings`, `data/discord.json` 의 `threads`). 스레드 주인(`discordUserId`)만 말하고 버튼을 누릅니다.
+  권한은 두 번 봅니다 — 디스코드 쪽(스레드 주인), 앱 쪽(`Access`, 연결된 계정이 대화 주인). 이을 때와 연결된 앱 계정이 달라지면 멈춥니다
+- 답변은 `Replies.reply` 의 `emit` 조각을 `ReplyRelay` 가 옮깁니다. **첫 조각이 온 뒤에야** 메시지를 건드리므로, 시작 전에 막히면(엔진 설정 등) 지금 답변이 그대로 남습니다.
+  1.2초마다 한 번 고치고, 1900자를 넘으면 다음 메시지로 넘어갑니다. 다시 쓰기는 같은 메시지를 고쳐 쓰고 짧아지면 남는 메시지를 지우며, 이어 쓰기는 새 메시지로 덧붙입니다
+- 화면 표식은 `stripForDisplay` 로 떼고(쓰는 중 아직 닫히지 않은 `[[…` 까지), 봇이 보내는 메시지는 `allowedMentions: { parse: [] }` 로 멘션을 모두 끕니다 — 모델이 쓴 `@everyone` 이 울리지 않게
+- 버튼 id 는 `rp:<stop|regen|cont>:<대화 id>`. 다시 쓰기·이어 쓰기는 `binding.reply.messageIds` 에 든 메시지(가장 최근 답변)에서만 받습니다
+- 성인 모드는 연령 제한 채널(스레드는 부모 채널)에서만 — `/rp start` 와 말할 때마다 봅니다. 엔진 쪽 허용(`adultAllowed`)은 `Replies` 가 그대로 봅니다
+- 답변 뒤에는 웹처럼 자동 기억 → 자동 요약을 부릅니다(`afterReply`). 이 두 호출은 요청 한도에 세지 않습니다(답변 하나에 최대 두 번)
+- 시험: `test/unit/discord-controller.test.mjs` 는 진짜 서비스에 가짜 디스코드 객체와 가짜 `replies` 를 끼워 흐름을 봅니다. `discord-relay.test.mjs` 는 나누기·중계
 
 ### 대화 검색 — `src/chat-search.js`, `src/http/routes/search.js`
 
