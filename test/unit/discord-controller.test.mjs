@@ -657,3 +657,68 @@ test('어시스턴트 채널: 웹에서 대화를 지우면 새 대화로 시작
     await t.stop();
   }
 });
+
+test('게스트 모드: 잇지 않은 사람에게 호스트 계정으로 답함, 게스트마다 대화가 따로, 게스트 한도, 호스트가 연결을 끊으면 멈춤', async () => {
+  const t = await setup();
+  try {
+    const channel = fakeChannel();
+    const GUEST_D = { id: '100000000000000007', username: 'guest_d', globalName: '손님' };
+    const OTHER_D = { id: '100000000000000008', username: 'other_d' };
+    const say = (author, content) => t.controller.onMessage(fakeMessage(channel, { content, author }));
+
+    // 게스트를 허용하려면 켜는 사람이 계정을 이어 두어야 합니다.
+    const unlinked = fakeInteraction({ command: 'assistant', user: ALICE_D, channel, sub: 'on', values: { guests: true }, manager: true });
+    await t.controller.onInteraction(unlinked);
+    assert.match(unlinked.answers[0].content, /\/rp link/);
+    assert.equal(t.channels.get(channel.id), null);
+
+    t.link();
+    const on = fakeInteraction({ command: 'assistant', user: ALICE_D, channel, sub: 'on', values: { guests: true }, manager: true });
+    await t.controller.onInteraction(on);
+    assert.match(on.answers[0].content, new RegExp(`게스트.*<@${ALICE_D.id}>`));
+    assert.equal(t.channels.get(channel.id).hostUserId, 'alice01');
+
+    await say(GUEST_D, '게스트 질문');
+    const answer = channel.sent.at(-1);
+    assert.ok(answer.content.startsWith(`<@${GUEST_D.id}> `), '게스트도 멘션해 답함');
+    const guestSlot = t.channels.slot(channel.id, `guest:${GUEST_D.id}`);
+    const guestChat = t.services.store.chats.get(guestSlot.chatId);
+    assert.equal(guestChat.ownerId, 'alice01', '대화는 호스트 계정의 것');
+    assert.equal(guestChat.title, '게스트 · 손님', '호스트의 웹 목록에서 알아보게');
+    await say(GUEST_D, '이어서');
+    assert.equal(guestChat.messages.length, 4, '게스트도 자기 대화로 이어짐');
+
+    await say(ALICE_D, '호스트 본인 질문');
+    const aliceChatId = t.channels.slot(channel.id, 'alice01').chatId;
+    assert.notEqual(aliceChatId, guestChat.id, '이어 둔 사람은 자기 자리');
+    await say(OTHER_D, '다른 게스트');
+    assert.notEqual(t.channels.slot(channel.id, `guest:${OTHER_D.id}`).chatId, guestChat.id, '게스트마다 따로');
+
+    // 버튼: 게스트는 자기 답만, 호스트도 게스트의 답은 못 누름.
+    const guestAnswer = channel.sent.find((m) => m.id === guestSlot.reply.messageIds[0]);
+    const byHost = fakeInteraction({ kind: 'button', user: ALICE_D, channel, customId: `rp:regen:${guestChat.id}`, message: guestAnswer });
+    await t.controller.onInteraction(byHost);
+    assert.match(byHost.answers[0].content, /질문한 사람만/);
+    t.services.replies.next = '게스트용 다시 쓴 답.';
+    await t.controller.onInteraction(fakeInteraction({ kind: 'button', user: GUEST_D, channel, customId: `rp:regen:${guestChat.id}`, message: guestAnswer }));
+    assert.equal(guestAnswer.content, `<@${GUEST_D.id}> 게스트용 다시 쓴 답.`);
+
+    // 게스트 한도: 한 명당 1분에 5번 (지금까지 질문 2 + 다시 쓰기 1).
+    await say(GUEST_D, '넷');
+    await say(GUEST_D, '다섯');
+    const before = guestChat.messages.length;
+    await say(GUEST_D, '여섯');
+    assert.equal(guestChat.messages.length, before, '한도를 넘으면 대화에 넣지 않음');
+    assert.match(channel.sent.at(-1).content, /1분에 5번/);
+
+    // 호스트가 디스코드 연결을 끊으면 게스트 응답은 멈춤. 게스트의 /assistant new 도 같은 규칙.
+    t.services.discordLinks.unlinkDiscord(ALICE_D.id);
+    await say(OTHER_D, '아직 되나요');
+    assert.match(channel.sent.at(-1).content, /\/rp link/);
+    const fresh = fakeInteraction({ command: 'assistant', user: OTHER_D, channel, sub: 'new' });
+    await t.controller.onInteraction(fresh);
+    assert.match(fresh.answers[0].content, /\/rp link/);
+  } finally {
+    await t.stop();
+  }
+});

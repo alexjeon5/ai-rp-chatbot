@@ -264,7 +264,7 @@ data/
   images/<chatId>/       # 장면 그리기로 그린 그림 (대화 권한을 따름)
   uploads/<chatId>/      # 사용자가 메시지에 붙인 그림 (대화 권한을 따름)
   portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
-  discord.json           # 디스코드 연결 { links: { 디스코드 id: { userId, epoch, name, linkedAt } }, codes: { sha256(코드): { userId, expiresAt } }, threads, channels, artSecret }
+  discord.json           # 디스코드 연결 { links: { 디스코드 id: { userId, epoch, name, linkedAt } }, codes: { sha256(코드): { userId, expiresAt } }, threads, channels(guests·hostUserId·users), artSecret }
   admin/requests/, admin/results/  # 계정 명령 ↔ 서버 요청 파일
 ```
 
@@ -534,6 +534,10 @@ data: {"done": true, "message": {...}}   완료
   답은 `mentionSink` 가 질문 메시지에 답장으로 보내며 첫 메시지 앞에 `<@질문한 사람>` 을 붙입니다 — 보낼 때만 알림이 가고, 고칠 때는 멘션을 지키되 다시 울리지 않습니다.
   알림 미리보기에 답의 첫머리가 보이도록 '…' 자리 없이(`ReplyRelay` 의 `placeholder: null`) 보일 글이 처음 생기는 순간 답장하고, 그때까지는 입력 중 표시를 8초마다 다시 켭니다.
   버튼은 누른 사람 자기 자리의 대화 id 와 맞아야 해서(`slotFor`) 남의 답에 달린 버튼은 막힙니다
+- **게스트 모드**(`/assistant on guests:True`): 켠 사람의 앱 계정이 호스트(`channels[id].hostUserId`, `setBy` 는 호스트의 디스코드 id)입니다.
+  `channelSeat` 가 누가 일하는지 정합니다 — 이어 둔 사람은 자기 계정, 아니면 게스트 자리(`users['guest:<디스코드 id>']`)에 호스트 actor.
+  호스트의 디스코드 연결이 지금도 살아 있고 그 계정일 때만 게스트에게 답하므로, 호스트가 연결을 끊으면 멈춥니다.
+  게스트 대화는 호스트 계정의 것이라 제목을 `게스트 · 이름` 으로 붙여 둡니다. 한도는 게스트 몫(`controller.guestLimit`, 한 명당 1분 5번)과 호스트 몫(`limits.generate`)을 둘 다 셉니다
 - 컨트롤러는 스레드와 어시스턴트 채널을 **대화 자리(slot)** 하나로 다룹니다: `{ kind, key, discordUserId, chatId, reply, setReply, forget }`. 메시지를 보낼 곳(place)은 스레드 또는 채널입니다
 - 비주얼 노벨을 켠 대화는 답의 `scene.expression` 표정 그림을 썸네일 카드로, 어시스턴트는 출처를 카드로 붙입니다(`embedsFor`)
 - 어시스턴트 글은 화면 표식 거르기 없이 그대로 보이고, `splitMessage` 는 코드 블록(```) 한가운데서 나뉘면 닫고 같은 언어로 다시 엽니다(`balanceFences`)

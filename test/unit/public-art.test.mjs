@@ -15,7 +15,9 @@ test('서명된 주소만 그림을 줌: 서명이 틀리거나, 지금 쓰는 �
   assert.equal(url.origin + url.pathname, 'https://rp.example/pub/art/c1/p1.png');
   const sig = url.searchParams.get('s');
   assert.equal(pub.pathFor('c1', 'p1.png', sig), '/data/portraits/c1/p1.png');
-  assert.equal(pub.pathFor('c1', 'p1.png', `${sig.slice(0, -1)}A`), null, '서명이 틀림');
+  // 마지막 글자를 늘 다른 글자로 바꿉니다 (원래 A 로 끝나면 A 로 바꿔도 같은 서명이라 64번에 한 번 틀리던 시험).
+  const forged = `${sig.slice(0, -1)}${sig.endsWith('A') ? 'B' : 'A'}`;
+  assert.equal(pub.pathFor('c1', 'p1.png', forged), null, '서명이 틀림');
   assert.equal(pub.pathFor('c1', 'e1.png', sig), null, '다른 파일의 서명');
   assert.equal(pub.pathFor('c1', 'p1.png', ''), null);
   assert.ok(pub.expressionUrl(characters.get('c1'), '기쁨').includes('/e1.png?s='));

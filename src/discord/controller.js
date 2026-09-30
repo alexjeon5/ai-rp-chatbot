@@ -12,6 +12,8 @@
  *   - 버튼은 가장 최근 답변에만 답니다: ◀ n/m ▶ 넘겨보기, 🔄 다시 쓰기, ➡️ 이어 쓰기, 💡 선택지, ✍️ 대신 쓰기, 🎲 판정
  *   - 어시스턴트 채널(/assistant on): 그 채널에 쓴 말은 쓴 사람 계정의 어시스턴트 대화로 가고, 답은 스레드 없이
  *     그 채널에 질문에 대한 답장으로 질문한 사람을 멘션해 올립니다. 버튼은 질문한 사람만 누릅니다
+ *   - 게스트 모드(/assistant on guests:True): 계정을 잇지 않은 사람에게도 켠 사람(호스트)의 계정으로 답합니다.
+ *     게스트마다 대화가 따로이고, 게스트 한 명당 1분에 5번에 호스트 계정의 한도도 함께 셉니다
  *
  * 대화 자리(slot): 스레드(ThreadBindings.slot)와 어시스턴트 채널의 한 사람(ChannelBindings.slot)을 같은 모양으로 다룹니다.
  *   place 는 메시지를 보낼 곳(스레드 또는 채널)입니다.
@@ -20,11 +22,12 @@ import { randomInt } from 'node:crypto';
 import { ChannelType, MessageFlags, ButtonStyle, ComponentType, TextInputStyle, ThreadAutoArchiveDuration, PermissionFlagsBits } from 'discord.js';
 import { AppError } from '../services/errors.js';
 import { fillVars } from '../prompt.js';
-import { userKey } from '../security.js';
+import { userKey, RateLimiter } from '../security.js';
 import { parseNotation, rollDice, formatRoll, formatCheck } from '../../public/js/shared/dice.js';
 import { ReplyRelay, displayText } from './relay.js';
 import { splitMessage } from './split.js';
 import { webhookName } from './webhooks.js';
+import { guestKey } from './bindings.js';
 
 const EPHEMERAL = MessageFlags.Ephemeral;
 const NO_MENTIONS = { parse: [] };
@@ -148,8 +151,12 @@ export class DiscordController {
    *   relay 는 ReplyRelay 에 더 넘길 값 (시험에서 간격·타이머를 바꿉니다). webhooks 가 없으면 늘 봇 이름으로 말합니다.
    *   channels(ChannelBindings) 가 없으면 어시스턴트 채널을 쓰지 않습니다
    */
-  constructor({ services, bindings, channels = null, webhooks = null, relay = {}, log = console }) {
+  constructor({ services, bindings, channels = null, webhooks = null, relay = {}, log = console, guestLimit = null }) {
     Object.assign(this, { services, bindings, channels, webhooks, relayOptions: relay, log });
+    /** 게스트 한 명(디스코드 사용자)의 몫. 호스트 계정의 몫(limits.generate)과 따로 셉니다. */
+    this.guestLimit = guestLimit || new RateLimiter({
+      windowMs: 60_000, max: 5, message: '게스트는 1분에 5번까지 물어볼 수 있습니다. 웹에서 계정을 이어 `/rp link` 하면 내 계정으로 더 쓸 수 있습니다.'
+    });
     /** 뒤에서 도는 자동 기억. 시험이 끝을 기다릴 때 씁니다. */
     this.background = Promise.resolve();
     /** 대화 자리(slot.key) → 받아 둔 선택지·대신 쓰기 초안 { kind, list|text, lastId }. 새 차례가 들어가면 버립니다 */
@@ -166,8 +173,9 @@ export class DiscordController {
     return actor;
   }
 
-  /** 모델을 부르는 일 하나를 요청 한도에 셉니다. 웹과 같은 몫입니다. */
-  spend(actor) {
+  /** 모델을 부르는 일 하나를 요청 한도에 셉니다. 웹과 같은 몫입니다. 게스트 자리면 게스트 몫도 셉니다. */
+  spend(actor, slot = null) {
+    if (slot?.guest && !this.guestLimit.hit(guestKey(slot.discordUserId))) throw new AppError(this.guestLimit.message, 429);
     const limit = this.services.limits.generate;
     if (!limit.hit(userKey(actor))) throw new AppError(limit.message, 429);
   }
@@ -451,21 +459,23 @@ export class DiscordController {
     const sub = i.options.getSubcommand();
     if (sub === 'new') {
       if (!this.channels.get(i.channel.id)) throw new AppError('어시스턴트 채널이 아닙니다. 채널 관리 권한이 있는 사람이 `/assistant on` 으로 켤 수 있습니다.');
-      const actor = this.actorFor(i.user);
-      this.channels.slot(i.channel.id, actor.id, i.user.id).forget();
+      this.channelSeat(i.channel.id, i.user).slot.forget();
       return i.reply({ content: '이 채널에서 새 대화로 시작합니다. 전 대화는 웹의 어시스턴트 채팅 목록에 남아 있습니다.', flags: EPHEMERAL });
     }
     if (!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) throw new AppError('채널 관리 권한이 있는 사람만 켜고 끌 수 있습니다.', 403);
     if (sub === 'on') {
-      this.channels.enable(i.channel.id, { guildId: i.guildId, setBy: i.user.id });
-      return i.reply({
-        content: [
-          '🤖 이 채널은 이제 **어시스턴트 채널**입니다. 여기에 쓰는 말에 AI 어시스턴트가 답하고, 답은 질문한 사람을 멘션해 이 채널에 올립니다.',
-          '각자 이어 둔 앱 계정의 어시스턴트 대화로 이어지므로 앞에 한 말을 기억합니다. 새로 시작하려면 `/assistant new`.',
-          '처음이면 웹의 설정 → 디스코드에서 코드를 받아 `/rp link` 로 계정을 이어 주세요.'
-        ].join('\n'),
-        allowedMentions: NO_MENTIONS
-      });
+      const guests = i.options.getBoolean('guests') ?? false;
+      // 게스트에게는 켠 사람의 계정으로 답하므로, 켜는 사람이 계정을 이어 두어야 합니다.
+      const host = guests ? this.actorFor(i.user) : null;
+      this.channels.enable(i.channel.id, { guildId: i.guildId, setBy: i.user.id, guests, hostUserId: host?.id || null });
+      const lines = [
+        '🤖 이 채널은 이제 **어시스턴트 채널**입니다. 여기에 쓰는 말에 AI 어시스턴트가 답하고, 답은 질문한 사람을 멘션해 이 채널에 올립니다.',
+        '계정을 이어 둔 사람은 자기 앱 계정의 어시스턴트 대화로 이어지므로 앞에 한 말을 기억합니다. 새로 시작하려면 `/assistant new`.'
+      ];
+      lines.push(guests
+        ? `계정을 잇지 않은 사람(게스트)의 질문에는 <@${i.user.id}> 님의 계정으로 답합니다. 게스트 대화와 사용량은 그 계정에 남고, 게스트는 1분에 5번까지 물어볼 수 있습니다.`
+        : '처음이면 웹의 설정 → 디스코드에서 코드를 받아 `/rp link` 로 계정을 이어 주세요.');
+      return i.reply({ content: lines.join('\n'), allowedMentions: NO_MENTIONS });
     }
     if (sub === 'off') {
       const was = this.channels.disable(i.channel.id);
@@ -486,6 +496,24 @@ export class DiscordController {
     slot.setReply({ messageIds: sent.map((m) => m.id), chatMessageId: msg.id, via: sink.via });
   }
 
+  /**
+   * 어시스턴트 채널에서 이 사람이 누구로 일하는지와 대화 자리. 이어 둔 사람은 자기 계정으로,
+   * 아니면 게스트를 허용한 채널에서만 호스트 계정의 게스트 자리로. 호스트가 디스코드 연결을 끊었으면 게스트는 멈춥니다.
+   */
+  channelSeat(channelId, user) {
+    const { discordLinks, setup } = this.services;
+    const linked = discordLinks.actorOf(user.id);
+    if (linked) {
+      setup.ensure(linked);
+      return { actor: linked, slot: this.channels.slot(channelId, linked.id, user.id) };
+    }
+    const channel = this.channels.get(channelId);
+    const host = channel?.guests ? discordLinks.actorOf(channel.setBy) : null;
+    if (!host || host.id !== channel.hostUserId) throw new AppError(NOT_LINKED, 401);
+    setup.ensure(host);
+    return { actor: host, slot: this.channels.slot(channelId, guestKey(user.id), user.id) };
+  }
+
   /** 어시스턴트 채널이면 질문한 사람을 멘션할 정보. 스레드면 null. */
   mentionOf(slot, { replyTo = null, firstId = null } = {}) {
     return slot?.kind === 'channel' ? { userId: slot.discordUserId, replyTo, firstId } : null;
@@ -503,8 +531,7 @@ export class DiscordController {
       return { slot, actor };
     }
     if (this.channels?.get(i.channelId)) {
-      const actor = this.actorFor(i.user);
-      const slot = this.channels.slot(i.channelId, actor.id, i.user.id);
+      const { actor, slot } = this.channelSeat(i.channelId, i.user);
       if (slot.chatId !== chatId) throw new AppError('질문한 사람만 누를 수 있습니다.', 403);
       return { slot, actor };
     }
@@ -567,7 +594,7 @@ export class DiscordController {
       case 'regen':
       case 'cont': {
         this.checkAdult(chat, thread);
-        this.spend(actor);
+        this.spend(actor, slot);
         await i.deferUpdate();
         const reply = slot.reply;
         if (action === 'regen') return this.stream(thread, actor, chatId, { mode: 'regenerate', slot, reuse: reply });
@@ -712,7 +739,7 @@ export class DiscordController {
 
   /**
    * 어시스턴트 채널에 쓴 말. 쓴 사람 계정의 이 채널 대화로 보내고, 그 메시지에 답장으로 멘션해 답합니다.
-   * 대화가 없거나 웹에서 지웠으면 새 어시스턴트 대화를 만듭니다. 누구든 쓸 수 있지만 계정을 이어 둔 사람만 답을 받습니다.
+   * 대화가 없거나 웹에서 지웠으면 새 어시스턴트 대화를 만듭니다. 계정을 이어 둔 사람, 또는 게스트를 허용한 채널의 게스트가 답을 받습니다.
    */
   async onChannelMessage(message) {
     const { author, channel } = message;
@@ -720,12 +747,14 @@ export class DiscordController {
     try {
       const content = String(message.content || '').trim();
       if (!content) return;
-      const actor = this.services.discordLinks.actorOf(author.id);
-      if (!actor) return await warn(NOT_LINKED);
-      this.services.setup.ensure(actor);
+      const { actor, slot } = this.channelSeat(channel.id, author);
       const { access, chats, jobs } = this.services;
-      const slot = this.channels.slot(channel.id, actor.id, author.id);
-      if (!slot.chatId || !access.findChat(actor, slot.chatId)) slot.attach(chats.create(actor, { kind: 'assistant' }).id);
+      if (!slot.chatId || !access.findChat(actor, slot.chatId)) {
+        const chat = chats.create(actor, { kind: 'assistant' });
+        // 게스트 대화는 호스트의 웹 목록에서 누구와 나눈 것인지 알아보게 이름을 붙여 둡니다.
+        if (slot.guest) chats.update(actor, chat.id, { title: `게스트 · ${author.globalName || author.username || author.id}`.slice(0, 60) });
+        slot.attach(chat.id);
+      }
       if (jobs.running.has(slot.chatId)) {
         await message.react('⏳').catch(() => {});
         return;
@@ -745,7 +774,7 @@ export class DiscordController {
     const chat = this.chatOf(actor, slot);
     if (jobs.running.has(chat.id)) throw new AppError('아직 답변을 쓰는 중입니다.');
     this.checkAdult(chat, thread);
-    this.spend(actor);
+    this.spend(actor, slot);
     this.pending.delete(slot.key);
     if (show) await this.postTurn(thread, chat, user, text);
     await chats.addMessage(actor, chat.id, { content: text });

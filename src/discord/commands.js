@@ -57,7 +57,10 @@ export const ASSISTANT_COMMAND = {
   description: '어시스턴트 채널: 이 채널에 쓰는 말에 AI 어시스턴트가 답합니다',
   contexts: [0],
   options: [
-    { type: SUB, name: 'on', description: '이 채널을 어시스턴트 채널로 씁니다 (채널 관리 권한)' },
+    {
+      type: SUB, name: 'on', description: '이 채널을 어시스턴트 채널로 씁니다 (채널 관리 권한)',
+      options: [{ type: BOOLEAN, name: 'guests', description: '계정을 잇지 않은 사람에게도 내 계정으로 답할지 (기본: 아니오)' }]
+    },
     { type: SUB, name: 'off', description: '어시스턴트 채널을 끕니다 (채널 관리 권한)' },
     { type: SUB, name: 'new', description: '이 채널에서 내 대화를 새로 시작합니다 (전 대화는 웹에 남음)' }
   ]

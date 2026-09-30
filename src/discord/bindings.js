@@ -66,8 +66,10 @@ export class ThreadBindings {
 
 /**
  * 어시스턴트 채널: 그 채널에 쓰는 말을 어시스턴트에게 보냅니다. 스레드 없이 그 채널에 답합니다. data/discord.json 의 channels 에 둡니다.
- *   channels  채널 id → { guildId, setBy, setAt, users }
+ *   channels  채널 id → { guildId, setBy, setAt, guests, hostUserId, users }
  *   users     앱 계정 id → { chatId, discordUserId, reply }   사람마다 자기 계정의 어시스턴트 대화가 따로 이어집니다
+ *             'guest:<디스코드 id>' → 게스트(계정을 잇지 않은 사람)의 대화. 대화는 호스트(켠 사람) 계정의 것입니다
+ *   guests    게스트에게도 답할지. hostUserId 는 그때 답할 호스트 앱 계정, setBy 는 호스트의 디스코드 id
  */
 export class ChannelBindings {
   /** @param {import('../db.js').JsonDoc} doc store.discordDoc */
@@ -83,10 +85,10 @@ export class ChannelBindings {
     return this.channels[channelId] || null;
   }
 
-  /** 켭니다. 이미 켜져 있으면 사람들의 대화는 그대로 두고 켠 사람·시각만 바꿉니다. */
-  enable(channelId, { guildId, setBy }) {
+  /** 켭니다. 이미 켜져 있으면 사람들의 대화는 그대로 두고 켠 사람·시각·게스트 설정만 바꿉니다. */
+  enable(channelId, { guildId, setBy, guests = false, hostUserId = null }) {
     const channel = (this.channels[channelId] ||= { users: {} });
-    Object.assign(channel, { guildId, setBy, setAt: Date.now() });
+    Object.assign(channel, { guildId, setBy, setAt: Date.now(), guests: Boolean(guests && hostUserId), hostUserId: guests ? hostUserId : null });
     channel.users ||= {};
     this.doc.save();
     return channel;
@@ -100,7 +102,10 @@ export class ChannelBindings {
     return true;
   }
 
-  /** 이 채널에서 이 사람의 대화 자리 (ThreadBindings.slot 과 같은 모양, attach 가 더 있음). 꺼진 채널이면 null. */
+  /**
+   * 이 채널에서 이 사람의 대화 자리 (ThreadBindings.slot 과 같은 모양, attach 가 더 있음). 꺼진 채널이면 null.
+   * userId 는 앱 계정 id, 게스트면 'guest:<디스코드 id>' 입니다 (guestKey).
+   */
   slot(channelId, userId, discordUserId) {
     const channel = this.get(channelId);
     if (!channel) return null;
@@ -108,6 +113,7 @@ export class ChannelBindings {
     return {
       kind: 'channel',
       key: `${channelId}:${userId}`,
+      guest: String(userId).startsWith('guest:'),
       get discordUserId() { return entry()?.discordUserId || discordUserId; },
       get chatId() { return entry()?.chatId || null; },
       get reply() { return entry()?.reply || null; },
@@ -129,3 +135,6 @@ export class ChannelBindings {
     };
   }
 }
+
+/** 게스트 자리의 열쇠. */
+export const guestKey = (discordUserId) => `guest:${discordUserId}`;
