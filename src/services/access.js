@@ -71,6 +71,15 @@ export class Access {
     return this.collectionOf(kind).all().filter((item) => this.policy.allows(actor, item));
   }
 
+  /**
+   * 새 항목에 주인을 적습니다. ownerId 를 쓰는 곳은 여기뿐입니다 — API 로 받은 값은 어디서도 ownerId 로 옮기지 않습니다.
+   * actor 가 없으면(부팅 때 넣는 기본 항목) 그대로 두고, 나중에 마이그레이션이 주인을 정합니다.
+   */
+  stamp(actor, item) {
+    if (actor?.id) item.ownerId = actor.id;
+    return item;
+  }
+
   /** 이 항목의 주인. 대화에 딸린 캐릭터·로어북처럼 '그 대화의 주인이 볼 수 있는 것'을 찾을 때 씁니다. */
   ownerOf(item) {
     return { id: item?.ownerId ?? null };

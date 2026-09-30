@@ -32,7 +32,7 @@ export class CharacterCards {
    */
   async import(actor, payload) {
     const { character: added, book, dropped } = parseCard(this.decode(payload));
-    let character = this.store.characters.add(added);
+    let character = this.store.characters.add(this.access.stamp(actor, added));
 
     const picture = this.pictureOf(payload);
     if (picture) {
@@ -49,7 +49,7 @@ export class CharacterCards {
     if (clean?.entries?.length) {
       if (this.access.lorebooks(actor).length >= LORE_LIMITS.books) dropped.push('세계관 (설정집이 너무 많아 넣지 못함)');
       else {
-        lorebook = this.store.lorebooks.add({ description: '', global: false, ...clean, characterIds: [character.id] });
+        lorebook = this.store.lorebooks.add(this.access.stamp(actor, { description: '', global: false, ...clean, characterIds: [character.id] }));
       }
     }
     return { character, lorebook, dropped };

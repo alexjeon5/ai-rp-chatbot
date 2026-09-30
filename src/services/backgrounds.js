@@ -58,7 +58,7 @@ export class Backgrounds {
       await this.files.remove(same.id, same.file);
       return this.store.backgrounds.update(same.id, { file });
     }
-    const item = this.store.backgrounds.add({ name: label, file: '' });
+    const item = this.store.backgrounds.add(this.access.stamp(actor, { name: label, file: '' }));
     const { file } = await this.files.save(item.id, buffer, kind.ext);
     return this.store.backgrounds.update(item.id, { file });
   }

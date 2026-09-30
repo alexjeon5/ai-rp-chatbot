@@ -52,9 +52,9 @@ export class Chats {
   create(actor, body) {
     const s = this.store.settings;
     if (body?.kind === 'assistant') {
-      return this.collection.add({
+      return this.collection.add(this.access.stamp(actor, {
         kind: 'assistant', characterId: null, personaId: null, title: '새 채팅', updatedAt: Date.now(), messages: []
-      });
+      }));
     }
     // 1회성 캐릭터는 목록에 넣지 않고 대화 안에 그대로 담습니다.
     const inline = body?.character;
@@ -82,7 +82,7 @@ export class Chats {
         at: Date.now()
       });
     }
-    return this.collection.add(chat);
+    return this.collection.add(this.access.stamp(actor, chat));
   }
 
   /** 제목·페르소나·모드·기억·작가 노트·기능 스위치·보관·붙인 로어북·등장인물을 고칩니다. 준 칸만 바꿉니다. */
@@ -124,7 +124,7 @@ export class Chats {
     const chat = this.access.chat(actor, id);
     const made = branchFrom(chat, String(messageId || ''));
     if (!made) throw new NotFound('없는 메시지입니다.');
-    const added = this.collection.add(made.chat);
+    const added = this.collection.add(this.access.stamp(actor, made.chat));
     await Promise.all([
       this.images.copyAll(chat.id, added.id, made.files),
       this.attachments.copyAll(chat.id, added.id, made.attachmentFiles)
@@ -214,7 +214,7 @@ export class Chats {
   saveCharacter(actor, id) {
     const chat = this.access.findChat(actor, id);
     if (!chat?.character) throw new AppError('1회성 캐릭터가 아닙니다.');
-    const saved = this.store.characters.add({ ...chat.character, id: undefined });
+    const saved = this.store.characters.add(this.access.stamp(actor, { ...chat.character, id: undefined }));
     chat.characterId = saved.id;
     delete chat.character;
     this.collection.save(chat.id);

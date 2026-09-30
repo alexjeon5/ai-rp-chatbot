@@ -26,7 +26,7 @@ export class Shelf {
     const draft = {};
     for (const f of this.fields) draft[f] = body?.[f] ?? '';
     if (!String(draft.name ?? '').trim()) throw new AppError('이름을 입력해 주세요.');
-    return this.collection.add(this.normalize(draft));
+    return this.collection.add(this.access.stamp(actor, this.normalize(draft)));
   }
 
   /** 준 칸만 고칩니다. */
@@ -56,9 +56,9 @@ export class Library {
     this.personas = new Shelf(access, 'persona', { fields: PERSONA_FIELDS, normalize: normalizePersona });
   }
 
-  /** 내장 캐릭터 중 아직 없는 것만 추가합니다. 기존 캐릭터는 손대지 않습니다. */
+  /** actor 의 캐릭터 중에 아직 없는 내장 캐릭터만 추가합니다. 기존 캐릭터는 손대지 않습니다. */
   addMissingBuiltins(actor) {
-    const added = this.store.addMissingBuiltins();
+    const added = this.store.addMissingBuiltins(this.characters.list(actor), (c) => this.access.stamp(actor, c));
     return { added, characters: this.characters.list(actor) };
   }
 

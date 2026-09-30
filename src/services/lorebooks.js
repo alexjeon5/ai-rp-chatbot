@@ -22,7 +22,7 @@ export class LoreBooks {
     if (this.list(actor).length >= LORE_LIMITS.books) throw new AppError('로어북이 너무 많습니다.');
     const clean = cleanLorebook(body || {});
     if (!clean.name) throw new AppError('이름을 입력해 주세요.');
-    return this.store.lorebooks.add({ description: '', global: false, characterIds: [], entries: [], ...clean });
+    return this.store.lorebooks.add(this.access.stamp(actor, { description: '', global: false, characterIds: [], entries: [], ...clean }));
   }
 
   update(actor, id, body) {

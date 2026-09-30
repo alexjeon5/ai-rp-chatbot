@@ -148,7 +148,8 @@ export class Backup {
         continue;
       }
       if (Number.isFinite(raw.createdAt)) item.createdAt = raw.createdAt;
-      collection.add(item);
+      // 백업에 적힌 ownerId 는 믿지 않습니다. 불러온 사람의 항목이 됩니다.
+      collection.add(this.access.stamp(actor, item));
       added += 1;
     }
     return { added, skipped };

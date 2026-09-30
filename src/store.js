@@ -256,13 +256,17 @@ export class Store {
     return synced;
   }
 
-  /** 아직 없는 내장 캐릭터만 추가합니다. 이름을 바꿨더라도 builtin 표시로 알아보고 건너뜁니다. */
-  addMissingBuiltins() {
-    const present = new Set(this.characters.all().map((c) => c.builtin).filter(Boolean));
+  /**
+   * 아직 없는 내장 캐릭터만 추가합니다. 이름을 바꿨더라도 builtin 표시로 알아보고 건너뜁니다.
+   * @param {object[]} existing 비교할 캐릭터들 (한 계정의 캐릭터). 기본은 전부
+   * @param {(c) => object} [prepare] 넣기 전에 손볼 것 (주인 적기)
+   */
+  addMissingBuiltins(existing = this.characters.all(), prepare = (c) => c) {
+    const present = new Set(existing.map((c) => c.builtin).filter(Boolean));
     let added = 0;
     for (const c of BUILTIN_CHARACTERS) {
       if (present.has(c.name)) continue;
-      this.characters.add({ ...c, builtin: c.name, builtinSig: characterSig(c) });
+      this.characters.add(prepare({ ...c, builtin: c.name, builtinSig: characterSig(c) }));
       added += 1;
     }
     return added;
