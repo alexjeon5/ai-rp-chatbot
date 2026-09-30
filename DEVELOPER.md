@@ -527,6 +527,7 @@ data: {"done": true, "message": {...}}   완료
 - **공개 그림**(`PublicArt`, `GET /pub/art/:id/:file?s=`): 디스코드는 우리 서버에 로그인할 수 없어 서명한 주소로 그림을 넘깁니다. `HMAC-SHA256(비밀, "art:<id>/<file>")` 16바이트,
   비밀은 `PUBLIC_ART_SECRET` 또는 `discord.json` 의 `artSecret`. 서명이 맞고 그 파일이 **지금** 그 캐릭터의 프로필·표정일 때만 보냅니다(`Cache-Control: public`).
   `PUBLIC_BASE_URL` 이 없으면 주소를 만들지 않고 아바타 없이 이름만 씁니다. 계정 없이 오는 요청이라 `access.test.mjs` 의 직접 읽기 금지에서 이 파일만 뺐습니다
+- `/rp start` 는 첫 대사 앞에 봇 이름으로 캐릭터 소개 카드를 올립니다(`postIntro`: `description`·`tags`·대화 모드·페르소나·`scenario`, 이름 자리표시자는 채움, 프로필 그림 썸네일)
 - 비주얼 노벨을 켠 대화는 답의 `scene.expression` 표정 그림을 썸네일 카드로, 어시스턴트는 출처를 카드로 붙입니다(`embedsFor`)
 - 어시스턴트 글은 화면 표식 거르기 없이 그대로 보이고, `splitMessage` 는 코드 블록(```) 한가운데서 나뉘면 닫고 같은 언어로 다시 엽니다(`balanceFences`)
 - 성인 모드는 연령 제한 채널(스레드는 부모 채널)에서만 — `/rp start` 와 말할 때마다 봅니다. 엔진 쪽 허용(`adultAllowed`)은 `Replies` 가 그대로 봅니다

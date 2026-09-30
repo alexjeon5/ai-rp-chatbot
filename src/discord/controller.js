@@ -14,6 +14,7 @@
 import { randomInt } from 'node:crypto';
 import { ChannelType, MessageFlags, ButtonStyle, ComponentType, TextInputStyle, ThreadAutoArchiveDuration } from 'discord.js';
 import { AppError } from '../services/errors.js';
+import { fillVars } from '../prompt.js';
 import { userKey } from '../security.js';
 import { parseNotation, rollDice, formatRoll, formatCheck } from '../../public/js/shared/dice.js';
 import { ReplyRelay, displayText } from './relay.js';
@@ -209,6 +210,37 @@ export class DiscordController {
     return embeds;
   }
 
+  /**
+   * 스레드를 열 때 첫 대사 앞에 올리는 캐릭터 소개 카드. 봇 이름으로 보냅니다(캐릭터의 말이 아니라 안내라서).
+   * 한 줄 소개, 태그·대화 모드·내 페르소나, 시작 상황, 프로필 그림. 이름 자리표시자는 채워서 보입니다.
+   */
+  async postIntro(thread, chat, user) {
+    const { context, publicArt } = this.services;
+    const character = context.characterOf(chat);
+    if (!character) return;
+    const persona = this.speakerName(chat, user);
+    const fill = (text) => fillVars(String(text || ''), {
+      char: character.name, user: persona, particleFix: context.settingsOf(chat).dev?.particleFix
+    }).trim();
+    const preset = context.presetOf(chat);
+    const field = (name, value) => (value ? [{ name, value: String(value).slice(0, 1024), inline: true }] : []);
+    const scenario = fill(character.scenario);
+    const card = {
+      title: `${character.avatar ? `${character.avatar} ` : ''}${character.name}`.slice(0, 256),
+      description: fill(character.description).slice(0, 4096) || undefined,
+      fields: [
+        ...field('태그', character.tags),
+        ...field('대화 모드', preset ? `${preset.name}${preset.adult ? ' (성인)' : ''}` : ''),
+        ...field('나', persona),
+        ...(scenario ? [{ name: '시작 상황', value: scenario.slice(0, 1024) }] : [])
+      ],
+      footer: { text: '스레드를 연 사람만 말할 수 있습니다 · 버튼은 가장 최근 답변에 붙습니다' }
+    };
+    const portrait = publicArt?.portraitUrl(character);
+    if (portrait) card.thumbnail = { url: portrait };
+    await thread.send({ embeds: [card], allowedMentions: NO_MENTIONS }).catch((e) => this.log.error(e));
+  }
+
   /** 내 차례를 스레드에 보입니다. 직접 쓴 말이 아니라 버튼·명령으로 넣은 차례(선택지·초안·주사위·질문)에만 씁니다. */
   async postTurn(thread, chat, user, text) {
     const name = this.speakerName(chat, user);
@@ -341,6 +373,7 @@ export class DiscordController {
     const chat = chats.create(actor, { characterId: character.id, personaId, presetId: preset.id });
     const { thread } = await this.openThread(i, actor, chat, { name: chat.title || character.name, privateThread: i.options.getBoolean('private') ?? true });
 
+    await this.postIntro(thread, chat, i.user);
     const greeting = chat.messages[chat.messages.length - 1];
     if (greeting?.role === 'assistant') await this.showReply(thread, chat, greeting);
     await i.editReply({ content: `<#${thread.id}> 에서 **${character.name}** 와(과) 대화를 시작하세요.` });

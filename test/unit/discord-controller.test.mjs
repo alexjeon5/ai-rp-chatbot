@@ -24,9 +24,9 @@ const STRANGER_D = { id: '100000000000000009', username: 'stranger' };
 const quiet = { error() {}, warn() {}, log() {} };
 
 let seq = 0;
-function fakeMessage(channel, { content, components = [], author }) {
+function fakeMessage(channel, { content, components = [], embeds, author }) {
   const msg = {
-    id: `dm${++seq}`, content, components, author, channel, channelId: channel.id, deleted: false, reactions: [],
+    id: `dm${++seq}`, content, components, embeds, author, channel, channelId: channel.id, deleted: false, reactions: [],
     edit: async (patch) => { Object.assign(msg, patch); return msg; },
     delete: async () => { msg.deleted = true; },
     react: async (emoji) => { msg.reactions.push(emoji); }
@@ -220,9 +220,16 @@ test('/rp start: 비공개 스레드를 열고 주인을 초대하고, 첫 대�
     const chat = t.services.store.chats.get(binding.chatId);
     assert.equal(chat.ownerId, 'alice01', '대화는 이어진 앱 계정의 것');
     assert.equal(chat.characterId, hero.id);
-    assert.equal(thread.sent.length, 1);
-    assert.equal(thread.sent[0].components[0].components.length, 2, '다시 쓰기·이어 쓰기');
-    assert.deepEqual(binding.reply.messageIds, [thread.sent[0].id]);
+    assert.equal(thread.sent.length, 2, '소개 카드와 첫 대사');
+    const [intro, greeting] = thread.sent;
+    const card = intro.embeds[0];
+    assert.equal(card.title, `${hero.avatar} ${hero.name}`);
+    assert.ok(card.description && !card.description.includes('{{'), '한 줄 소개, 자리표시자는 채움');
+    assert.deepEqual(card.fields.map((f) => f.name), ['태그', '대화 모드', '나', '시작 상황'].filter((n) => n !== '태그' || hero.tags).filter((n) => n !== '시작 상황' || hero.scenario));
+    assert.equal(card.fields.find((f) => f.name === '나').value, '나');
+    assert.deepEqual(intro.components, [], '소개 카드에는 버튼이 없음');
+    assert.equal(greeting.components[0].components.length, 2, '다시 쓰기·이어 쓰기');
+    assert.deepEqual(binding.reply.messageIds, [greeting.id]);
     assert.match(i.answers.at(-1).content, new RegExp(`<#${thread.id}>`));
 
     const open = await started(t, { values: { private: false } });
@@ -251,7 +258,7 @@ test('스레드에서는 주인의 말만 대화에 들어가고, 답은 메시�
     assert.equal(reply.content, '어서 와요. (new 1)');
     assert.equal(reply.components[0].components.length, 2, '다시 쓰기·이어 쓰기');
     assert.equal(reply.components[1].components.length, 2, '선택지·대신 쓰기');
-    assert.deepEqual(thread.sent[0].components, [], '앞 답변의 버튼은 뗌');
+    assert.deepEqual(thread.sent[1].components, [], '앞 답변(첫 대사)의 버튼은 뗌');
     assert.deepEqual(t.bindings.get(thread.id).reply, { messageIds: [reply.id], chatMessageId: chat.messages.at(-1).id, via: 'bot' });
     await t.controller.background;
     assert.ok(t.services.replies.calls.some((c) => c.facts) && t.services.replies.calls.some((c) => c.summary), '답 뒤에 자동 기억');
@@ -266,7 +273,7 @@ test('버튼: 주인만, 가장 최근 답변에서만. 다시 쓰기는 같은 
     const { thread } = await started(t);
     const { chatId } = t.bindings.get(thread.id);
     const chat = t.services.store.chats.get(chatId);
-    const greeting = thread.sent[0];
+    const greeting = thread.sent[1];
     const press = (action, message = greeting, user = ALICE_D) =>
       fakeInteraction({ kind: 'button', user, channel: thread, customId: `rp:${action}:${chatId}`, message });
 
@@ -284,7 +291,7 @@ test('버튼: 주인만, 가장 최근 답변에서만. 다시 쓰기는 같은 
 
     await t.controller.onInteraction(press('regen'));
     assert.equal(greeting.content, '어서 와요. (regenerate 2)', '같은 메시지를 고쳐 씀');
-    assert.equal(thread.sent.filter((m) => !m.deleted).length, 1);
+    assert.equal(thread.sent.filter((m) => !m.deleted).length, 2, '소개 카드와 고쳐 쓴 첫 대사뿐');
     const nav = greeting.components[0].components.map((b) => b.label || b.emoji?.name);
     assert.deepEqual(nav.slice(0, 3), ['◀', '2/2', '▶']);
 
@@ -318,7 +325,7 @@ test('💡 선택지: 나만 보는 번호 버튼, 고르면 내 차례로 보�
     const { thread } = await started(t);
     const { chatId } = t.bindings.get(thread.id);
     const chat = t.services.store.chats.get(chatId);
-    const offer = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:choices:${chatId}`, message: thread.sent[0] });
+    const offer = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:choices:${chatId}`, message: thread.sent[1] });
     await t.controller.onInteraction(offer);
     assert.match(offer.answers.at(-1).content, /1\.\*\* 문을 연다/);
     assert.equal(offer.answers.at(-1).components[0].components.length, 2);
@@ -327,7 +334,7 @@ test('💡 선택지: 나만 보는 번호 버튼, 고르면 내 차례로 보�
     await t.controller.onInteraction(pick);
     const mine = chat.messages.at(-2);
     assert.match(mine.content, /^설득해 본다\.\n🎲 설득 판정 \(d20, 난이도 12\): \d+ — /);
-    assert.ok(thread.sent.some((m) => m.content.startsWith('**나** ▸ 설득해 본다.')), '고른 차례를 페르소나 이름으로 보임');
+    assert.ok(thread.sent.some((m) => m.content?.startsWith('**나** ▸ 설득해 본다.')), '고른 차례를 페르소나 이름으로 보임');
     assert.equal(chat.messages.at(-1).role, 'assistant');
 
     const stale = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:pick:${chatId}:0` });
@@ -402,7 +409,9 @@ test('웹훅: 롤플레이 답은 캐릭터 이름·서명된 프로필 주소�
     const channel = fakeChannel();
     await t.controller.onInteraction(fakeInteraction({ user: ALICE_D, channel, sub: 'start', values: { character: hero.id } }));
     const thread = channel.created[0];
-    const greeting = thread.sent[0];
+    const [intro, greeting] = thread.sent;
+    assert.equal(intro.webhook, undefined, '소개 카드는 봇 이름으로');
+    assert.match(intro.embeds[0].thumbnail.url, /\/pub\/art\/[^/]+\/p1\.png\?s=/, '프로필 그림 썸네일');
     assert.equal(greeting.webhook.username, hero.name);
     assert.match(greeting.webhook.avatarURL, new RegExp(`^https://rp\\.example/pub/art/${hero.id}/p1\\.png\\?s=`));
     assert.equal(t.bindings.get(thread.id).reply.via, 'webhook');
