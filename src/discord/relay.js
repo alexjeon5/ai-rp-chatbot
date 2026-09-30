@@ -25,9 +25,16 @@ export class ReplyRelay {
    * @param {number} [o.limit] 한 메시지 길이
    * @param {{ set: typeof setTimeout, clear: typeof clearTimeout }} [o.timers]
    * @param {(raw: string) => string} [o.display] 모델이 쓴 글 → 보여 줄 글. 기본은 화면 표식을 떼는 displayText
+   * @param {string|null} [o.placeholder] 글이 오기 전에 보일 자리. null 이면 자리 없이 기다렸다가, 보일 글이 생기는 대로 곧바로 보냅니다
+   *   (어시스턴트 채널: 멘션 알림 미리보기에 '…' 대신 답의 첫머리가 보이게)
+   * @param {() => void} [o.onFirst] 첫 메시지를 보냈을 때 한 번
    */
-  constructor({ sink, handles = [], liveComponents = [], interval = 1200, limit = CHUNK_LIMIT, timers = { set: setTimeout, clear: clearTimeout }, display = displayText }) {
-    Object.assign(this, { sink, liveComponents, interval, limit, timers, display });
+  constructor({
+    sink, handles = [], liveComponents = [], interval = 1200, limit = CHUNK_LIMIT,
+    timers = { set: setTimeout, clear: clearTimeout }, display = displayText, placeholder = PLACEHOLDER, onFirst = () => {}
+  }) {
+    Object.assign(this, { sink, liveComponents, interval, limit, timers, display, placeholder, onFirst });
+    this.shownFirst = handles.length > 0;
     this.handles = [...handles];
     this.shown = this.handles.map(() => null);
     this.raw = '';
@@ -45,6 +52,14 @@ export class ReplyRelay {
   push(delta) {
     if (this.closed || !delta) return;
     this.raw += delta;
+    // 자리 없이 기다리는 중이면, 보일 글이 처음 생긴 순간 간격을 기다리지 않고 보냅니다.
+    if (this.placeholder === null && !this.shownFirst && this.text) {
+      this.shownFirst = true;
+      if (this.timer) this.timers.clear(this.timer);
+      this.timer = null;
+      this.queue(false);
+      return;
+    }
     if (this.timer) return;
     this.timer = this.timers.set(() => {
       this.timer = null;
@@ -84,7 +99,9 @@ export class ReplyRelay {
 
   async sync(final, components, embeds) {
     const text = this.text;
-    const chunks = text ? splitMessage(text, this.limit) : final ? [] : [PLACEHOLDER];
+    const chunks = text ? splitMessage(text, this.limit) : final || this.placeholder === null ? [] : [this.placeholder];
+    // 자리 없이 기다리는 중에는 보일 글이 없으면 아무것도 건드리지 않습니다(다시 쓰기의 지금 메시지도 그대로).
+    if (!final && !chunks.length) return;
     for (let i = 0; i < chunks.length; i += 1) {
       const last = i === chunks.length - 1;
       const comps = last ? (final ? components : this.liveComponents) : [];
@@ -92,6 +109,7 @@ export class ReplyRelay {
       const key = `${chunks[i]}\u0000${JSON.stringify(comps)}\u0000${JSON.stringify(extra)}`;
       if (!this.handles[i]) {
         this.handles[i] = await this.sink.send(chunks[i], comps, extra);
+        if (i === 0) this.onFirst();
       } else if (this.shown[i] !== key) {
         await this.sink.edit(this.handles[i], chunks[i], comps, extra);
       }

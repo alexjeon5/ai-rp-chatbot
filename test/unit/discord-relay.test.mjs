@@ -92,3 +92,29 @@ test('splitMessage: 코드 블록 한가운데서 나뉘면 닫고 같은 언어
   for (const p of parts) assert.equal((p.match(/```/g) || []).length % 2, 0, '조각마다 열고 닫힘이 짝');
   assert.ok(parts[1].startsWith('```js\n'));
 });
+
+test('ReplyRelay 자리 없이(placeholder: null): 글이 오기 전엔 아무것도 안 보내고, 보일 글이 생기면 간격을 기다리지 않고 바로 보냄', async () => {
+  const { sink, log, timers, tick } = fakes();
+  let first = 0;
+  const relay = new ReplyRelay({ sink, timers, placeholder: null, onFirst: () => { first += 1; } });
+  await relay.begin();
+  assert.equal(log.length, 0, '자리 표시를 보내지 않음');
+  relay.push('[[표정');
+  await relay.chain;
+  assert.equal(log.length, 0, '보일 글이 없으면(닫히지 않은 표식) 아직 보내지 않음');
+  relay.push(': 기쁨]]안녕');
+  await relay.chain;
+  assert.deepEqual(log.at(-1), ['send', 'm1', '안녕', 0], '타이머 없이 바로');
+  assert.equal(first, 1);
+  relay.push('하세요');
+  assert.equal(log.length, 1, '그다음부터는 간격대로');
+  tick();
+  await relay.chain;
+  assert.deepEqual(log.at(-1), ['edit', 'm1', '안녕하세요', 0]);
+  await relay.finish();
+  assert.equal(first, 1);
+
+  const empty = new ReplyRelay({ sink, timers, placeholder: null });
+  await empty.begin();
+  assert.deepEqual(await empty.finish(), [], '끝까지 글이 없으면 보낸 것도 없음');
+});

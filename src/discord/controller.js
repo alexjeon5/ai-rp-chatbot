@@ -762,12 +762,18 @@ export class DiscordController {
     const { chats, replies } = this.services;
     const chat = chats.get(actor, chatId);
     const assistant = chat.kind === 'assistant';
-    await thread.sendTyping?.().catch(() => {});
+    const typing = () => thread.sendTyping?.().catch(() => {});
+    await typing();
     const mention = this.mentionOf(slot, { replyTo, firstId: (reuse || keep)?.messageIds?.[0] });
     const sink = await this.speaker(thread, chat, (reuse || keep)?.via, mention);
+    // 어시스턴트 채널은 '…' 자리 없이 첫 조각이 온 뒤에 답장합니다(멘션 알림에 답의 첫머리가 보이게).
+    // 그동안은 입력 중 표시를 켜 둡니다(디스코드는 10초 뒤 저절로 끄므로 8초마다 다시).
+    const waiting = mention ? setInterval(typing, 8000) : null;
+    const stopWaiting = () => clearInterval(waiting);
     const relay = new ReplyRelay({
       sink, handles: (reuse?.messageIds || []).map((id) => ({ id })), liveComponents: liveButtons(chatId), ...this.relayOptions,
-      display: assistant ? plainText : displayText
+      display: assistant ? plainText : displayText,
+      ...(mention ? { placeholder: null, onFirst: stopWaiting } : {})
     });
     let begun = false;
     const errors = [];
@@ -788,9 +794,11 @@ export class DiscordController {
         }
       });
     } catch (e) {
+      stopWaiting();
       if (begun) await relay.finish();
       throw e;
     }
+    stopWaiting();
     const sent = await relay.finish({
       components: saved ? replyComponents(chat, saved) : [],
       embeds: saved ? this.embedsFor(chat, saved, sources) : []

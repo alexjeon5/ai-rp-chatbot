@@ -586,6 +586,7 @@ test('어시스턴트 채널: 켜기는 채널 관리 권한, 쓴 말에 스레�
     const answer = channel.sent.at(-1);
     assert.equal(answer.replyTo, question.id, '질문에 대한 답장');
     assert.equal(answer.content, `<@${ALICE_D.id}> 첫 답입니다.`, '질문한 사람을 멘션');
+    assert.ok(!channel.sent.some((m) => m.content?.includes('…')), "'…' 자리 없이 첫 조각이 온 뒤에 답장");
     assert.deepEqual(answer.allowedMentions.users, [ALICE_D.id], '멘션은 질문한 사람만 (고쳐 써도 유지)');
     assert.equal(answer.webhook, undefined, '어시스턴트는 봇 이름으로');
     assert.equal(answer.components.length, 1, '다시 쓰기·이어 쓰기');

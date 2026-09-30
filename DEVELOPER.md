@@ -532,6 +532,7 @@ data: {"done": true, "message": {...}}   완료
 - **어시스턴트 채널**(`/assistant on`, 채널 관리 권한은 `interaction.memberPermissions` 로 봄): 그 채널(스레드 아님)의 메시지는 `onChannelMessage` 가 받습니다.
   `ChannelBindings`(`data/discord.json` 의 `channels`)가 채널 × 앱 계정마다 어시스턴트 대화 하나를 기억하고, 없거나 웹에서 지웠으면 새로 만듭니다(`/assistant new` 는 자리를 비움).
   답은 `mentionSink` 가 질문 메시지에 답장으로 보내며 첫 메시지 앞에 `<@질문한 사람>` 을 붙입니다 — 보낼 때만 알림이 가고, 고칠 때는 멘션을 지키되 다시 울리지 않습니다.
+  알림 미리보기에 답의 첫머리가 보이도록 '…' 자리 없이(`ReplyRelay` 의 `placeholder: null`) 보일 글이 처음 생기는 순간 답장하고, 그때까지는 입력 중 표시를 8초마다 다시 켭니다.
   버튼은 누른 사람 자기 자리의 대화 id 와 맞아야 해서(`slotFor`) 남의 답에 달린 버튼은 막힙니다
 - 컨트롤러는 스레드와 어시스턴트 채널을 **대화 자리(slot)** 하나로 다룹니다: `{ kind, key, discordUserId, chatId, reply, setReply, forget }`. 메시지를 보낼 곳(place)은 스레드 또는 채널입니다
 - 비주얼 노벨을 켠 대화는 답의 `scene.expression` 표정 그림을 썸네일 카드로, 어시스턴트는 출처를 카드로 붙입니다(`embedsFor`)
