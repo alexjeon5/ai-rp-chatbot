@@ -12,15 +12,16 @@ export class Jobs {
     this.background.get(chatId)?.abort();
   }
 
-  /** 뒤에서 돌 작업의 컨트롤러. 같은 대화에서 돌던 것은 멈추고, 응답이 끊기면 이것도 멈춥니다. */
-  backgroundFor(chatId, res) {
+  /**
+   * 뒤에서 돌 작업의 컨트롤러. 같은 대화에서 돌던 것은 멈추고, signal 이 끊기면(창을 닫음) 이것도 멈춥니다.
+   * 일을 마치면(멈췄어도) release 를 불러 주세요.
+   */
+  backgroundFor(chatId, signal) {
     this.pauseBackground(chatId);
     const controller = new AbortController();
     this.background.set(chatId, controller);
-    res.on('close', () => {
-      this.release(chatId, controller);
-      if (!res.writableFinished) controller.abort();
-    });
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener('abort', () => controller.abort(), { once: true });
     return controller;
   }
 

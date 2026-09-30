@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extractDirectives, stripForDisplay, matchLabel, parseCheck, resolveScene, sceneTags } from '../../public/js/shared/scene-tags.js';
 import { sceneBlock } from '../../src/scene-prompt.js';
-import { GenerationRoutes } from '../../src/http/routes/generation.js';
+import { Replies } from '../../src/services/replies.js';
 import { showSwipe, branchFrom } from '../../src/chat-ops.js';
 
 test('extractDirectives: 표식을 뽑고 본문에서 지우며, 같은 표식은 마지막이 이김', () => {
@@ -54,12 +54,12 @@ test('sceneBlock: 고를 이름이 있는 표식만 요청하고, 아무것도 �
   assert.doesNotMatch(sceneBlock({ name: '리아', expressions: ['기본'] }), /장소/);
 });
 
-const routes = () => new GenerationRoutes({ store: { chats: { save() {} } } });
+const replies = () => new Replies({ store: { chats: { save() {} } } });
 const names = { expressions: ['기본', '기쁨'], places: ['교실'] };
 
 test('saveReply: 표식을 떼어 msg.scene 에 두고, 다른 버전(swipe)마다 따로 가짐', () => {
   const chat = { id: 'c', messages: [] };
-  const g = routes();
+  const g = replies();
   const first = g.saveReply(chat, { mode: 'new', text: '[[표정: 기쁨]] [[장소: 교실]]\n안녕', thought: '', sources: [], provider: 'p', config: { model: 'm' }, names });
   assert.equal(first.content, '안녕');
   assert.deepEqual(first.scene, { expression: '기쁨', place: '교실' });
@@ -75,7 +75,7 @@ test('saveReply: 표식을 떼어 msg.scene 에 두고, 다른 버전(swipe)마�
 
 test('saveReply: 표식만 있는 답변은 저장하지 않고, 표식이 꺼진 대화는 글을 그대로 둠', () => {
   const chat = { id: 'c', messages: [] };
-  const g = routes();
+  const g = replies();
   assert.equal(g.saveReply(chat, { mode: 'new', text: '[[표정: 기쁨]]', thought: '', sources: [], config: {}, names }), null);
   assert.equal(chat.messages.length, 0);
   const plain = g.saveReply(chat, { mode: 'new', text: '[[표정: 기쁨]] 글', thought: '', sources: [], config: {} });
@@ -85,7 +85,7 @@ test('saveReply: 표식만 있는 답변은 저장하지 않고, 표식이 꺼�
 
 test('saveReply: 이어쓰기에서 새로 나온 표식은 기존 장면에 합쳐짐', () => {
   const chat = { id: 'c', messages: [] };
-  const g = routes();
+  const g = replies();
   const msg = g.saveReply(chat, { mode: 'new', text: '[[장소: 교실]]\n시작', thought: '', sources: [], config: {}, names });
   g.saveReply(chat, { mode: 'continue', target: msg, text: ' 이어서 [[표정: 기쁨]]', thought: '', sources: [], config: {}, names });
   assert.deepEqual(msg.scene, { place: '교실', expression: '기쁨' });
@@ -94,14 +94,14 @@ test('saveReply: 이어쓰기에서 새로 나온 표식은 기존 장면에 합
 
 test('withSceneTags: 지난 답변 앞에 표식을 되살려 붙임', () => {
   const chat = { messages: [{ id: 'a', role: 'user' }, { id: 'b', role: 'assistant', scene: { expression: '기쁨' } }, { id: 'c', role: 'assistant' }] };
-  const out = routes().withSceneTags(
+  const out = replies().withSceneTags(
     [{ role: 'user', content: '안녕' }, { role: 'assistant', content: '응' }, { role: 'assistant', content: '음' }], ['a', 'b', 'c'], chat);
   assert.deepEqual(out.map((t) => t.content), ['안녕', '[[표정: 기쁨]]\n응', '음']);
 });
 
 test('withSceneTags: 판정 요청은 답변 끝에 표식으로 되살림', () => {
   const chat = { messages: [{ id: 'b', role: 'assistant', check: { label: '설득', sides: 20, dc: 14 } }] };
-  const out = routes().withSceneTags([{ role: 'assistant', content: '노려본다.' }], ['b'], chat);
+  const out = replies().withSceneTags([{ role: 'assistant', content: '노려본다.' }], ['b'], chat);
   assert.equal(out[0].content, '노려본다.\n[[판정: 설득 d20 난이도 14]]');
 });
 

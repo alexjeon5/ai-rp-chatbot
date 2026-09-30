@@ -199,3 +199,33 @@ test('남의 대화 파일 경로를 알아도 대화를 지우면 파일도 사
     await t.stop();
   }
 });
+
+test('HTTP 없이 부르는 생성 서비스(Replies)도 남의 대화는 없는 것으로 보고, 아무것도 흘려보내지 않습니다', async () => {
+  const t = await start();
+  const { alice } = t;
+  const { replies, jobs } = t.services;
+  try {
+    const hero = (await alice('GET', '/api/characters')).body[0];
+    const chat = (await alice('POST', '/api/chats', { characterId: hero.id })).body;
+    const sent = [];
+    const emit = (event) => sent.push(event);
+    const refused = async (work) => {
+      await assert.rejects(work, (e) => e.status === 404 && e.message === '없는 대화입니다.');
+    };
+
+    await refused(replies.reply(USERS.bob, chat.id, { emit }));
+    await refused(replies.impersonate(USERS.bob, chat.id, { emit }));
+    await refused(replies.choices(USERS.bob, chat.id));
+    await refused(replies.summarize(USERS.bob, chat.id));
+    await refused(replies.extractFacts(USERS.bob, chat.id));
+    assert.deepEqual(sent, [], '막힌 요청은 조각을 하나도 보내지 않습니다');
+    assert.equal(jobs.running.has(chat.id), false);
+
+    // 주인은 시작 전 검사(이어 쓸 답변 없음)를 지나 같은 모양의 오류를 받습니다.
+    const empty = (await alice('POST', '/api/chats', { kind: 'assistant' })).body;
+    await assert.rejects(replies.reply(USERS.alice, empty.id, { mode: 'continue', emit }), (e) => e.status === 400);
+    assert.deepEqual(sent, []);
+  } finally {
+    await t.stop();
+  }
+});

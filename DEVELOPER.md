@@ -13,15 +13,16 @@ server.js                 부팅만 합니다 — 저장소·로그인·서비�
 src/
   http/
     app.js                 createApp — 미들웨어 순서, 로그인, 계정 준비, 라우트 클래스 등록
-    helpers.js             wrap(AppError → 상태 코드) / fail / abortOnClose / sendImage, SSE 를 보내는 EventStream
+    helpers.js             wrap(AppError → 상태 코드) / fail / abortOnClose / sendImage, SSE 를 보내는 EventStream·lazyStream
     routes/                기능별 라우트 클래스 — settings, library(캐릭터·페르소나), chats,
-                           generation(생성·대신 쓰기·기억), lorebooks, character-cards, images, backup 등.
+                           generation(생성·대신 쓰기·선택지·기억 — 일은 Replies), lorebooks, character-cards, images, backup 등.
                            req.user 를 actor 로 서비스에 넘기는 얇은 층입니다
   services/                HTTP 를 모르고 actor({ id, name, role })를 받습니다. 디스코드 봇도 같은 것을 씁니다
     index.js               createServices — 서비스 조립. 웹과 봇이 같은 묶음을 씀
     access.js              Access — 누가 어떤 항목을 볼 수 있는지 정하는 한 곳 (2절 '계정별로 나누기')
     errors.js              AppError, NotFound — 서비스가 던지고 라우트가 상태 코드로 바꾸는 오류
     chats.js               Chats — 대화·메시지 다루기 (목록·만들기·고치기·분기·지우기·멈추기)
+    replies.js             Replies — 모델에게 글 쓰게 하기 (답변·대신 쓰기·선택지·요약·자동 기억). 조각은 emit 으로
     library.js             Library, Shelf — 캐릭터·페르소나 목록, 내장 캐릭터 추가
     prefs.js               UserPrefs — 계정별 설정(data/prefs/<id>.json), 모드 틀 다듬기
     settings.js            Settings — 공용 설정과 계정별 설정을 합쳐 보여 주고 나눠 저장
@@ -383,12 +384,24 @@ OpenAI 호환 서버(Ollama, Vercel, vLLM, llama.cpp)는 `OpenAiEngine` 을 이�
 - Anthropic: 본문 중간에 끼어드는 `content_block_start` 타입 `web_search_tool_result`
 - OpenAI: `delta.annotations[].url_citation`
 
-출처는 본문에 이어 붙이지 않고 `generation.js`에서 `send({ sources })`로 별도 SSE 이벤트로 보내며,
+출처는 본문에 이어 붙이지 않고 `Replies.reply` 가 `emit({ sources })` 로 별도 조각(웹에서는 SSE 이벤트)으로 보내며,
 저장 시에도 `msg.sources`에 따로 담습니다 — 다음 턴 프롬프트에 섞여 들어가지 않게 하기 위함입니다.
 
 ---
 
-## 5. 생성 파이프라인 — `src/http/routes/generation.js` 의 `/api/chats/:id/generate`
+## 5. 생성 파이프라인 — `src/services/replies.js` 의 `Replies.reply`
+
+일은 `Replies` 서비스가 하고, `src/http/routes/generation.js` 는 `req.user` 와 본문을 넘기는 얇은 층입니다.
+디스코드 봇도 같은 메서드를 부릅니다. 규칙:
+
+- **시작 전에 막히면 던집니다.** 없는 대화·남의 대화(`NotFound`), 이어 쓸 답변 없음, 엔진 문제, 성인 틀 거부는 `AppError` 이고
+  이때는 조각을 하나도 보내지 않았습니다. 웹은 `wrap` 이 JSON 오류로 바꿉니다.
+- **시작한 뒤에는 던지지 않습니다.** 조각은 `emit(event)` 로 넘기고, 엔진 오류도 `{ error }` 조각입니다. 반환값은 저장한 메시지(없으면 `null`)입니다.
+  웹 라우트는 `lazyStream(res)` 로 첫 조각을 보낼 때 SSE 를 열고, 끝에 `{ done, message }` 를 붙입니다.
+- **멈추기.** `opts.signal` 이 끊기면(웹은 `abortOnClose(res).signal`) 멈춥니다. 답변 중이면 `jobs.running` 에 컨트롤러가 있어
+  `Chats.stop` 으로도 멈추고, 그때까지 쓴 것은 저장됩니다. 요약·기억은 `jobs.backgroundFor(chatId, signal)` 로 돌고 새 답변이 오면 멈춰
+  `{ skipped, reason }` 을 돌려줍니다.
+- 대신 쓰기(`impersonate`)는 조각을 흘린 뒤 다듬은 초안을, 선택지(`choices`)는 `[{ text, check? }]` 를(멈췄으면 `null`) 돌려줍니다.
 
 요청 하나가 처리되는 순서:
 

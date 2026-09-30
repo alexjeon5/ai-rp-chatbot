@@ -18,6 +18,7 @@ import { CharacterCards } from './character-cards.js';
 import { CharacterArt } from './character-art.js';
 import { Backgrounds } from './backgrounds.js';
 import { Chats } from './chats.js';
+import { Replies } from './replies.js';
 import { Library } from './library.js';
 import { UserPrefs } from './prefs.js';
 import { Settings } from './settings.js';
@@ -60,6 +61,7 @@ export function createServices({ store, auth = {}, users = readUsers }) {
     library, ownership,
     cards: new CharacterCards(store, art, access),
     chats: new Chats({ store, access, settings, context, jobs, images, attachments }),
+    replies: new Replies({ store, access, settings, engines, context, jobs, attachments, usage }),
     setup: new AccountSetup({ store, access, prefs, library, ownership }),
     admin: new AdminWorker({ requests: new AdminRequests(path.join(store.dir, 'admin')), ownership })
   };
