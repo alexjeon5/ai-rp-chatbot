@@ -3,6 +3,7 @@
  *   /rp start character:<자동완성> persona:<자동완성> mode:<자동완성> private:<예/아니오>
  *   /rp roll dice:<2d6+3> memo:<덧붙일 말> · /rp end · /rp link code:<코드> · /rp unlink
  *   /ask question:<질문> private:<예/아니오>   어시스턴트 스레드
+ *   /assistant on · off · new                  어시스턴트 채널 (on·off 는 채널 관리 권한)
  */
 
 /** 옵션 종류 (Discord ApplicationCommandOptionType) */
@@ -51,4 +52,15 @@ export const ASK_COMMAND = {
   ]
 };
 
-export const COMMANDS = [RP_COMMAND, ASK_COMMAND];
+export const ASSISTANT_COMMAND = {
+  name: 'assistant',
+  description: '어시스턴트 채널: 이 채널에 쓰는 말에 AI 어시스턴트가 답합니다',
+  contexts: [0],
+  options: [
+    { type: SUB, name: 'on', description: '이 채널을 어시스턴트 채널로 씁니다 (채널 관리 권한)' },
+    { type: SUB, name: 'off', description: '어시스턴트 채널을 끕니다 (채널 관리 권한)' },
+    { type: SUB, name: 'new', description: '이 채널에서 내 대화를 새로 시작합니다 (전 대화는 웹에 남음)' }
+  ]
+};
+
+export const COMMANDS = [RP_COMMAND, ASK_COMMAND, ASSISTANT_COMMAND];

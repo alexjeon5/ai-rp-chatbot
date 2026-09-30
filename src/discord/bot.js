@@ -11,7 +11,7 @@
  *   PUBLIC_BASE_URL     밖에서 들어오는 주소(https://…). 있으면 캐릭터 프로필·표정 그림을 서명된 주소로 붙입니다
  */
 import { COMMANDS } from './commands.js';
-import { ThreadBindings } from './bindings.js';
+import { ThreadBindings, ChannelBindings } from './bindings.js';
 
 export const discordConfig = (env = process.env) => ({
   token: (env.DISCORD_TOKEN || '').trim(),
@@ -36,7 +36,8 @@ export async function startDiscord({ services, env = process.env, log = console 
     partials: [Partials.Channel]
   });
   const webhooks = new Webhooks({ applicationId: () => client.application?.id || null, log });
-  const controller = new DiscordController({ services, bindings: new ThreadBindings(services.store.discordDoc), webhooks, log });
+  const doc = services.store.discordDoc;
+  const controller = new DiscordController({ services, bindings: new ThreadBindings(doc), channels: new ChannelBindings(doc), webhooks, log });
 
   client.once(Events.ClientReady, async (ready) => {
     services.discordLinks.bot = { enabled: true, name: ready.user.username };

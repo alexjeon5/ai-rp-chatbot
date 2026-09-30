@@ -47,10 +47,11 @@ src/
   discord/                 디스코드 봇 — 서비스(createServices)를 웹과 같이 씀. DISCORD_TOKEN 이 있을 때만 켜짐
     bot.js                 startDiscord — Client 만들기, 명령 올리기, 이벤트를 DiscordController 로
     controller.js          DiscordController — 명령·자동완성·버튼·스레드 메시지를 서비스로 잇기
-    commands.js            슬래시 명령 정의(/rp start·roll·end·link·unlink, /ask — API JSON 그대로)
+    commands.js            슬래시 명령 정의(/rp start·roll·end·link·unlink, /ask, /assistant on·off·new — API JSON 그대로)
     relay.js               ReplyRelay — 답변 조각을 모아 메시지 편집으로 옮기기(간격, 길면 다음 메시지로)
     split.js               splitMessage — 2000자 한도에 맞춰 문단·줄·문장 순으로 나누기
-    bindings.js            ThreadBindings — 스레드 ↔ 대화, 가장 최근 답변 { messageIds, chatMessageId, via }
+    bindings.js            ThreadBindings — 스레드 ↔ 대화, ChannelBindings — 어시스턴트 채널의 사람별 대화.
+                           둘 다 같은 모양의 대화 자리(slot)를 내주고, 가장 최근 답변 { messageIds, chatMessageId, via } 를 기억
     webhooks.js            Webhooks — 채널마다 봇이 만든 웹훅 하나(캐릭터 이름·그림으로 말하기), webhookName
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
@@ -263,7 +264,7 @@ data/
   images/<chatId>/       # 장면 그리기로 그린 그림 (대화 권한을 따름)
   uploads/<chatId>/      # 사용자가 메시지에 붙인 그림 (대화 권한을 따름)
   portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
-  discord.json           # 디스코드 연결 { links: { 디스코드 id: { userId, epoch, name, linkedAt } }, codes: { sha256(코드): { userId, expiresAt } }, threads }
+  discord.json           # 디스코드 연결 { links: { 디스코드 id: { userId, epoch, name, linkedAt } }, codes: { sha256(코드): { userId, expiresAt } }, threads, channels, artSecret }
   admin/requests/, admin/results/  # 계정 명령 ↔ 서버 요청 파일
 ```
 
@@ -528,6 +529,11 @@ data: {"done": true, "message": {...}}   완료
   비밀은 `PUBLIC_ART_SECRET` 또는 `discord.json` 의 `artSecret`. 서명이 맞고 그 파일이 **지금** 그 캐릭터의 프로필·표정일 때만 보냅니다(`Cache-Control: public`).
   `PUBLIC_BASE_URL` 이 없으면 주소를 만들지 않고 아바타 없이 이름만 씁니다. 계정 없이 오는 요청이라 `access.test.mjs` 의 직접 읽기 금지에서 이 파일만 뺐습니다
 - `/rp start` 는 첫 대사 앞에 봇 이름으로 캐릭터 소개 카드를 올립니다(`postIntro`: `description`·`tags`·대화 모드·페르소나·`scenario`, 이름 자리표시자는 채움, 프로필 그림 썸네일)
+- **어시스턴트 채널**(`/assistant on`, 채널 관리 권한은 `interaction.memberPermissions` 로 봄): 그 채널(스레드 아님)의 메시지는 `onChannelMessage` 가 받습니다.
+  `ChannelBindings`(`data/discord.json` 의 `channels`)가 채널 × 앱 계정마다 어시스턴트 대화 하나를 기억하고, 없거나 웹에서 지웠으면 새로 만듭니다(`/assistant new` 는 자리를 비움).
+  답은 `mentionSink` 가 질문 메시지에 답장으로 보내며 첫 메시지 앞에 `<@질문한 사람>` 을 붙입니다 — 보낼 때만 알림이 가고, 고칠 때는 멘션을 지키되 다시 울리지 않습니다.
+  버튼은 누른 사람 자기 자리의 대화 id 와 맞아야 해서(`slotFor`) 남의 답에 달린 버튼은 막힙니다
+- 컨트롤러는 스레드와 어시스턴트 채널을 **대화 자리(slot)** 하나로 다룹니다: `{ kind, key, discordUserId, chatId, reply, setReply, forget }`. 메시지를 보낼 곳(place)은 스레드 또는 채널입니다
 - 비주얼 노벨을 켠 대화는 답의 `scene.expression` 표정 그림을 썸네일 카드로, 어시스턴트는 출처를 카드로 붙입니다(`embedsFor`)
 - 어시스턴트 글은 화면 표식 거르기 없이 그대로 보이고, `splitMessage` 는 코드 블록(```) 한가운데서 나뉘면 닫고 같은 언어로 다시 엽니다(`balanceFences`)
 - 성인 모드는 연령 제한 채널(스레드는 부모 채널)에서만 — `/rp start` 와 말할 때마다 봅니다. 엔진 쪽 허용(`adultAllowed`)은 `Replies` 가 그대로 봅니다

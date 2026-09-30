@@ -12,7 +12,7 @@ import { Store } from '../../src/store.js';
 import { flushAll } from '../../src/db.js';
 import { createServices } from '../../src/services/index.js';
 import { AppError } from '../../src/services/errors.js';
-import { ThreadBindings } from '../../src/discord/bindings.js';
+import { ThreadBindings, ChannelBindings } from '../../src/discord/bindings.js';
 import { DiscordController } from '../../src/discord/controller.js';
 
 const USERS = [
@@ -20,13 +20,15 @@ const USERS = [
   { id: 'bob0001', name: 'bob', role: 'owner', epoch: 0 }
 ];
 const ALICE_D = { id: '100000000000000001', username: 'alice_d' };
+const BOB_D = { id: '100000000000000002', username: 'bob_d' };
 const STRANGER_D = { id: '100000000000000009', username: 'stranger' };
 const quiet = { error() {}, warn() {}, log() {} };
 
 let seq = 0;
-function fakeMessage(channel, { content, components = [], embeds, author }) {
+function fakeMessage(channel, { content, components = [], embeds, allowedMentions, author }) {
   const msg = {
-    id: `dm${++seq}`, content, components, embeds, author, channel, channelId: channel.id, deleted: false, reactions: [],
+    id: `dm${++seq}`, content, components, embeds, allowedMentions, author, channel, channelId: channel.id, deleted: false, reactions: [], replyTo: null,
+    reply: async (body) => { const sent = await channel.send(body); sent.replyTo = msg.id; return sent; },
     edit: async (patch) => { Object.assign(msg, patch); return msg; },
     delete: async () => { msg.deleted = true; },
     react: async (emoji) => { msg.reactions.push(emoji); }
@@ -40,7 +42,8 @@ function fakeThread(parent, id) {
     id, parent, type: ChannelType.PrivateThread, archived: false, sent: [], added: [],
     isThread: () => true,
     send: async (body) => {
-      assert.deepEqual(body.allowedMentions, { parse: [] }, '봇이 보내는 메시지는 멘션을 울리지 않음');
+      assert.equal((body.allowedMentions?.parse || []).length, 0, '@everyone·역할 멘션은 늘 끔');
+      assert.ok(!body.allowedMentions.roles?.length);
       const msg = fakeMessage(thread, { ...body, author: { id: 'bot', bot: true } });
       thread.sent.push(msg);
       return msg;
@@ -58,18 +61,20 @@ function fakeThread(parent, id) {
 }
 
 function fakeChannel({ nsfw = false } = {}) {
-  const channel = {
-    id: `ch${++seq}`, type: ChannelType.GuildText, nsfw, created: [],
+  // 메시지 보내기·고치기는 스레드와 같습니다. 채널이라 isThread 만 다르고 스레드를 열 수 있습니다.
+  const channel = Object.assign(fakeThread(null, `ch${++seq}`), {
+    type: ChannelType.GuildText, nsfw, created: [],
     isThread: () => false,
     threads: { create: async (opts) => { const t = fakeThread(channel, `th${++seq}`); t.opts = opts; channel.created.push(t); return t; } }
-  };
+  });
   return channel;
 }
 
 /** 슬래시 명령·버튼·자동완성 흉내. 답한 것은 replies 에 쌓입니다. */
-function fakeInteraction({ kind = 'command', command = 'rp', user, channel, sub, values = {}, focused, customId, message, fields = {} }) {
+function fakeInteraction({ kind = 'command', command = 'rp', user, channel, sub, values = {}, focused, customId, message, fields = {}, manager = false }) {
   const i = {
-    user, channel, channelId: channel.id, commandName: command, customId, message,
+    user, channel, channelId: channel.id, commandName: command, customId, message, guildId: 'g1',
+    memberPermissions: { has: () => manager },
     deferred: false, replied: false, answers: [], choices: null, modal: null,
     isAutocomplete: () => kind === 'autocomplete',
     isChatInputCommand: () => kind === 'command',
@@ -163,12 +168,17 @@ async function setup({ webhooks = false } = {}) {
   await services.admin.tick();
   services.replies = fakeReplies(services, services.replies);
   const bindings = new ThreadBindings(store.discordDoc);
-  const controller = new DiscordController({ services, bindings, webhooks: webhooks ? fakeWebhooks() : null, relay: { interval: 1 }, log: quiet });
+  const channels = new ChannelBindings(store.discordDoc);
+  const controller = new DiscordController({ services, bindings, channels, webhooks: webhooks ? fakeWebhooks() : null, relay: { interval: 1 }, log: quiet });
   const alice = USERS[0];
   services.setup.ensure(alice);
   const link = () => services.discordLinks.redeem({ id: ALICE_D.id, name: ALICE_D.username }, services.discordLinks.issueCode(alice).code);
+  const linkBob = () => {
+    services.setup.ensure(USERS[1]);
+    return services.discordLinks.redeem({ id: BOB_D.id, name: BOB_D.username }, services.discordLinks.issueCode(USERS[1]).code);
+  };
   return {
-    services, bindings, controller, alice, link,
+    services, bindings, controller, alice, link, linkBob, channels,
     stop: async () => { services.admin.stop(); await flushAll(); await rm(dir, { recursive: true, force: true }); }
   };
 }
@@ -540,4 +550,109 @@ test('Webhooks: 권한이 없으면 봇 이름으로, 1분 뒤나 권한이 바�
   allowed = true;
   assert.equal(await hooks.for(thread), hook, '1분이 지나면 다시 물음');
   assert.equal(warns.length, 2, '막힐 때마다 알림');
+});
+
+test('어시스턴트 채널: 켜기는 채널 관리 권한, 쓴 말에 스레드 없이 답장으로 멘션해 답함, 사람마다 대화가 따로', async () => {
+  const t = await setup({ webhooks: true });
+  try {
+    const channel = fakeChannel();
+    const say = (author, content) => t.controller.onMessage(fakeMessage(channel, { content, author }));
+
+    const refused = fakeInteraction({ command: 'assistant', user: ALICE_D, channel, sub: 'on' });
+    await t.controller.onInteraction(refused);
+    assert.match(refused.answers[0].content, /채널 관리 권한/);
+    await say(ALICE_D, '안녕?');
+    assert.equal(channel.sent.length, 0, '켜기 전에는 답하지 않음');
+
+    const on = fakeInteraction({ command: 'assistant', user: ALICE_D, channel, sub: 'on', manager: true });
+    await t.controller.onInteraction(on);
+    assert.match(on.answers[0].content, /어시스턴트 채널/);
+    assert.equal(on.answers[0].flags, undefined, '켰다는 안내는 모두에게 보임');
+
+    // 잇지 않은 사람에게는 멘션해 /rp link 를 안내합니다.
+    const before = t.services.store.chats.all().length;
+    await say(STRANGER_D, '누구세요');
+    const hint = channel.sent.at(-1);
+    assert.match(hint.content, /\/rp link/);
+    assert.deepEqual(hint.allowedMentions.users, [STRANGER_D.id]);
+    assert.equal(t.services.store.chats.all().length, before);
+
+    t.link();
+    t.linkBob();
+    t.services.replies.next = '첫 답입니다.';
+    const question = fakeMessage(channel, { content: '파이썬 리스트 정렬?', author: ALICE_D });
+    await t.controller.onMessage(question);
+    assert.equal(channel.created.length, 0, '스레드를 만들지 않음');
+    const answer = channel.sent.at(-1);
+    assert.equal(answer.replyTo, question.id, '질문에 대한 답장');
+    assert.equal(answer.content, `<@${ALICE_D.id}> 첫 답입니다.`, '질문한 사람을 멘션');
+    assert.deepEqual(answer.allowedMentions.users, [ALICE_D.id], '멘션은 질문한 사람만 (고쳐 써도 유지)');
+    assert.equal(answer.webhook, undefined, '어시스턴트는 봇 이름으로');
+    assert.equal(answer.components.length, 1, '다시 쓰기·이어 쓰기');
+
+    const aliceSlot = t.channels.slot(channel.id, 'alice01');
+    const aliceChat = t.services.store.chats.get(aliceSlot.chatId);
+    assert.equal(aliceChat.kind, 'assistant');
+    assert.equal(aliceChat.ownerId, 'alice01');
+    assert.equal(aliceChat.title, '파이썬 리스트 정렬?');
+
+    await say(ALICE_D, '역순은?');
+    assert.equal(aliceChat.messages.length, 4, '같은 대화로 이어짐 (앞 말을 기억)');
+    assert.deepEqual(answer.components, [], '앞 답의 버튼은 뗌');
+
+    await say(BOB_D, '나도 질문');
+    const bobChat = t.services.store.chats.get(t.channels.slot(channel.id, 'bob0001').chatId);
+    assert.notEqual(bobChat.id, aliceChat.id, '사람마다 자기 계정의 대화');
+    assert.equal(bobChat.ownerId, 'bob0001');
+    assert.ok(channel.sent.at(-1).content.startsWith(`<@${BOB_D.id}> `));
+
+    // 남의 답에 달린 버튼은 못 누름. 내 답의 다시 쓰기는 같은 메시지를 고치고 멘션을 지킴.
+    const aliceLast = channel.sent.find((m) => m.id === aliceSlot.reply.messageIds[0]);
+    const bobPress = fakeInteraction({ kind: 'button', user: BOB_D, channel, customId: `rp:regen:${aliceChat.id}`, message: aliceLast });
+    await t.controller.onInteraction(bobPress);
+    assert.match(bobPress.answers[0].content, /질문한 사람만/);
+    t.services.replies.next = '다시 쓴 답.';
+    await t.controller.onInteraction(fakeInteraction({ kind: 'button', user: ALICE_D, channel, customId: `rp:regen:${aliceChat.id}`, message: aliceLast }));
+    assert.equal(aliceLast.content, `<@${ALICE_D.id}> 다시 쓴 답.`);
+    assert.equal(aliceLast.components[0].components[1].label, '2/2', '넘겨보기');
+
+    // /assistant new: 다음 말부터 새 대화. 전 대화는 남음.
+    const fresh = fakeInteraction({ command: 'assistant', user: ALICE_D, channel, sub: 'new' });
+    await t.controller.onInteraction(fresh);
+    assert.equal(fresh.answers[0].flags, 64);
+    await say(ALICE_D, '새 질문');
+    assert.notEqual(t.channels.slot(channel.id, 'alice01').chatId, aliceChat.id);
+    assert.ok(t.services.store.chats.get(aliceChat.id), '전 대화는 남음');
+
+    // 끄면 더 답하지 않음.
+    await t.controller.onInteraction(fakeInteraction({ command: 'assistant', user: ALICE_D, channel, sub: 'off', manager: true }));
+    const count = channel.sent.length;
+    await say(ALICE_D, '아직 있어?');
+    assert.equal(channel.sent.length, count);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('어시스턴트 채널: 웹에서 대화를 지우면 새 대화로 시작하고, 답을 쓰는 중이면 ⏳', async () => {
+  const t = await setup();
+  try {
+    t.link();
+    const channel = fakeChannel();
+    t.channels.enable(channel.id, { guildId: 'g1', setBy: ALICE_D.id });
+    await t.controller.onMessage(fakeMessage(channel, { content: '하나', author: ALICE_D }));
+    const first = t.channels.slot(channel.id, 'alice01').chatId;
+    await t.services.chats.remove(t.alice, first);
+    await t.controller.onMessage(fakeMessage(channel, { content: '둘', author: ALICE_D }));
+    const second = t.channels.slot(channel.id, 'alice01').chatId;
+    assert.notEqual(second, first);
+    assert.equal(t.services.store.chats.get(second).messages[0].content, '둘');
+
+    t.services.jobs.running.set(second, { controller: new AbortController() });
+    const busy = fakeMessage(channel, { content: '셋', author: ALICE_D });
+    await t.controller.onMessage(busy);
+    assert.deepEqual(busy.reactions, ['⏳']);
+  } finally {
+    await t.stop();
+  }
 });

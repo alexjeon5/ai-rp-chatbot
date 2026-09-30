@@ -10,9 +10,14 @@
  *   - 모델이 쓴 글이 @everyone 같은 알림을 울리지 않게, 봇이 보내는 메시지는 멘션을 모두 끕니다
  *   - 롤플레이 답변은 웹훅으로 캐릭터 이름·프로필 그림을 달고 보냅니다. 웹훅을 못 쓰면 봇 이름으로 보냅니다
  *   - 버튼은 가장 최근 답변에만 답니다: ◀ n/m ▶ 넘겨보기, 🔄 다시 쓰기, ➡️ 이어 쓰기, 💡 선택지, ✍️ 대신 쓰기, 🎲 판정
+ *   - 어시스턴트 채널(/assistant on): 그 채널에 쓴 말은 쓴 사람 계정의 어시스턴트 대화로 가고, 답은 스레드 없이
+ *     그 채널에 질문에 대한 답장으로 질문한 사람을 멘션해 올립니다. 버튼은 질문한 사람만 누릅니다
+ *
+ * 대화 자리(slot): 스레드(ThreadBindings.slot)와 어시스턴트 채널의 한 사람(ChannelBindings.slot)을 같은 모양으로 다룹니다.
+ *   place 는 메시지를 보낼 곳(스레드 또는 채널)입니다.
  */
 import { randomInt } from 'node:crypto';
-import { ChannelType, MessageFlags, ButtonStyle, ComponentType, TextInputStyle, ThreadAutoArchiveDuration } from 'discord.js';
+import { ChannelType, MessageFlags, ButtonStyle, ComponentType, TextInputStyle, ThreadAutoArchiveDuration, PermissionFlagsBits } from 'discord.js';
 import { AppError } from '../services/errors.js';
 import { fillVars } from '../prompt.js';
 import { userKey } from '../security.js';
@@ -109,17 +114,45 @@ export function webhookSink(hook, thread, { username, avatarURL }, onGone = () =
   };
 }
 
+/**
+ * 어시스턴트 채널에서 질문한 사람을 멘션하며 답하기. 첫 메시지는 질문에 대한 답장으로 보내고 앞에 멘션을 붙입니다.
+ * 이어지는 메시지(길어서 나뉜 것)는 멘션 없이 보냅니다. 고칠 때도 첫 메시지의 멘션은 지킵니다(다시 울리지는 않음).
+ * @param {{ userId: string, replyTo?: object, firstId?: string }} o  firstId 는 이미 보낸 첫 메시지(다시 쓰기·이어 쓰기)
+ */
+export function mentionSink(channel, { userId, replyTo = null, firstId = null }) {
+  let first = firstId;
+  const tag = `<@${userId}>`;
+  const ping = { users: [userId], repliedUser: true };
+  const content = (h, text) => (h?.id === first ? `${tag} ${text}` : text);
+  return {
+    via: 'bot',
+    send: async (text, components = [], embeds = []) => {
+      if (first) return { id: (await channel.send({ content: text, components, embeds, allowedMentions: NO_MENTIONS })).id };
+      const body = { content: `${tag} ${text}`, components, embeds, allowedMentions: ping };
+      const sent = replyTo ? await replyTo.reply(body) : await channel.send(body);
+      first = sent.id;
+      return { id: sent.id };
+    },
+    edit: (h, text, components = [], embeds = []) => channel.messages.edit(h.id, {
+      content: content(h, text), components, embeds, allowedMentions: h.id === first ? { users: [userId] } : NO_MENTIONS
+    }),
+    strip: (id) => channel.messages.edit(id, { components: [] }),
+    remove: (h) => channel.messages.delete(h.id).catch(() => {})
+  };
+}
+
 export class DiscordController {
   /**
    * @param {{ services: ReturnType<typeof import('../services/index.js').createServices>, bindings: import('./bindings.js').ThreadBindings,
    *           webhooks?: import('./webhooks.js').Webhooks, relay?: object, log?: Pick<Console, 'error'|'warn'> }} deps
-   *   relay 는 ReplyRelay 에 더 넘길 값 (시험에서 간격·타이머를 바꿉니다). webhooks 가 없으면 늘 봇 이름으로 말합니다
+   *   relay 는 ReplyRelay 에 더 넘길 값 (시험에서 간격·타이머를 바꿉니다). webhooks 가 없으면 늘 봇 이름으로 말합니다.
+   *   channels(ChannelBindings) 가 없으면 어시스턴트 채널을 쓰지 않습니다
    */
-  constructor({ services, bindings, webhooks = null, relay = {}, log = console }) {
-    Object.assign(this, { services, bindings, webhooks, relayOptions: relay, log });
+  constructor({ services, bindings, channels = null, webhooks = null, relay = {}, log = console }) {
+    Object.assign(this, { services, bindings, channels, webhooks, relayOptions: relay, log });
     /** 뒤에서 도는 자동 기억. 시험이 끝을 기다릴 때 씁니다. */
     this.background = Promise.resolve();
-    /** 스레드 id → 받아 둔 선택지·대신 쓰기 초안 { kind, list|text, lastId }. 새 차례가 들어가면 버립니다 */
+    /** 대화 자리(slot.key) → 받아 둔 선택지·대신 쓰기 초안 { kind, list|text, lastId }. 새 차례가 들어가면 버립니다 */
     this.pending = new Map();
   }
 
@@ -156,18 +189,23 @@ export class DiscordController {
     }
   }
 
-  /** 스레드에 남기는 알림. */
-  notice(channel, content) {
-    return channel.send({ content: `⚠️ ${content}`, allowedMentions: NO_MENTIONS }).catch((e) => this.log.error(e));
+  /** 스레드·채널에 남기는 알림. userId 를 주면 그 사람을 멘션합니다(어시스턴트 채널). */
+  notice(channel, content, userId = null) {
+    const body = userId
+      ? { content: `<@${userId}> ⚠️ ${content}`, allowedMentions: { users: [userId] } }
+      : { content: `⚠️ ${content}`, allowedMentions: NO_MENTIONS };
+    return channel.send(body).catch((e) => this.log.error(e));
   }
 
-  /** 스레드에 이어진 대화. 웹에서 지웠으면 연결을 풀고 알립니다. */
-  chatOf(actor, binding, threadId) {
+  /** 대화 자리에 이어진 대화. 웹에서 지웠으면 자리를 풀고 알립니다. */
+  chatOf(actor, slot) {
     try {
-      return this.services.chats.get(actor, binding.chatId);
+      return this.services.chats.get(actor, slot.chatId);
     } catch {
-      this.bindings.unbind(threadId);
-      throw new AppError('이 스레드의 대화가 지워졌습니다. 새로 시작해 주세요.');
+      slot.forget();
+      throw new AppError(slot.kind === 'thread'
+        ? '이 스레드의 대화가 지워졌습니다. 새로 시작해 주세요.'
+        : '대화가 지워졌습니다. 다시 말을 걸면 새 대화로 시작합니다.');
     }
   }
 
@@ -183,10 +221,11 @@ export class DiscordController {
 
   /**
    * 답변을 보낼 쪽. 롤플레이는 웹훅(캐릭터 이름·그림), 어시스턴트나 웹훅을 못 쓰면 봇.
-   * via 를 주면 그쪽으로 — 이미 보낸 메시지를 고칠 때는 보낸 쪽이어야 합니다.
+   * via 를 주면 그쪽으로 — 이미 보낸 메시지를 고칠 때는 보낸 쪽이어야 합니다. mention 은 어시스턴트 채널의 질문한 사람.
    */
-  async speaker(thread, chat, via) {
-    if (chat.kind === 'assistant' || via === 'bot' || !this.webhooks) return botSink(thread);
+  async speaker(thread, chat, via, mention = null) {
+    if (chat.kind === 'assistant') return mention ? mentionSink(thread, mention) : botSink(thread);
+    if (via === 'bot' || !this.webhooks) return botSink(thread);
     const hook = await this.webhooks.for(thread);
     if (!hook) return botSink(thread);
     const character = this.services.context.characterOf(chat);
@@ -258,10 +297,10 @@ export class DiscordController {
   }
 
   /** 지난 답변의 버튼을 뗍니다. 버튼은 가장 최근 답변에서만 받습니다. */
-  async clearButtons(thread, binding) {
-    const reply = binding.reply;
+  async clearButtons(thread, slot) {
+    const reply = slot.reply;
     const last = reply?.messageIds?.[reply.messageIds.length - 1];
-    this.bindings.setReply(thread.id, null);
+    slot.setReply(null);
     if (!last) return;
     try {
       if (reply.via === 'webhook' && this.webhooks) {
@@ -280,6 +319,7 @@ export class DiscordController {
       if (interaction.isAutocomplete?.()) return await this.autocomplete(interaction);
       if (interaction.isChatInputCommand?.() && interaction.commandName === 'rp') return await this.command(interaction);
       if (interaction.isChatInputCommand?.() && interaction.commandName === 'ask') return await this.ask(interaction);
+      if (interaction.isChatInputCommand?.() && interaction.commandName === 'assistant') return await this.assistantChannel(interaction);
       if (interaction.isButton?.() && parseButton(interaction.customId)) return await this.button(interaction);
       if (interaction.isModalSubmit?.() && parseButton(interaction.customId)) return await this.modal(interaction);
     } catch (e) {
@@ -383,7 +423,7 @@ export class DiscordController {
 
     await this.postIntro(thread, chat, i.user);
     const greeting = chat.messages[chat.messages.length - 1];
-    if (greeting?.role === 'assistant') await this.showReply(thread, chat, greeting);
+    if (greeting?.role === 'assistant') await this.showReply(thread, chat, greeting, this.bindings.slot(thread.id));
     await i.editReply({ content: `<#${thread.id}> 에서 **${character.name}** 와(과) 대화를 시작하세요.` });
   }
 
@@ -396,21 +436,79 @@ export class DiscordController {
 
     await i.deferReply({ flags: EPHEMERAL });
     const chat = this.services.chats.create(actor, { kind: 'assistant' });
-    const { thread, binding } = await this.openThread(i, actor, chat, { name: question.replace(/\s+/g, ' '), privateThread: i.options.getBoolean('private') ?? true });
+    const { thread } = await this.openThread(i, actor, chat, { name: question.replace(/\s+/g, ' '), privateThread: i.options.getBoolean('private') ?? true });
     await i.editReply({ content: `<#${thread.id}> 에서 답합니다.` });
-    await this.takeTurn(thread, actor, binding, question, { user: i.user, show: true });
+    await this.takeTurn(thread, actor, this.bindings.slot(thread.id), question, { user: i.user, show: true });
+  }
+
+  /**
+   * /assistant on·off·new — 어시스턴트 채널. 켜고 끄기는 채널 관리 권한이 있는 사람만, new 는 누구나(자기 대화만).
+   * 켜면 그 채널에 쓰는 말에 답합니다. 사람마다 자기 계정의 어시스턴트 대화로 이어집니다.
+   */
+  async assistantChannel(i) {
+    if (!this.channels) throw new AppError('이 봇에서는 어시스턴트 채널을 쓸 수 없습니다.');
+    if (i.channel?.type !== ChannelType.GuildText) throw new AppError('일반 채팅 채널에서 써 주세요.');
+    const sub = i.options.getSubcommand();
+    if (sub === 'new') {
+      if (!this.channels.get(i.channel.id)) throw new AppError('어시스턴트 채널이 아닙니다. 채널 관리 권한이 있는 사람이 `/assistant on` 으로 켤 수 있습니다.');
+      const actor = this.actorFor(i.user);
+      this.channels.slot(i.channel.id, actor.id, i.user.id).forget();
+      return i.reply({ content: '이 채널에서 새 대화로 시작합니다. 전 대화는 웹의 어시스턴트 채팅 목록에 남아 있습니다.', flags: EPHEMERAL });
+    }
+    if (!i.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) throw new AppError('채널 관리 권한이 있는 사람만 켜고 끌 수 있습니다.', 403);
+    if (sub === 'on') {
+      this.channels.enable(i.channel.id, { guildId: i.guildId, setBy: i.user.id });
+      return i.reply({
+        content: [
+          '🤖 이 채널은 이제 **어시스턴트 채널**입니다. 여기에 쓰는 말에 AI 어시스턴트가 답하고, 답은 질문한 사람을 멘션해 이 채널에 올립니다.',
+          '각자 이어 둔 앱 계정의 어시스턴트 대화로 이어지므로 앞에 한 말을 기억합니다. 새로 시작하려면 `/assistant new`.',
+          '처음이면 웹의 설정 → 디스코드에서 코드를 받아 `/rp link` 로 계정을 이어 주세요.'
+        ].join('\n'),
+        allowedMentions: NO_MENTIONS
+      });
+    }
+    if (sub === 'off') {
+      const was = this.channels.disable(i.channel.id);
+      return i.reply({ content: was ? '어시스턴트 채널을 껐습니다. 나눈 대화는 웹의 어시스턴트 채팅 목록에 남아 있습니다.' : '어시스턴트 채널이 아닙니다.', allowedMentions: NO_MENTIONS });
+    }
+    throw new AppError('모르는 명령입니다.');
   }
 
   /** 다 쓴 답변(첫 대사, 넘겨본 답변)을 한 번에 보이고 가장 최근 답변으로 적어 둡니다. reuse 를 주면 그 메시지를 고쳐 씁니다. */
-  async showReply(thread, chat, msg, reuse = null) {
-    const sink = await this.speaker(thread, chat, reuse?.via);
+  async showReply(thread, chat, msg, slot, reuse = null) {
+    const sink = await this.speaker(thread, chat, reuse?.via, this.mentionOf(slot, { firstId: reuse?.messageIds?.[0] }));
     const relay = new ReplyRelay({
       sink, handles: (reuse?.messageIds || []).map((id) => ({ id })), ...this.relayOptions,
       display: chat.kind === 'assistant' ? plainText : displayText
     });
     const sent = await relay.show(msg.content, { components: replyComponents(chat, msg), embeds: this.embedsFor(chat, msg) });
     if (relay.failure) this.log.error(relay.failure);
-    this.bindings.setReply(thread.id, { messageIds: sent.map((m) => m.id), chatMessageId: msg.id, via: sink.via });
+    slot.setReply({ messageIds: sent.map((m) => m.id), chatMessageId: msg.id, via: sink.via });
+  }
+
+  /** 어시스턴트 채널이면 질문한 사람을 멘션할 정보. 스레드면 null. */
+  mentionOf(slot, { replyTo = null, firstId = null } = {}) {
+    return slot?.kind === 'channel' ? { userId: slot.discordUserId, replyTo, firstId } : null;
+  }
+
+  /**
+   * 버튼·창을 누른 곳의 대화 자리. 스레드면 스레드를 연 사람만, 어시스턴트 채널이면 누른 사람 자기 자리입니다
+   * (그래서 남의 답에 달린 버튼은 대화 id 가 맞지 않아 막힙니다).
+   */
+  slotFor(i, chatId) {
+    if (this.bindings.get(i.channelId)) {
+      const { actor } = this.ownedBinding(i);
+      const slot = this.bindings.slot(i.channelId);
+      if (slot.chatId !== chatId) throw new AppError('이 스레드의 대화가 아닙니다.');
+      return { slot, actor };
+    }
+    if (this.channels?.get(i.channelId)) {
+      const actor = this.actorFor(i.user);
+      const slot = this.channels.slot(i.channelId, actor.id, i.user.id);
+      if (slot.chatId !== chatId) throw new AppError('질문한 사람만 누를 수 있습니다.', 403);
+      return { slot, actor };
+    }
+    throw new AppError('봇이 연 스레드나 어시스턴트 채널이 아닙니다.');
   }
 
   /** 이 스레드의 연결과, 누른 사람이 주인인지. */
@@ -434,23 +532,23 @@ export class DiscordController {
 
   /** /rp roll — 서버가 주사위를 굴려 결과 줄을 내 차례로 보냅니다. */
   async roll(i) {
-    const { binding, actor } = this.ownedBinding(i);
-    const chat = this.chatOf(actor, binding, i.channelId);
+    const { actor } = this.ownedBinding(i);
+    const slot = this.bindings.slot(i.channelId);
+    const chat = this.chatOf(actor, slot);
     if (chat.kind === 'assistant') throw new AppError('주사위는 롤플레이 스레드에서 굴립니다.');
     const spec = parseNotation(i.options.getString('dice', true));
     if (!spec) throw new AppError('주사위를 읽지 못했습니다. 예) d20, 2d6+3 — 눈은 4·6·8·10·12·20·100, 개수는 1~10 개입니다.');
     const line = formatRoll(spec, rollDice(spec, rng));
     const memo = String(i.options.getString('memo') || '').trim();
     await i.reply({ content: line, flags: EPHEMERAL });
-    await this.takeTurn(i.channel, actor, binding, memo ? `${memo}\n${line}` : line, { user: i.user, show: true });
+    await this.takeTurn(i.channel, actor, slot, memo ? `${memo}\n${line}` : line, { user: i.user, show: true });
   }
 
   /* ---------------- 버튼 ---------------- */
 
   async button(i) {
     const { action, chatId, arg } = parseButton(i.customId);
-    const { binding, actor } = this.ownedBinding(i);
-    if (binding.chatId !== chatId) throw new AppError('이 스레드의 대화가 아닙니다.');
+    const { slot, actor } = this.slotFor(i, chatId);
     const thread = i.channel;
     const { jobs, chats } = this.services;
 
@@ -460,10 +558,10 @@ export class DiscordController {
     }
     // 가장 최근 답변에 단 버튼들
     if (['regen', 'cont', 'prev', 'next', 'choices', 'imp', 'check'].includes(action)) {
-      if (!binding.reply?.messageIds?.includes(i.message?.id)) throw new AppError('가장 최근 답변에서만 누를 수 있습니다.');
+      if (!slot.reply?.messageIds?.includes(i.message?.id)) throw new AppError('가장 최근 답변에서만 누를 수 있습니다.');
       if (jobs.running.has(chatId)) throw new AppError('아직 답변을 쓰는 중입니다.');
     }
-    const chat = this.chatOf(actor, binding, thread.id);
+    const chat = this.chatOf(actor, slot);
 
     switch (action) {
       case 'regen':
@@ -471,50 +569,52 @@ export class DiscordController {
         this.checkAdult(chat, thread);
         this.spend(actor);
         await i.deferUpdate();
-        const reply = binding.reply;
-        if (action === 'regen') return this.stream(thread, actor, chatId, { mode: 'regenerate', reuse: reply });
+        const reply = slot.reply;
+        if (action === 'regen') return this.stream(thread, actor, chatId, { mode: 'regenerate', slot, reuse: reply });
         // 이어 쓰기는 새 메시지로 덧붙입니다. 쓰기 시작하면 앞 메시지의 버튼은 뗍니다.
-        return this.stream(thread, actor, chatId, { mode: 'continue', keep: reply, onBegin: () => this.clearButtons(thread, { reply }) });
+        return this.stream(thread, actor, chatId, {
+          mode: 'continue', slot, keep: reply, onBegin: () => this.clearButtons(thread, { reply, setReply() {} })
+        });
       }
       case 'prev':
       case 'next': {
-        const msg = chat.messages.find((m) => m.id === binding.reply.chatMessageId);
+        const msg = chat.messages.find((m) => m.id === slot.reply.chatMessageId);
         if (!msg?.swipes?.length) throw new AppError('넘겨볼 다른 답변이 없습니다.');
         await i.deferUpdate();
         const at = (msg.swipeIndex ?? msg.swipes.length - 1) + (action === 'prev' ? -1 : 1);
         const shown = chats.swipe(actor, chatId, msg.id, at);
-        return this.showReply(thread, chat, shown, binding.reply);
+        return this.showReply(thread, chat, shown, slot, slot.reply);
       }
-      case 'choices': return this.offerChoices(i, actor, thread, chat);
-      case 'imp': return this.offerDraft(i, actor, thread, chat, { fresh: true });
+      case 'choices': return this.offerChoices(i, actor, thread, chat, slot);
+      case 'imp': return this.offerDraft(i, actor, thread, chat, slot, { fresh: true });
       case 'check': {
-        const msg = chat.messages.find((m) => m.id === binding.reply.chatMessageId);
+        const msg = chat.messages.find((m) => m.id === slot.reply.chatMessageId);
         if (!chat.dice || !msg?.check) throw new AppError('굴릴 판정이 없습니다.');
         await i.deferUpdate();
         const { total } = rollDice({ sides: msg.check.sides }, rng);
-        return this.takeTurn(thread, actor, binding, formatCheck(msg.check, total), { user: i.user, show: true });
+        return this.takeTurn(thread, actor, slot, formatCheck(msg.check, total), { user: i.user, show: true });
       }
       // 선택지·초안 창(나만 보는 메시지)에 단 버튼들
       case 'pick': {
-        const p = this.pendingFor(thread.id, chat, 'choices');
+        const p = this.pendingFor(slot, chat, 'choices');
         const choice = p.list[Number(arg)];
         if (!choice) throw new AppError(STALE);
         const text = choice.check ? `${choice.text}\n${formatCheck(choice.check, rollDice({ sides: choice.check.sides }, rng).total)}` : choice.text;
         await i.update({ content: `보냈습니다 — ${choice.text}`, components: [] });
-        return this.takeTurn(thread, actor, binding, text, { user: i.user, show: true });
+        return this.takeTurn(thread, actor, slot, text, { user: i.user, show: true });
       }
       case 'send': {
-        const p = this.pendingFor(thread.id, chat, 'draft');
+        const p = this.pendingFor(slot, chat, 'draft');
         await i.update({ content: '초안을 보냈습니다.', components: [] });
-        return this.takeTurn(thread, actor, binding, p.text, { user: i.user, show: true });
+        return this.takeTurn(thread, actor, slot, p.text, { user: i.user, show: true });
       }
       case 'edit': {
-        const p = this.pendingFor(thread.id, chat, 'draft');
+        const p = this.pendingFor(slot, chat, 'draft');
         return i.showModal(draftModal(chatId, p.text));
       }
       case 'redraft': {
-        this.pendingFor(thread.id, chat, 'draft');
-        return this.offerDraft(i, actor, thread, chat, { fresh: false });
+        this.pendingFor(slot, chat, 'draft');
+        return this.offerDraft(i, actor, thread, chat, slot, { fresh: false });
       }
       default:
         throw new AppError('모르는 버튼입니다.');
@@ -522,21 +622,21 @@ export class DiscordController {
   }
 
   /** 받아 둔 선택지·초안. 그 뒤로 대화가 움직였으면(새 차례) 쓸 수 없습니다. */
-  pendingFor(threadId, chat, kind) {
-    const p = this.pending.get(threadId);
+  pendingFor(slot, chat, kind) {
+    const p = this.pending.get(slot.key);
     if (!p || p.kind !== kind || p.lastId !== chat.messages[chat.messages.length - 1]?.id) throw new AppError(STALE);
     return p;
   }
 
   /** 💡 — 선택지를 받아 나만 보는 메시지에 번호 버튼으로 보여 줍니다. 고르면 내 차례로 보냅니다. */
-  async offerChoices(i, actor, thread, chat) {
+  async offerChoices(i, actor, thread, chat, slot) {
     if (chat.kind === 'assistant') throw new AppError('어시스턴트 대화에서는 쓸 수 없습니다.');
     this.checkAdult(chat, thread);
     this.spend(actor);
     await i.deferReply({ flags: EPHEMERAL });
     const list = await this.services.replies.choices(actor, chat.id, {});
     if (!list?.length) return i.editReply({ content: '선택지를 받지 못했습니다. 다시 눌러 보세요.' });
-    this.pending.set(thread.id, { kind: 'choices', list, lastId: chat.messages[chat.messages.length - 1]?.id });
+    this.pending.set(slot.key, { kind: 'choices', list, lastId: chat.messages[chat.messages.length - 1]?.id });
     const lines = list.map((c, n) => `**${n + 1}.** ${c.text}${c.check ? ` — 🎲 ${c.check.label} d${c.check.sides}·난이도 ${c.check.dc}` : ''}`);
     await i.editReply({
       content: lines.join('\n').slice(0, 2000),
@@ -545,7 +645,7 @@ export class DiscordController {
   }
 
   /** ✍️ — 내 다음 차례를 AI 가 초안으로 씁니다. 나만 보는 메시지에서 보내기·고쳐서 보내기·다시 쓰기를 고릅니다. */
-  async offerDraft(i, actor, thread, chat, { fresh }) {
+  async offerDraft(i, actor, thread, chat, slot, { fresh }) {
     if (chat.kind === 'assistant') throw new AppError('어시스턴트 대화에서는 쓸 수 없습니다.');
     this.checkAdult(chat, thread);
     this.spend(actor);
@@ -553,7 +653,7 @@ export class DiscordController {
     else await i.deferUpdate();
     const text = String(await this.services.replies.impersonate(actor, chat.id, { emit: () => {} }) || '').trim();
     if (!text) return i.editReply({ content: '초안을 받지 못했습니다. 다시 눌러 보세요.', components: [] });
-    this.pending.set(thread.id, { kind: 'draft', text, lastId: chat.messages[chat.messages.length - 1]?.id });
+    this.pending.set(slot.key, { kind: 'draft', text, lastId: chat.messages[chat.messages.length - 1]?.id });
     await i.editReply({
       content: `**대신 쓴 초안**\n>>> ${text}`.slice(0, 2000),
       components: rows([
@@ -568,8 +668,7 @@ export class DiscordController {
   async modal(i) {
     const { action, chatId } = parseButton(i.customId);
     if (action !== 'draft') throw new AppError('모르는 창입니다.');
-    const { binding, actor } = this.ownedBinding(i);
-    if (binding.chatId !== chatId) throw new AppError('이 스레드의 대화가 아닙니다.');
+    const { slot, actor } = this.slotFor(i, chatId);
     const text = String(i.fields.getTextInputValue('text') || '').trim();
     if (!text) throw new AppError('보낼 글이 비어 있습니다.');
     if (i.isFromMessage?.()) {
@@ -578,13 +677,17 @@ export class DiscordController {
     } else {
       await i.reply({ content: '고친 초안을 보냈습니다.', flags: EPHEMERAL });
     }
-    return this.takeTurn(i.channel, actor, binding, text, { user: i.user, show: true });
+    return this.takeTurn(i.channel, actor, slot, text, { user: i.user, show: true });
   }
 
-  /* ---------------- 스레드의 메시지 ---------------- */
+  /* ---------------- 스레드·어시스턴트 채널의 메시지 ---------------- */
 
   async onMessage(message) {
-    if (message.author?.bot || message.webhookId || !message.channel?.isThread?.()) return;
+    if (message.author?.bot || message.webhookId || !message.channel) return;
+    if (!message.channel.isThread?.()) {
+      if (this.channels?.get(message.channelId)) await this.onChannelMessage(message);
+      return;
+    }
     const binding = this.bindings.get(message.channelId);
     // 주인이 아닌 사람의 메시지는 대화에 넣지 않습니다. 알리지도 않습니다(스레드가 시끄러워지지 않게).
     if (!binding || message.author.id !== binding.discordUserId) return;
@@ -600,7 +703,7 @@ export class DiscordController {
         await message.react('⏳').catch(() => {});
         return;
       }
-      await this.takeTurn(thread, actor, binding, content, { user: message.author });
+      await this.takeTurn(thread, actor, this.bindings.slot(thread.id), content, { user: message.author });
     } catch (e) {
       if (!(e instanceof AppError)) this.log.error(e);
       await this.notice(thread, e instanceof AppError ? e.message : '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.');
@@ -608,19 +711,46 @@ export class DiscordController {
   }
 
   /**
+   * 어시스턴트 채널에 쓴 말. 쓴 사람 계정의 이 채널 대화로 보내고, 그 메시지에 답장으로 멘션해 답합니다.
+   * 대화가 없거나 웹에서 지웠으면 새 어시스턴트 대화를 만듭니다. 누구든 쓸 수 있지만 계정을 이어 둔 사람만 답을 받습니다.
+   */
+  async onChannelMessage(message) {
+    const { author, channel } = message;
+    const warn = (text) => message.reply({ content: `⚠️ ${text}`, allowedMentions: { users: [author.id], repliedUser: true } }).catch((e) => this.log.error(e));
+    try {
+      const content = String(message.content || '').trim();
+      if (!content) return;
+      const actor = this.services.discordLinks.actorOf(author.id);
+      if (!actor) return await warn(NOT_LINKED);
+      this.services.setup.ensure(actor);
+      const { access, chats, jobs } = this.services;
+      const slot = this.channels.slot(channel.id, actor.id, author.id);
+      if (!slot.chatId || !access.findChat(actor, slot.chatId)) slot.attach(chats.create(actor, { kind: 'assistant' }).id);
+      if (jobs.running.has(slot.chatId)) {
+        await message.react('⏳').catch(() => {});
+        return;
+      }
+      await this.takeTurn(channel, actor, slot, content, { user: author, replyTo: message });
+    } catch (e) {
+      if (!(e instanceof AppError)) this.log.error(e);
+      await warn(e instanceof AppError ? e.message : '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.');
+    }
+  }
+
+  /**
    * 내 차례 하나를 넣고 답을 받습니다. show 면 그 차례를 스레드에 보입니다 — 직접 쓴 말은 이미 보이므로 버튼·명령으로 넣은 차례만.
    */
-  async takeTurn(thread, actor, binding, text, { user, show = false }) {
+  async takeTurn(thread, actor, slot, text, { user, show = false, replyTo = null }) {
     const { chats, jobs } = this.services;
-    const chat = this.chatOf(actor, binding, thread.id);
+    const chat = this.chatOf(actor, slot);
     if (jobs.running.has(chat.id)) throw new AppError('아직 답변을 쓰는 중입니다.');
     this.checkAdult(chat, thread);
     this.spend(actor);
-    this.pending.delete(thread.id);
+    this.pending.delete(slot.key);
     if (show) await this.postTurn(thread, chat, user, text);
     await chats.addMessage(actor, chat.id, { content: text });
-    await this.clearButtons(thread, binding);
-    await this.stream(thread, actor, chat.id, { mode: 'new' });
+    await this.clearButtons(thread, slot);
+    await this.stream(thread, actor, chat.id, { mode: 'new', slot, replyTo });
   }
 
   /**
@@ -628,12 +758,13 @@ export class DiscordController {
    * reuse(가장 최근 답변)를 주면 그 메시지를 고쳐 쓰고(다시 쓰기), keep 을 주면 그 뒤에 새 메시지로 덧붙입니다(이어 쓰기).
    * 메시지는 첫 조각이 온 뒤에야 건드립니다(onBegin 도 그때). 시작 전에 막히면(엔진 설정 등) 지금 답변이 그대로 남습니다.
    */
-  async stream(thread, actor, chatId, { mode, reuse = null, keep = null, onBegin }) {
+  async stream(thread, actor, chatId, { mode, slot, reuse = null, keep = null, onBegin, replyTo = null }) {
     const { chats, replies } = this.services;
     const chat = chats.get(actor, chatId);
     const assistant = chat.kind === 'assistant';
     await thread.sendTyping?.().catch(() => {});
-    const sink = await this.speaker(thread, chat, (reuse || keep)?.via);
+    const mention = this.mentionOf(slot, { replyTo, firstId: (reuse || keep)?.messageIds?.[0] });
+    const sink = await this.speaker(thread, chat, (reuse || keep)?.via, mention);
     const relay = new ReplyRelay({
       sink, handles: (reuse?.messageIds || []).map((id) => ({ id })), liveComponents: liveButtons(chatId), ...this.relayOptions,
       display: assistant ? plainText : displayText
@@ -666,15 +797,16 @@ export class DiscordController {
     });
     if (relay.failure) this.log.error(relay.failure);
     const before = keep?.messageIds || [];
-    if (saved) this.bindings.setReply(thread.id, { messageIds: [...before, ...sent.map((m) => m.id)], chatMessageId: saved.id, via: sink.via });
-    else if (keep) this.bindings.setReply(thread.id, keep);
+    if (saved) slot.setReply({ messageIds: [...before, ...sent.map((m) => m.id)], chatMessageId: saved.id, via: sink.via });
+    else if (keep) slot.setReply(keep);
     else if (reuse) {
       // 다시 쓰기가 빈 답이면 메시지만 비었고 대화에는 지금 답변이 그대로입니다. 다시 보여 줍니다.
       const current = chat.messages.find((m) => m.id === reuse.chatMessageId);
-      if (current) await this.showReply(thread, chat, current);
+      if (current) await this.showReply(thread, chat, current, slot);
     }
-    for (const error of errors) await this.notice(thread, error);
-    if (!saved && !errors.length) await this.notice(thread, '답변이 비어 있습니다. 🔄 다시 쓰기나 새 메시지로 다시 시도해 주세요.');
+    const asker = mention?.userId || null;
+    for (const error of errors) await this.notice(thread, error, asker);
+    if (!saved && !errors.length) await this.notice(thread, '답변이 비어 있습니다. 🔄 다시 쓰기나 새 메시지로 다시 시도해 주세요.', asker);
     if (saved && !assistant) this.background = this.background.then(() => this.afterReply(actor, chatId));
   }
 
