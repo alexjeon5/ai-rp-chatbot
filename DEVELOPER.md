@@ -9,27 +9,41 @@
 ## 1. 프로젝트 구조
 
 ```
-server.js                 부팅만 합니다 — 저장소·로그인을 만들고 createApp 으로 서버를 띄움
+server.js                 부팅만 합니다 — 저장소·로그인·서비스를 만들고, 옛 데이터의 주인을 정한 뒤 createApp 으로 서버를 띄움
 src/
   http/
-    app.js                 createApp — 미들웨어 순서, 요청 제한, 라우트 클래스 등록
-    helpers.js             wrap / fail / abortOnClose, SSE 를 보내는 EventStream
+    app.js                 createApp — 미들웨어 순서, 로그인, 계정 준비, 라우트 클래스 등록
+    helpers.js             wrap(AppError → 상태 코드) / fail / abortOnClose / sendImage, SSE 를 보내는 EventStream
     routes/                기능별 라우트 클래스 — settings, library(캐릭터·페르소나), chats,
-                           generation(생성·대신 쓰기·기억), lorebooks, character-cards, images, backup
-  services/
+                           generation(생성·대신 쓰기·기억), lorebooks, character-cards, images, backup 등.
+                           req.user 를 actor 로 서비스에 넘기는 얇은 층입니다
+  services/                HTTP 를 모르고 actor({ id, name, role })를 받습니다. 디스코드 봇도 같은 것을 씁니다
+    index.js               createServices — 서비스 조립. 웹과 봇이 같은 묶음을 씀
+    access.js              Access — 누가 어떤 항목을 볼 수 있는지 정하는 한 곳 (2절 '계정별로 나누기')
+    errors.js              AppError, NotFound — 서비스가 던지고 라우트가 상태 코드로 바꾸는 오류
+    chats.js               Chats — 대화·메시지 다루기 (목록·만들기·고치기·분기·지우기·멈추기)
+    library.js             Library, Shelf — 캐릭터·페르소나 목록, 내장 캐릭터 추가
+    prefs.js               UserPrefs — 계정별 설정(data/prefs/<id>.json), 모드 틀 다듬기
+    settings.js            Settings — 공용 설정과 계정별 설정을 합쳐 보여 주고 나눠 저장
+    account-setup.js       AccountSetup — 처음 들어온 계정에 기본 페르소나·내장 캐릭터·내장 페르소나 넣기
+    ownership.js           Ownership — 옛 데이터의 주인 정하기, claim(옮기기), purge(지우기)
+    admin.js               AdminWorker — 계정 명령이 남긴 요청을 서버에서 처리
     engines.js             Engines — 지금 엔진 설정, 성인 허용 판정, 실패 설명, 한 번에 받는 완성
-    chat-context.js        ChatContext — 대화 한 개의 캐릭터·페르소나·틀·컨텍스트 예산
+    chat-context.js        ChatContext — 대화 한 개의 캐릭터·페르소나·틀·컨텍스트 예산 (대화 주인 기준)
     character-cards.js     CharacterCards — 카드 가져오기(캐릭터+묶인 로어북 만들기)·내보내기
-    lorebooks.js           LoreBooks — 대화에 적용되는 로어북 고르기, 발동 항목, 책 삭제 시 떼어내기
+    character-art.js       CharacterArt — 프로필·표정 그림
+    backgrounds.js         Backgrounds — 비주얼 노벨 배경 그림
+    lorebooks.js           LoreBooks — 로어북 목록, 대화에 적용되는 책 고르기, 발동 항목, 책 삭제 시 떼어내기
     jobs.js                Jobs — 대화별 진행 중 작업(중복 생성 막기, 멈추기)
     image-files.js         ImageFiles — 그린 그림 파일 저장·삭제
-    usage-ledger.js        UsageLedger — 날짜별 토큰 사용량 기록(data/usage.json)과 호출 하나를 지켜보는 계량기
+    usage-ledger.js        UsageLedger — 계정·날짜별 토큰 사용량 기록(data/usage.json)과 호출 하나를 지켜보는 계량기
     attachments.js         Attachments — 사용자가 붙인 그림 저장(파일 머리로 종류 확인)·검증·모델용 base64 변환
     records.js             입력값 정리 — SAFE_ID, characterFields, normalizePersona
-    backup.js              Backup — 내려받기·불러오기(합치기)
+    backup.js              Backup — 내 데이터 내려받기·불러오기(합치기)
+  admin-requests.js        AdminRequests — 계정 명령과 서버 사이의 요청 파일 (data/admin/)
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
-  store.js                 Store 클래스, 설정 기본값
+  store.js                 Store 클래스, 공용 설정 기본값
   character-card.js        캐릭터 카드 V1·V2·V3 ↔ 캐릭터·로어북 변환 (parseCard, buildCard)
   png-card.js              PNG 의 tEXt/iTXt 조각에서 카드 JSON 꺼내기 (CardError)
   lorebook.js              로어북 순수 규칙 — 값 정리(cleanEntry·cleanLorebook), 발동 판정(LoreScanner), renderLore
@@ -39,10 +53,10 @@ src/
   persona-seeds.js         랜덤 페르소나 씨앗 표 (POOLS, CONFLICTS) 와 굴리기
   persona-gen.js           씨앗 → 소개 문단 프롬프트, 후처리, 모델 없이 쓰는 대체 문장
   character-gen.js         줄글 → 캐릭터 시트 프롬프트, 라벨 파서
-  auth.js                  로그인 — 비밀번호 해시, 세션, requireAuth / requireOwner
-  security.js              SSRF 허용 목록, 키 마스킹, 요청 제한, 같은 출처 확인
+  auth.js                  로그인 — 비밀번호 해시, 세션, requireAuth / requireOwner, AUTH_DISABLED(_AS)
+  security.js              SSRF 허용 목록, 키 마스킹, 요청 제한(RateLimiter), 같은 출처 확인
 scripts/
-  user.js                  계정 만들기·지우기·비밀번호 바꾸기 (npm run user)
+  user.js                  계정 만들기·지우기·비밀번호 바꾸기, 데이터 옮기기(claim)·지우기(purge) (npm run user)
 public/
   login.html               로그인 페이지. 앱 스크립트를 읽지 않는 독립 페이지
   index.html               전체 마크업 (사이드바, 대화창, 다이얼로그 다섯 개)
@@ -91,11 +105,14 @@ Dockerfile, docker-compose.yml
 
 ```js
 class Store {
-  settingsDoc   // JsonDoc
+  settingsDoc   // JsonDoc — 공용 설정 (엔진·이미지·성인 모드 클라우드 허용·토큰 보정·새 계정 기본 엔진)
   characters    // Collection
   personas      // Collection
   lorebooks     // Collection
   chats         // Collection
+  backgrounds   // Collection
+  prefs         // Collection — 계정별 설정. 파일 이름이 계정 id
+  usageDoc      // JsonDoc — 계정·날짜별 토큰 사용량
 }
 export const store = new Store();  // 싱글턴
 ```
@@ -104,17 +121,21 @@ export const store = new Store();  // 싱글턴
 
 1. **`migrateFromSingleFile()`** — 예전 `data/db.json` 하나짜리 저장 방식이 남아 있으면
    항목별 파일로 풀어놓고, 원본은 지우지 않고 `db.json.migrated`로 이름만 바꿉니다.
-2. 네 저장소를 병렬로 `load()`.
-3. **`normalizeSettings()`** — 새로 생긴 설정 키를 채우고, 내장 프롬프트 틀의 옛 이름을
-   새 이름으로 바꾸고(`RENAMED` 맵, 사용자가 직접 바꾼 이름은 건드리지 않음), 없는 내장 틀을
-   추가하고, **내장 여섯 개를 일반→성인 순서로 재정렬**합니다. 커스텀 틀은 순서를 건드리지 않고
-   그 뒤로 보냅니다.
+2. 저장소를 병렬로 `load()`.
+3. **`normalizeSettings()`** — 새로 생긴 설정 키를 채우고, 기본 엔진이 지워졌으면 `lmstudio` 로 돌립니다.
+   계정별로 나누기 전의 설정 파일이라 모드 틀(`presets`)이 아직 남아 있으면 `normalizePresets()` 로 다듬어 둡니다
+   (계정별 설정도 불러올 때 같은 함수를 거칩니다 — 옛 이름 바꾸기 `RENAMED`, 없는 내장 틀 추가,
+   **내장 틀을 일반→성인 순서로 재정렬**, 커스텀 틀은 그 뒤로).
 4. `tagBuiltinCharacters()` — `builtin` 표시가 생기기 전에 들어온 내장 캐릭터를 이름으로 찾아 표시를
    붙입니다(`settings.builtinCharactersTagged` 로 한 번만). 옛 외형 태그 채우기(`fillBuiltinAppearance()`)도
    이때 같이 돕니다.
 5. `syncBuiltinCharacters()` — 사람이 손대지 않은 내장 캐릭터를 코드의 최신 내용으로 맞춥니다.
-6. 캐릭터도 페르소나도 없으면 `seed()` — 기본 페르소나 하나와 내장 캐릭터를 넣습니다.
-7. `addMissingBuiltinPersonas()` — `BUILTIN_PERSONAS` 중 아직 넣은 적 없는 것을 추가합니다.
+   계정마다 받은 사본을 모두 봅니다.
+6. `tagBuiltinPersonas()` — `감독` 페르소나에 `director` 표시를 한 번만 붙입니다.
+
+기본 페르소나·내장 캐릭터·내장 페르소나를 넣는 일은 부팅이 아니라 **계정마다** 합니다
+(`AccountSetup`, 아래 '계정별로 나누기'). 부팅 뒤 `server.js` 는 `createServices()` 로 서비스를 만들고
+`services.admin.start()` 로 옛 데이터의 주인을 정한 다음 서버를 띄웁니다.
 
 ### 내장 콘텐츠
 
@@ -131,28 +152,104 @@ export const store = new Store();  // 싱글턴
     다르면 사람이 고친 것이라 그대로 둡니다. 즉 배열의 다른 칸을 고치면 기존 설치에도 반영됩니다.
   - 두 필드는 API 로 쓸 수 없습니다(`CHARACTER_FIELDS` 밖). 복제·대화에서 저장한 캐릭터는 늘 내 캐릭터이고,
     백업 불러오기는 같은 내장 캐릭터가 아직 없을 때만 표시를 살립니다.
-- `BUILTIN_PERSONAS` — 내장 페르소나 배열(지금은 입력을 연출 지시로 읽게 하는 `감독`).
-  `addMissingBuiltinPersonas()`가 넣은 이름을 `settings.seededPersonas`에 적어 두므로,
+- `BUILTIN_PERSONAS` — 내장 페르소나 배열(감독과 몇 사람).
+  `AccountSetup.addMissingBuiltinPersonas()`가 넣은 이름을 그 계정의 설정(`prefs.seededPersonas`)에 적어 두므로,
   사용자가 지운 내장 페르소나는 다음 실행 때 되살아나지 않습니다.
   `감독`에는 `director: true` 가 붙어, 대신 쓰기(`impersonatePrompt({ director })`)가 대사 대신 행동 지시를 쓰고
   `cleanImpersonation` 이 끼어든 따옴표 대사를 걷어냅니다. 이 표시가 생기기 전에 들어온 `감독`은
   `tagBuiltinPersonas()`가 이름으로 찾아 한 번만 붙이고(`settings.builtinPersonasTagged`), 그 뒤로는 이름을 바꿔도 남습니다.
   API 로는 바꿀 수 없고(`PERSONA_FIELDS` 밖) 백업에는 따라갑니다.
 
+### 계정별로 나누기
+
+캐릭터·페르소나·로어북·배경·대화는 **계정마다 따로**입니다. 폴더를 나누지 않고 항목마다 `ownerId`(계정 id)를
+적어 두고, 읽을 때 거릅니다. `Collection` 이 어차피 전부 메모리에 있어서 거르기가 싸고, id 는 파일 이름이라
+모든 계정이 한 공간을 씁니다(그림 폴더 `images/<chatId>` 도 그대로).
+
+- **`Access`(`src/services/access.js`)가 유일한 검사 지점입니다.** 라우트와 서비스는 `store.chats.get(id)` 처럼
+  저장소에서 직접 읽지 않고 `access.chat(actor, id)`(없으면 `NotFound`), `access.findChat(actor, id)`(없으면 null),
+  `access.chats(actor)` 를 씁니다. 캐릭터·페르소나·로어북·배경도 같은 모양입니다. 쓰기(`add`·`update`·`save`·`remove`)만
+  저장소를 직접 부릅니다. `test/unit/access.test.mjs` 가 라우트·서비스 소스에서 직접 읽기를 찾아 막습니다.
+  예외는 `access.js`, 계정 id 로만 찾는 `prefs.js`, 그리고 백업 불러오기의 **id 충돌 검사**(`collection.has`)입니다 —
+  id 공간은 전역이라 남의 항목과도 겹치면 안 됩니다.
+- **남의 항목은 없는 것과 같습니다.** 같은 404, 같은 안내 문구입니다. 주인(owner) 역할도 남의 항목은 못 봅니다.
+  역할은 공용 설정을 바꿀 수 있는지만 가릅니다.
+- **`ownerId` 를 쓰는 곳은 `access.stamp(actor, item)` 하나입니다.** API 로 받은 값은 어디서도 `ownerId` 로 옮기지 않습니다
+  (필드를 골라 담으므로). 백업에 적힌 `ownerId` 도 무시하고 불러온 사람의 것이 됩니다.
+- **대화에 딸린 것은 대화 주인 기준입니다.** `ChatContext` 는 캐릭터·페르소나·캐스트·배경 이름·모드 틀·파라미터를
+  `access.ownerOf(chat)` 으로 찾습니다. 그래서 누가 부르든(웹, 디스코드) 같은 대화는 같은 프롬프트가 되고,
+  남의 전역 로어북이나 배경 이름이 섞이지 않습니다. 대화에 남의 캐릭터·로어북 id 를 적어도(`castIds`·`lorebookIds`)
+  걸러집니다.
+- **대화에 딸린 파일**(`images/<chatId>/`, `uploads/<chatId>/`)은 그 대화를 볼 수 있어야 보냅니다. 프로필·배경 그림도
+  그 캐릭터·배경을 볼 수 있어야 합니다. 네 경로 모두 `helpers.sendImage` 를 거치고 `Cache-Control: private` 로 나가서
+  앞단(Cloudflare 등)의 공용 캐시에 남지 않습니다.
+- **서비스는 `req` 대신 `actor` 를 받습니다.** `Chats`·`Library`·`LoreBooks`·`Backgrounds`·`CharacterArt`·`CharacterCards`·
+  `Backup`·`Settings` 의 메서드는 첫 인자가 actor 이고, 문제가 있으면 `AppError`(404 는 `NotFound`)를 던집니다.
+  라우트의 `wrap()` 이 상태 코드로 바꿉니다. 요청 제한도 `limits.generate.hit(userKey(actor))` 로 HTTP 밖에서 셀 수 있습니다.
+
+**설정.** 공용 설정은 `settings.json`, 계정별 설정은 `data/prefs/<계정 id>.json` 입니다(`UserPrefs`).
+계정별 값이 없으면 코드 기본값(`defaultPrefs()`)을 씁니다. `Settings.view(actor)` 가 둘을 합친 모양을,
+`Settings.update(actor, body)` 가 나눠 저장합니다. 화면은 예전처럼 설정 하나(`GET/PUT /api/settings`)만 봅니다.
+
+| 계정별 (`prefs`) | 공용 (`settings.json`) |
+|---|---|
+| `activeProvider`(고르기만 — 없거나 지워졌으면 `defaultProvider`) | `providers`(주소·키·모델·감춘 모델) — 주인만 |
+| `activePersonaId`, `activePresetId`, `presets` | `image` — 주인만 |
+| `askModeOnNewChat`, `historyLimit`, `params`, `assistant` | `dev.adultCloud` — 주인만 |
+| `memory`, `lorebook`(스캔 설정) | `defaultProvider`(새 계정 기본 엔진) — 주인만 |
+| `dev.particleFix`, `dev.markup`, `dev.theme` | `tokenRatio`(엔진별 토큰 보정) — 서버가 씀 |
+| 부기: `onboarded`, `seededPersonas` (화면으로 안 보냄) | 부기: `builtinCharactersTagged`, `builtinPersonasTagged` |
+
+멤버가 보낸 주인 전용 항목은 거절하지 않고 조용히 뺍니다(설정 창은 모든 탭을 한 번에 보내므로).
+
+**계정 준비.** 로그인한 요청마다 `AccountSetup.ensure(actor)` 가 돌지만 계정마다 한 번만 일합니다.
+처음 들어온 계정(`prefs.onboarded` 가 없음)에 기본 페르소나 '나'와 내장 캐릭터 사본을 넣고, 넣은 적 없는 내장
+페르소나를 추가합니다. 내장 콘텐츠를 공용 읽기 전용으로 두지 않고 계정마다 사본을 주는 이유는, 내장 캐릭터도
+고치고 그림을 달고 로어북에 묶고 지우는 보통 캐릭터라서입니다. 손대지 않은 사본은 `syncBuiltinCharacters()` 가
+계정과 상관없이 새 내용으로 맞춥니다.
+
+**옛 데이터의 주인 정하기(`Ownership`).** 계정별로 나누기 전의 항목에는 `ownerId` 가 없고, 설정 파일에는 계정별 값이
+섞여 있습니다. 부팅 때(그리고 계정 목록이 바뀔 때) `AdminWorker` 가 `Ownership.adoptUnowned()` 를 부릅니다.
+
+- 주인 계정이 **딱 하나**면 그 계정이 받습니다. 계정이 하나도 없고 `AUTH_DISABLED` 면 `local` 이 받습니다.
+- 그 밖(주인이 여럿)이면 그대로 두고 로그에 `npm run user -- claim <아이디>` 를 안내합니다. 그동안 그 항목은
+  아무에게도 보이지 않고, 주인 계정은 계정 준비를 미룹니다(나중에 claim 으로 받았을 때 내장 캐릭터가 두 벌이 되지 않게).
+- 받을 때 옛 설정의 계정별 값은 받는 계정의 prefs 로 옮기고 공용 설정 파일에서 지웁니다. 원본은
+  `settings.json.pre-accounts` 로 한 번 남깁니다. 옛 엔진 선택은 `defaultProvider` 가 됩니다. `userId` 가 없는
+  사용량 줄도 함께 옮깁니다.
+- `claim(to)` 는 주인 없는 항목과 **고아 항목**(ownerId 가 지금 계정 목록에 없는 것 — 지운 계정, `local`)을,
+  `claim(to, { from })` 은 그 계정의 항목만 옮깁니다. `purge(ownerId)` 는 항목과 딸린 그림 파일, 계정별 설정을 지웁니다.
+  사용량 줄은 요금 기록이라 지우지 않습니다.
+
+**계정 명령과 서버.** 서버는 데이터를 전부 메모리에 올려 두고 씁니다. 명령(`scripts/user.js`)이 `chats/*.json` 을 직접
+고치면 서버가 다음 저장 때 옛 내용으로 덮어씁니다. 그래서 데이터를 바꾸는 명령은 `data/admin/requests/<id>.json` 에
+요청만 남기고(`AdminRequests`), 서버의 `AdminWorker` 가 2초마다 보고 처리한 뒤 `data/admin/results/<id>.json` 에
+결과를 남깁니다. 명령은 몇 초 기다려 결과를 보여 주고, 서버가 꺼져 있으면 다음 부팅 때 처리됩니다.
+요청 하나가 파일 하나라 명령과 서버가 같은 파일을 동시에 쓰지 않습니다.
+
+**로그인을 끈 개발 모드.** `AUTH_DISABLED=1` 이면 모든 요청이 `local` 계정(주인 역할)입니다. `local` 은 계정 목록에 없는
+따로 된 계정이라, 나중에 로그인을 켜면 `claim` 으로 옮길 수 있습니다. `AUTH_DISABLED_AS=<아이디>` 를 주면 그 계정으로
+행동합니다 — 운영 데이터 사본을 내 PC 에서 로그인 없이 열어 볼 때 씁니다.
+
 ### 저장 파일 레이아웃
 
 ```
 data/
-  settings.json
-  characters/<id>.json
+  settings.json          # 공용 설정 (엔진·이미지·클라우드 허용·토큰 보정·새 계정 기본 엔진)
+  settings.json.pre-accounts  # 계정별로 나누기 전의 설정 원본. 옮길 때 한 번 남김
+  prefs/<userId>.json    # 계정별 설정 (모드 틀·파라미터·테마 등). 파일 이름이 계정 id
+  users.json             # 계정 목록 (scripts/user.js 만 씀)
+  sessions.json          # 로그인 상태 (서버만 씀)
+  characters/<id>.json   # 항목마다 ownerId
   personas/<id>.json
   lorebooks/<id>.json    # 세계관 설정집(항목 배열 포함)
-  usage.json             # 날짜별 토큰 사용량 { days: { 'YYYY-MM-DD': [{ provider, model, requests, promptTokens, completionTokens, estimated }] } }
-  images/<chatId>/       # 장면 그리기로 그린 그림
-  uploads/<chatId>/      # 사용자가 메시지에 붙인 그림
-  portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
-  backgrounds/           # 비주얼 노벨 배경. 목록 index 와 img/ 폴더. 백업에는 들어가지 않음
   chats/<id>.json        # 메시지 배열을 포함
+  backgrounds/           # 비주얼 노벨 배경. 목록 index 와 img/ 폴더. 백업에는 들어가지 않음
+  usage.json             # 날짜별 토큰 사용량 { days: { 'YYYY-MM-DD': [{ userId, provider, model, requests, promptTokens, completionTokens, estimated }] } }
+  images/<chatId>/       # 장면 그리기로 그린 그림 (대화 권한을 따름)
+  uploads/<chatId>/      # 사용자가 메시지에 붙인 그림 (대화 권한을 따름)
+  portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
+  admin/requests/, admin/results/  # 계정 명령 ↔ 서버 요청 파일
 ```
 
 `chats/<id>.json`에는 `character` 필드가 통째로 박혀 있는 경우가 있습니다 — **1회성 캐릭터**입니다
@@ -184,12 +281,13 @@ data/
   `priority` 높은 순으로 `tokenBudget` 안에 드는 것만 남깁니다. 상한을 넘는 항목은 건너뛰고 더 작은 것을 계속 살핍니다.
 - **`renderLore(selected)`** — `# 세계관 설정` 제목 아래 `### 제목\n내용` 을 이은 글. 없으면 빈 글.
 - **`LoreBooks`** (`src/services/lorebooks.js`) — 저장소와 잇는 층. `appliedTo(chat)` 가 적용할 책을
-  `global` → 캐릭터에 묶인 책(`characterIds`) → 대화에 직접 붙인 책(`chat.lorebookIds`) 순으로 모으고(한 책은 한 번만),
+  `global` → 캐릭터에 묶인 책(`characterIds`) → 대화에 직접 붙인 책(`chat.lorebookIds`) 순으로 모으고(한 책은 한 번만,
+  **그 대화 주인의 책만** — 남의 전역 책은 붙지 않습니다),
   `block(chat, messages)` 가 프롬프트에 붙일 글을 만듭니다. `ChatContext.roleplay(chat, { basis })` 가 이걸 부르며,
   다시 쓰기일 때는 마지막 답변을 뺀 `basis.messages` 로 검사해 그 답변이 만든 발동을 되풀이하지 않습니다.
   어시스턴트 대화에는 적용하지 않습니다.
-- 설정은 `settings.lorebook = { scanDepth: 4, tokenBudget: 1200 }` (범위 1–20, 100–8000). 책을 지우면 `detach` 가
-  대화들의 `lorebookIds` 에서도 뺍니다. 대화 분기는 `lorebookIds` 를 복사하고, 백업은 `lorebooks` 를 함께 내보내고
+- 설정은 계정별 `prefs.lorebook = { scanDepth: 4, tokenBudget: 1200 }` (범위 1–20, 100–8000). 대화에서는 대화 주인의 값을 씁니다.
+  책을 묶는 `characterIds` 는 내 캐릭터만 받습니다. 책을 지우면 `detach` 가 책 주인의 대화들의 `lorebookIds` 에서도 뺍니다. 대화 분기는 `lorebookIds` 를 복사하고, 백업은 `lorebooks` 를 함께 내보내고
   불러옵니다(`characterIds`·`lorebookIds` 는 id 매핑으로 다시 이음).
 
 ### 캐릭터 카드 — `src/character-card.js`, `src/png-card.js`
@@ -365,10 +463,11 @@ data: {"done": true, "message": {...}}   완료
 ### 사용량 기록 — `src/usage.js`, `src/services/usage-ledger.js`
 
 - 엔진은 `onUsage({ promptTokens, completionTokens })` 로 **누적값**을 여러 번 알려 줍니다(OpenAI 호환은 마지막 청크, Anthropic 은 `message_start` 의 입력 + `message_delta` 의 `output_tokens`, Gemini 는 청크마다 `usageMetadata`, 사고 토큰 포함). `UsageTally.note` 는 알려 준 값으로 덮어써서 마지막 값이 그 호출의 총량이 됩니다
-- `UsageLedger.meter(request)` 가 `{ onUsage, record(text) }` 를 돌려줍니다. 호출이 끝나면(중단·오류 포함) `record` 를 한 번 부르고, 받은 것이 하나도 없으면 남기지 않습니다. 붙는 곳: 답변 생성, 대신 쓰기, `Engines.complete`(요약·기억·캐릭터/페르소나 만들기·장면 묘사)
+- `UsageLedger.meter({ userId, ...request })` 가 `{ onUsage, record(text) }` 를 돌려줍니다. 호출이 끝나면(중단·오류 포함) `record` 를 한 번 부르고, 받은 것이 하나도 없으면 남기지 않습니다. 붙는 곳: 답변 생성, 대신 쓰기, `Engines.complete({ userId, ... })`(요약·기억·캐릭터/페르소나 만들기·장면 묘사). `userId` 는 부른 사람(대화에 딸린 호출은 대화 주인)입니다
 - 엔진이 토큰 수를 알려 주지 않으면(일부 로컬 서버) 프롬프트는 `rawPromptTokens`, 출력은 `estimateTokens(text)` 로 어림하고 그 줄의 `estimated` 를 올립니다. 화면은 `≈` 로 표시
-- 날짜는 서버 시간대의 `YYYY-MM-DD`, 같은 날 같은 엔진·모델은 한 줄로 합칩니다. 90일이 지난 날짜는 기록할 때 지웁니다. 백업에는 담지 않습니다(`data/usage.json` 은 기기 로컬)
-- `GET /api/usage` 는 `summarizeUsage` 결과(`periods`: 오늘·7일·30일 합계와 모델별 행, `daily`: 30일 날짜별)
+- 날짜는 서버 시간대의 `YYYY-MM-DD`, 같은 날 같은 계정·엔진·모델은 한 줄로 합칩니다. 90일이 지난 날짜는 기록할 때 지웁니다. 백업에는 담지 않습니다(`data/usage.json` 은 기기 로컬)
+- 계정별로 나누기 전의 줄에는 `userId` 가 없습니다. 옛 데이터를 받는 계정이 함께 받습니다(`UsageLedger.reassign`). 계정을 지워도(`purge`) 줄은 요금 기록이라 남깁니다
+- `GET /api/usage` 는 내 줄만 모은 `summarizeUsage` 결과(`periods`: 오늘·7일·30일 합계와 모델별 행, `daily`: 30일 날짜별)에 `scope`·`canSeeAll` 을 붙입니다. 주인은 `?scope=all` 로 모든 줄과 기간별 계정별 합계(`periods[].users: [{ userId, name, requests, ... }]`, 숫자만)를 봅니다
 
 ### 대화 검색 — `src/chat-search.js`, `src/http/routes/search.js`
 
@@ -414,7 +513,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET/PUT | `/api/settings` | 설정 조회/저장. 응답에 `builtinTemplates`, `webSearchCapable` 등 읽기 전용 필드 포함. 설정 창은 모든 탭(엔진·이미지·dev 포함)을 PUT 한 번으로 보내므로, 엔진·ComfyUI 주소 검사를 먼저 끝내고 하나라도 거부되면 아무것도 바꾸지 않습니다 |
+| GET/PUT | `/api/settings` | 공용 설정과 내 계정별 설정을 합친 조회/저장. 응답에 `builtinTemplates`, `webSearchCapable`, `canManage`(공용 설정을 바꿀 수 있는지), `defaultProvider` 등 포함. 설정 창은 모든 탭(엔진·이미지·dev 포함)을 PUT 한 번으로 보내므로, 엔진·ComfyUI 주소 검사를 먼저 끝내고 하나라도 거부되면 아무것도 바꾸지 않습니다. 멤버가 보낸 공용 항목(`providers`·`removeProviders`·`image`·`dev.adultCloud`·`defaultProvider`)은 조용히 빠집니다 |
 | GET | `/api/models?provider=` | 모델 목록 (엔진별 필터·페이지네이션 적용됨) |
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
@@ -445,18 +544,22 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/uploads/:chatId/:file` | 사용자가 붙인 그림 파일 |
 | GET | `/api/image/checkpoints?baseUrl=` | ComfyUI 연결 확인 + 체크포인트 목록 |
 | GET | `/api/search?q=&kind=rp\|assistant` | 대화 제목·본문 검색. `{ terms, truncated, hits: [{ chatId, messageId, role, snippet, title, character, archived, adult, moreInChat }] }` |
-| GET | `/api/usage` | 토큰 사용량 요약(오늘·7일·30일, 모델별, 날짜별) |
-| DELETE | `/api/usage` | 사용량 기록 지우기. 주인 계정만 |
+| GET | `/api/usage[?scope=all]` | 내 토큰 사용량 요약(오늘·7일·30일, 모델별, 날짜별). `scope=all` 은 주인만 — 모든 계정의 합계와 계정별 숫자 |
+| DELETE | `/api/usage` | 모든 계정의 사용량 기록 지우기. 주인 계정만 |
 | GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
 | GET | `/api/chats/:id/system` | 진단용 — 조립된 시스템 프롬프트 미리보기 |
 | POST | `/api/chats/:id/save-character` | 1회성 캐릭터를 목록으로 승격 |
 | DELETE | `/api/providers/:key/unavailable` | 감춰진 모델 기록 초기화 |
-| GET | `/api/export` | API 키를 뺀 전체 백업 JSON |
-| POST | `/api/import` | `{ data, includeSettings }` 백업을 합침. 같은 id·같은 내용은 건너뛰고, 대화의 캐릭터·페르소나 id 를 맞춰 고침. 본문 한도 64MB |
+| GET | `/api/export` | 내 캐릭터·페르소나·로어북·대화와 내 계정별 설정의 백업 JSON. 공용 설정(엔진·키·이미지)·그림 파일·사용량은 빠짐 |
+| POST | `/api/import` | `{ data, includeSettings }` 백업을 내 계정에 합침. 멤버도 씀. 내 것과 같은 id·같은 내용은 건너뛰고, 남이 쓰는 id 는 (나, 원래 id) 로 정해지는 새 id 로 들어옴(두 번 불러와도 겹치지 않음). 대화의 캐릭터·페르소나 id 를 맞춰 고침. `includeSettings` 는 내 계정별 설정만 덮음. 본문 한도 64MB |
 
-`GET`과 `PUT /api/settings`는 **반드시 같은 모양**(`settingsPayload()`)을 돌려줘야 합니다.
+**모든 경로에서 남의 항목은 없는 항목과 같습니다** — 같은 404 와 같은 안내(예: `없는 대화입니다.`)이고,
+그림 파일 경로(`/api/images`·`/api/uploads`·`/api/character-art`·`/api/background-art`)는 빈 404 입니다.
+남의 대화의 `stop` 은 `{ stopped: false }` 입니다. 대화·캐릭터·로어북 등에 남의 id 를 적으면 조용히 걸러집니다.
+
+`GET`과 `PUT /api/settings`는 **반드시 같은 모양**(`Settings.payload(actor)`)을 돌려줘야 합니다.
 과거에 GET에만 `builtinTemplates`를 붙였다가, 저장 직후 클라이언트가 그 필드를 잃어버려
 "기본 내용 가져오기"가 먹통이 된 적이 있습니다.
 
@@ -621,6 +724,17 @@ curl -s -N -X POST http://127.0.0.1:5199/api/chats/$ID/generate -d '{}'
 `node mock-lmstudio.mjs`는 UI만 확인할 때 쓰는 기본 가짜 서버입니다. 모델에 `mock-7b`을
 넣으면 실제 모델 없이 스트리밍 응답을 받을 수 있습니다.
 
+### 단위 테스트 — `npm test`
+
+`test/unit/*.test.mjs` 를 `node --test` 로 돕니다. 계정 나누기에 관한 것:
+
+- `isolation.test.mjs` — 가짜 로그인(`x-test-user` 헤더)으로 두 계정을 만들어 **실제 HTTP 경로**를 부릅니다.
+  다른 계정의 대화·붙인 그림·프로필·배경·검색 결과·백업·전역 로어북·사용량이 보이지 않는지, 남의 id 를 끌어다 붙여도
+  걸러지는지, 설정이 따로인지, 남의 백업을 불러와도 원본이 그대로인지 봅니다. 새 경로를 만들면 여기에 한 줄 더하세요
+- `access.test.mjs` — `Access` 규칙과, 라우트·서비스가 저장소를 직접 읽지 않는지 소스를 검사합니다
+- `ownership.test.mjs` — 옛 데이터의 주인 정하기, 옛 설정 옮기기, claim·purge, 계정 명령 요청 파일
+- `settings.test.mjs` — 계정별 설정이 섞이지 않는지, 멤버가 공용 항목을 못 바꾸는지, 기본 엔진
+
 ### 동작 기록 테스트 — `test/golden/`
 
 구조를 바꾸는 리팩터링이 **동작을 하나도 바꾸지 않았는지** 확인하는 테스트입니다. 같은 시나리오를
@@ -637,6 +751,9 @@ node test/golden/run.mjs . lib-new.json scenario-library.mjs   # 로어북·검�
 node test/golden/auth.mjs . auth-new.json
 cmp base.json new.json
 ```
+
+API 시나리오는 `AUTH_DISABLED=1` 로 돌아서 계정이 `local` 하나뿐입니다. 계정 사이의 격리는 위의 `isolation.test.mjs` 가,
+계정 명령(`claim` 포함)과 계정마다 내장 콘텐츠를 받는 것은 `auth.mjs` 가 봅니다.
 
 포트는 가짜 서버 5181, 앱 5185(`GOLDEN_MOCK_PORT`, `GOLDEN_APP_PORT` 로 바꿀 수 있음), 로그인 테스트 5186 입니다.
 포트가 다르면 결과 파일의 주소도 달라지므로, 비교할 두 번은 같은 포트로 돌리세요.
