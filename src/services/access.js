@@ -9,7 +9,7 @@
  */
 import { NotFound } from './errors.js';
 
-/** 모두가 모든 항목을 봅니다. 계정별로 나누기 전의 동작입니다. */
+/** 모두가 모든 항목을 봅니다. 계정별로 나누기 전의 동작이라, 지금은 비교 테스트에만 씁니다. */
 export class SharedPolicy {
   allows() {
     return true;
@@ -35,9 +35,9 @@ const KINDS = {
 export class Access {
   /**
    * @param {import('../store.js').Store} store
-   * @param {{ allows(actor, item): boolean }} [policy]
+   * @param {{ allows(actor, item): boolean }} [policy] 기본은 주인만 보기
    */
-  constructor(store, policy = new SharedPolicy()) {
+  constructor(store, policy = new OwnerPolicy()) {
     this.store = store;
     this.policy = policy;
   }

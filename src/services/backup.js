@@ -3,6 +3,7 @@
  * 같은 id 가 이미 있으면 건너뛰므로, 같은 파일을 두 번 불러와도 겹치지 않습니다.
  * id 는 그대로 파일 이름이 되므로 안전한 글자만 받고, 아니면 새로 붙입니다.
  */
+import { createHash } from 'node:crypto';
 import { uid, merge } from '../db.js';
 import { pickPrefs } from './prefs.js';
 import { CHARACTER_FIELDS, BUILTIN_CHARACTERS } from '../content/characters.js';
@@ -15,6 +16,12 @@ const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str
 const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description), str(p.gender), str(p.age), p.traits || []]);
 
 const lorebookSignature = (b) => JSON.stringify([str(b.name), b.entries.map((e) => [e.title, e.keys, e.content])]);
+
+/**
+ * 다른 계정이 이미 쓰는 id 를 대신할 id. 불러오는 사람과 원래 id 로 정해지므로,
+ * 같은 백업을 두 번 불러오면 두 번째에는 같은 id 가 나와 '이미 있음'으로 건너뜁니다.
+ */
+const localId = (actor, id) => createHash('sha256').update(`${actor?.id}:${id}`).digest('hex').slice(0, 12);
 
 const cleanCharacter = (raw) => (str(raw.name).trim() ? characterFields(raw) : null);
 
@@ -147,6 +154,12 @@ export class Backup {
       item.id = SAFE_ID.test(str(raw.id)) ? raw.id : uid();
       if (typeof raw.id === 'string') remap?.set(raw.id, item.id);
       // id 는 파일 이름이라 모든 계정이 한 공간을 씁니다. 그래서 여기만은 Access 가 아니라 저장소 전체를 봅니다.
+      // 내 항목이면 이미 불러온 것이라 건너뛰고, 남의 항목이면 내 몫의 다른 id 로 들어옵니다.
+      if (collection.has(item.id) && !this.access.find(kind, actor, item.id)) {
+        item.id = localId(actor, item.id);
+        if (collection.has(item.id) && !this.access.find(kind, actor, item.id)) item.id = uid();
+        if (typeof raw.id === 'string') remap?.set(raw.id, item.id);
+      }
       if (collection.has(item.id)) { skipped += 1; continue; }
       const same = signature && known.get(signature(item));
       if (same) {

@@ -101,7 +101,8 @@ test('PNG 카드: iTXt 도 읽음', () => {
 function fakeStore() {
   const table = () => {
     const items = [];
-    return { items, add: (o) => { const it = { id: `id${items.length + 1}`, ...o }; items.push(it); return it; },
+    // 테스트의 항목은 모두 ME 의 것입니다.
+    return { items, add: (o) => { const it = { id: `id${items.length + 1}`, ownerId: 'me', ...o }; items.push(it); return it; },
       get: (id) => items.find((i) => i.id === id), all: () => items, get size() { return items.length; } };
   };
   return { characters: table(), lorebooks: table() };

@@ -24,15 +24,21 @@ export class LoreBooks {
     return this.access.lorebooks(actor);
   }
 
+  /** 책을 묶을 캐릭터는 actor 가 볼 수 있는 캐릭터만 받습니다. */
+  ownCharacters(actor, clean) {
+    if (Array.isArray(clean.characterIds)) clean.characterIds = clean.characterIds.filter((id) => this.access.findCharacter(actor, id));
+    return clean;
+  }
+
   create(actor, body) {
     if (this.list(actor).length >= LORE_LIMITS.books) throw new AppError('로어북이 너무 많습니다.');
-    const clean = cleanLorebook(body || {});
+    const clean = this.ownCharacters(actor, cleanLorebook(body || {}));
     if (!clean.name) throw new AppError('이름을 입력해 주세요.');
     return this.store.lorebooks.add(this.access.stamp(actor, { description: '', global: false, characterIds: [], entries: [], ...clean }));
   }
 
   update(actor, id, body) {
-    const clean = cleanLorebook(body || {});
+    const clean = this.ownCharacters(actor, cleanLorebook(body || {}));
     if ('name' in clean && !clean.name) throw new AppError('이름을 입력해 주세요.');
     const book = this.access.lorebook(actor, id);
     return this.store.lorebooks.update(book.id, clean);

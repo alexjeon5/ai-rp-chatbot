@@ -95,16 +95,19 @@ test('buildSystem: lore 를 추가 설정 뒤·기억 앞에 붙이고 이름 �
   assert.match(out, /하린은 성에 산다/);
 });
 
-test('LoreBooks.appliedTo: 전체·캐릭터·대화 이유로 모으고 한 책은 한 번만', () => {
+test('LoreBooks.appliedTo: 전체·캐릭터·대화 이유로 모으고 한 책은 한 번만, 대화 주인의 책만', () => {
   const books = [
-    { id: 'g', name: 'g', global: true, characterIds: [], entries: [] },
-    { id: 'c', name: 'c', global: false, characterIds: ['ch1'], entries: [] },
-    { id: 'x', name: 'x', global: false, characterIds: [], entries: [] },
-    { id: 'both', name: 'both', global: true, characterIds: ['ch1'], entries: [] }
+    { id: 'g', name: 'g', global: true, characterIds: [], entries: [], ownerId: 'me' },
+    { id: 'c', name: 'c', global: false, characterIds: ['ch1'], entries: [], ownerId: 'me' },
+    { id: 'x', name: 'x', global: false, characterIds: [], entries: [], ownerId: 'me' },
+    { id: 'both', name: 'both', global: true, characterIds: ['ch1'], entries: [], ownerId: 'me' },
+    // 남의 책은 전체 적용이어도, 같은 캐릭터 id 에 묶여도, 대화에 id 를 적어도 붙지 않습니다.
+    { id: 'other', name: 'other', global: true, characterIds: ['ch1'], entries: [], ownerId: 'someone' }
   ];
   const store = { lorebooks: { all: () => books, get: (id) => books.find((b) => b.id === id) || null }, settings: {} };
   const lore = new LoreBooks(store);
-  const got = lore.appliedTo({ characterId: 'ch1', lorebookIds: ['x', 'c', 'gone'] }).map((a) => `${a.book.id}:${a.via}`);
+  const got = lore.appliedTo({ ownerId: 'me', characterId: 'ch1', lorebookIds: ['x', 'c', 'gone', 'other'] }).map((a) => `${a.book.id}:${a.via}`);
   assert.deepEqual(got, ['g:global', 'both:global', 'c:character', 'x:chat']);
-  assert.deepEqual(lore.appliedTo({ characterId: null }).map((a) => a.book.id), ['g', 'both']);
+  assert.deepEqual(lore.appliedTo({ ownerId: 'me', characterId: null }).map((a) => a.book.id), ['g', 'both']);
+  assert.deepEqual(lore.appliedTo({ ownerId: 'someone', characterId: null }).map((a) => a.book.id), ['other']);
 });

@@ -48,14 +48,18 @@ export class EventStream {
   }
 }
 
+/** 그림 파일의 캐시 규칙. 계정마다 볼 수 있는 그림이 달라서, 앞단(Cloudflare 등)의 공용 캐시에는 남기지 않습니다. */
+const PRIVATE_IMAGE_CACHE = 'private, max-age=2592000, immutable';
+
 /**
  * 그림 파일 보내기. 파일 경로 네 곳(장면 그림·붙인 그림·프로필·배경)이 같은 규칙을 씁니다.
  * 볼 수 있는 파일이면 보내고, 아니면(이름이 이상하거나 남의 것이거나 없는 파일) 빈 404 를 보냅니다.
+ * 브라우저는 30일 동안 캐시하지만, 여럿이 나눠 쓰는 캐시에는 남지 않게 private 로 보냅니다.
  * @param {string|false|null} file 보낼 파일의 전체 경로. 권한 검사를 통과하지 못했으면 거짓 값
  */
 export function sendImage(res, file) {
   if (!file) return res.status(404).end();
-  res.sendFile(file, { maxAge: '30d', immutable: true }, (err) => {
+  res.sendFile(file, { cacheControl: false, headers: { 'Cache-Control': PRIVATE_IMAGE_CACHE } }, (err) => {
     if (err && !res.headersSent) res.status(404).end();
   });
 }

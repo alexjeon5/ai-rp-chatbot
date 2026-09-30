@@ -25,7 +25,8 @@ function fakeStore() {
     items,
     all: () => [...items.values()],
     get: (id) => items.get(id) || null,
-    add: (o) => { const it = { id: `c${items.size + 1}`, ...o }; items.set(it.id, it); return it; },
+    // 테스트의 항목은 모두 ME 의 것입니다.
+    add: (o) => { const it = { id: `c${items.size + 1}`, ownerId: 'me', ...o }; items.set(it.id, it); return it; },
     update: (id, patch) => { const it = items.get(id); if (!it) return null; Object.assign(it, patch); return it; }
   };
   return { characters, lorebooks: { size: 0, all: () => [], add: (o) => o } };
