@@ -202,6 +202,14 @@ test('잇기 전에는 시작할 수 없고, /rp link 로 이으면 그 계정�
     const mine = t.services.library.characters.list(t.alice).map((c) => c.id);
     assert.ok(ac.choices.length > 0 && ac.choices.every((c) => mine.includes(c.value)), 'alice 의 캐릭터만');
 
+    const hero = t.services.library.characters.list(t.alice).find((c) => c.description && c.tags);
+    const shown = ac.choices.find((c) => c.value === hero.id);
+    assert.ok(shown.name.startsWith(`${hero.avatar} ${hero.name} — `), '이름 뒤에 한 줄 소개');
+    assert.ok(shown.name.length <= 100 && !shown.name.includes('{{'));
+    const byTag = fakeInteraction({ kind: 'autocomplete', user: ALICE_D, channel, focused: { name: 'character', value: hero.tags.split(',')[0].trim() } });
+    await t.controller.onInteraction(byTag);
+    assert.ok(byTag.choices.some((c) => c.value === hero.id), '태그로도 찾음');
+
     const strangerAc = fakeInteraction({ kind: 'autocomplete', user: STRANGER_D, channel, focused: { name: 'character', value: '' } });
     await t.controller.onInteraction(strangerAc);
     assert.deepEqual(strangerAc.choices, [], '잇지 않은 사람에게는 아무것도 안 보임');
@@ -509,4 +517,27 @@ test('webhookName: 디스코드가 거절하는 이름을 고침', async () => {
   assert.equal(webhookName('everyone'), '캐릭터');
   assert.equal(webhookName(''), '캐릭터');
   assert.equal(webhookName('가'.repeat(100)).length, 80);
+});
+
+test('Webhooks: 권한이 없으면 봇 이름으로, 1분 뒤나 권한이 바뀌면(retry) 다시 물음', async () => {
+  const { Webhooks } = await import('../../src/discord/webhooks.js');
+  let now = 0;
+  let allowed = false;
+  const warns = [];
+  const hook = { token: 't', applicationId: 'app' };
+  const channel = { id: 'c1', name: 'general', fetchWebhooks: async () => { if (!allowed) throw new Error('Missing Permissions'); return new Map([['h', hook]]); } };
+  const hooks = new Webhooks({ applicationId: () => 'app', log: { warn: (m) => warns.push(m) }, now: () => now });
+  const thread = { parent: channel };
+  assert.equal(await hooks.for(thread), null);
+  allowed = true;
+  assert.equal(await hooks.for(thread), null, '1분 안에는 다시 묻지 않음');
+  hooks.retry();
+  assert.equal(await hooks.for(thread), hook, '권한이 바뀌면 바로 다시 물음');
+  allowed = false;
+  hooks.forget('c1');
+  assert.equal(await hooks.for(thread), null);
+  now += 60_001;
+  allowed = true;
+  assert.equal(await hooks.for(thread), hook, '1분이 지나면 다시 물음');
+  assert.equal(warns.length, 2, '막힐 때마다 알림');
 });

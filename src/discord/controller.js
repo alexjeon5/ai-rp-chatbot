@@ -311,23 +311,31 @@ export class DiscordController {
     await i.reply({ content: removed ? '앱 계정과의 연결을 끊었습니다.' : '이어진 앱 계정이 없습니다.', flags: EPHEMERAL });
   }
 
-  /** 캐릭터·페르소나·모드 고르기. 이름에 적은 글자가 들어간 것만 25개까지. */
+  /**
+   * 캐릭터·페르소나·모드 고르기. 디스코드 자동완성은 이름 한 줄만 보이므로 한 줄 소개를 이름 뒤에 붙입니다(100자까지).
+   * 적은 글자가 이름·태그·소개에 들어간 것만 25개까지.
+   */
   async autocomplete(i) {
     const actor = this.services.discordLinks.actorOf(i.user.id);
     if (!actor) return i.respond([]);
     this.services.setup.ensure(actor);
     const { name, value } = i.options.getFocused(true);
     const want = String(value || '').trim().toLowerCase();
-    const { library, settings } = this.services;
+    const { library, settings, access } = this.services;
+    const view = settings.view(actor);
+    const me = access.findPersona(actor, view.activePersonaId)?.name;
+    const blurb = (text, char) => fillVars(String(text || ''), { char, user: me, particleFix: view.dev?.particleFix }).replace(/\s+/g, ' ').trim();
     const items = {
-      character: () => library.characters.list(actor).map((c) => ({ name: c.name, value: c.id })),
-      persona: () => library.personas.list(actor).map((p) => ({ name: p.name, value: p.id })),
-      mode: () => settings.view(actor).presets.map((p) => ({ name: p.adult ? `${p.name} (성인)` : p.name, value: p.id }))
+      character: () => library.characters.list(actor).map((c) => ({
+        label: `${c.avatar ? `${c.avatar} ` : ''}${c.name}`, about: blurb(c.description, c.name), search: `${c.name} ${c.tags || ''}`, value: c.id
+      })),
+      persona: () => library.personas.list(actor).map((p) => ({ label: p.name, about: blurb(p.description, ''), search: p.name, value: p.id })),
+      mode: () => view.presets.map((p) => ({ label: p.adult ? `${p.name} (성인)` : p.name, about: '', search: p.name, value: p.id }))
     }[name]?.() || [];
     const choices = items
-      .filter((c) => !want || c.name.toLowerCase().includes(want))
+      .filter((c) => !want || `${c.search} ${c.about}`.toLowerCase().includes(want))
       .slice(0, AUTOCOMPLETE_MAX)
-      .map((c) => ({ name: String(c.name).slice(0, 100) || '(이름 없음)', value: String(c.value).slice(0, 100) }));
+      .map((c) => ({ name: choiceName(c.label, c.about), value: String(c.value).slice(0, 100) }));
     await i.respond(choices);
   }
 
@@ -680,6 +688,14 @@ export class DiscordController {
       this.log.warn?.(`자동 기억을 건너뜁니다: ${e.message}`);
     }
   }
+}
+
+/** 자동완성 한 줄(100자): '🌸 이름 — 한 줄 소개…'. 이름은 늘 다 보이게, 소개는 남는 만큼. */
+export function choiceName(label, about = '') {
+  const head = String(label || '').trim().slice(0, 100) || '(이름 없음)';
+  const room = 100 - head.length - 3;
+  if (!about || room < 6) return head;
+  return `${head} — ${about.length > room ? `${about.slice(0, room - 1)}…` : about}`;
 }
 
 /** 초안을 고쳐서 보내는 창. */

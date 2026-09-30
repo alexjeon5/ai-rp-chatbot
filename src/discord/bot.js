@@ -56,6 +56,8 @@ export async function startDiscord({ services, env = process.env, log = console 
   client.on(Events.InteractionCreate, (interaction) => controller.onInteraction(interaction));
   client.on(Events.MessageCreate, (message) => controller.onMessage(message).catch((e) => log.error(e)));
   client.on(Events.Error, (e) => log.error(`디스코드 오류 — ${e.message}`));
+  // 역할이나 채널 권한을 바꾸면(웹훅 관리 권한을 줌) 막혔던 채널을 바로 다시 묻습니다.
+  for (const event of [Events.GuildRoleUpdate, Events.GuildRoleCreate, Events.ChannelUpdate]) client.on(event, () => webhooks.retry());
 
   try {
     await client.login(token);

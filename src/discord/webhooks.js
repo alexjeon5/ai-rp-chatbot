@@ -3,9 +3,10 @@
  * 스레드에는 부모 채널의 웹훅에 threadId 를 붙여 보냅니다. 봇이 만든 웹훅이라 버튼도 달 수 있습니다(withComponents).
  *
  * 웹훅 관리 권한(Manage Webhooks)이 없으면 null 을 돌려주고, 부르는 쪽은 봇 이름으로 말합니다.
- * 권한이 없던 채널은 10분 동안 다시 묻지 않습니다. 웹훅 토큰은 메모리에만 둡니다.
+ * 권한이 없던 채널은 1분 동안 다시 묻지 않습니다. 역할·채널 권한이 바뀌면 봇이 retry() 로 바로 다시 묻게 합니다.
+ * 웹훅 토큰은 메모리에만 둡니다.
  */
-const RETRY_MS = 10 * 60_000;
+const RETRY_MS = 60_000;
 const HOOK_NAME = 'rpChat 캐릭터';
 
 /** 웹훅 이름 규칙: 1~80자, 'discord'·'clyde' 를 품을 수 없고 @ # : ``` 도 안 됩니다. 안 되면 대신 이름. */
@@ -38,7 +39,7 @@ export class Webhooks {
     const cached = this.cache.get(channel.id);
     if (cached) return cached;
     const since = this.denied.get(channel.id);
-    if (since && this.now() - since < RETRY_MS) return null;
+    if (since !== undefined && this.now() - since < RETRY_MS) return null;
     try {
       const hooks = await channel.fetchWebhooks();
       const mine = [...hooks.values()].find((h) => h.token && h.applicationId === this.applicationId());
@@ -47,10 +48,15 @@ export class Webhooks {
       this.denied.delete(channel.id);
       return hook;
     } catch (e) {
-      if (!since) this.log.warn(`#${channel.name || channel.id} 에서 웹훅을 쓸 수 없어 봇 이름으로 말합니다 (${e.message}). 봇에 웹훅 관리 권한을 주면 캐릭터 이름·그림으로 말합니다.`);
+      this.log.warn(`#${channel.name || channel.id} 에서 웹훅을 쓸 수 없어 봇 이름으로 말합니다 (${e.message}). 봇에 웹훅 관리 권한을 주면 캐릭터 이름·그림으로 말합니다.`);
       this.denied.set(channel.id, this.now());
       return null;
     }
+  }
+
+  /** 권한이 바뀌었을 수 있을 때(역할·채널 설정 변경): 막혔던 채널을 바로 다시 묻습니다. */
+  retry() {
+    this.denied.clear();
   }
 
   /** 웹훅이 지워졌을 때(Unknown Webhook) 잊고 다음에 다시 찾습니다. */
