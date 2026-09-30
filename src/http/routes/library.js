@@ -1,5 +1,4 @@
 /** 캐릭터와 페르소나: 목록·추가·수정·삭제, 그리고 모델에게 채우게 하는 기능들. */
-import { CHARACTER_FIELDS } from '../../content/characters.js';
 import { withThinking } from '../../prompt.js';
 import { isLocalUrl, checkBaseUrl } from '../../security.js';
 import { rollSeeds, sanitizeSeeds, SEED_FIELDS, SEED_KEYS } from '../../persona-seeds.js';
@@ -7,81 +6,32 @@ import { genSystem, buildGenPrompt, cleanGenerated, fallbackDescription } from '
 import {
   CHAR_GEN_SYSTEM, CHAR_FIELDS as CHAR_GEN_FIELDS, buildCharPrompt, parseCharacter, looksUsable, mergeCharacters, roughFallback
 } from '../../character-gen.js';
-import { characterFields, PERSONA_FIELDS, normalizePersona } from '../../services/records.js';
 import { wrap, fail, abortOnClose } from '../helpers.js';
 
 export class LibraryRoutes {
-  constructor({ store, access, engines, limits, art }) {
-    Object.assign(this, { store, access, engines, limits, art });
+  constructor({ store, library, engines, limits }) {
+    Object.assign(this, { store, library, engines, limits });
   }
 
   mount(app) {
-    this.crud(app, 'characters', 'character', CHARACTER_FIELDS, { beforeRemove: (c) => this.releaseCharacter(c) });
-    this.crud(app, 'personas', 'persona', PERSONA_FIELDS, { normalize: normalizePersona });
+    this.crud(app, 'characters', this.library.characters);
+    this.crud(app, 'personas', this.library.personas);
     app.post('/api/personas/roll', (req, res) => this.rollPersona(req, res));
     app.post('/api/personas/generate', this.limits.generate.middleware, wrap((req, res) => this.generatePersona(req, res)));
     // 내장 캐릭터 중 아직 없는 것만 추가합니다. 기존 캐릭터는 손대지 않습니다.
-    app.post('/api/characters/seed', (req, res) => {
-      const added = this.store.addMissingBuiltins();
-      res.json({ added, characters: this.access.characters(req.user) });
-    });
+    app.post('/api/characters/seed', wrap((req, res) => res.json(this.library.addMissingBuiltins(req.user))));
     app.post('/api/characters/draft', this.limits.generate.middleware, wrap((req, res) => this.draftCharacter(req, res)));
   }
 
-  /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. kind 는 Access 의 종류 이름입니다. */
-  crud(app, name, kind, fields, { beforeRemove, normalize = (x) => x } = {}) {
-    const collection = this.access.collectionOf(kind);
-    app.get(`/api/${name}`, (req, res) => res.json(this.access.list(kind, req.user)));
-
-    app.post(`/api/${name}`, (req, res) => {
-      const draft = {};
-      for (const f of fields) draft[f] = req.body?.[f] ?? '';
-      if (!String(draft.name ?? '').trim()) return fail(res, 400, '이름을 입력해 주세요.');
-      res.json(collection.add(normalize(draft)));
-    });
-
-    app.put(`/api/${name}/:id`, (req, res) => {
-      const patch = {};
-      for (const f of fields) if (f in (req.body || {})) patch[f] = req.body[f];
-      if ('name' in patch && !String(patch.name ?? '').trim()) return fail(res, 400, '이름을 입력해 주세요.');
-      const found = this.access.find(kind, req.user, req.params.id);
-      if (!found) return fail(res, 404, '없는 항목입니다.');
-      res.json(collection.update(found.id, normalize(patch)));
-    });
-
+  /** 항목 한 종류(Shelf)에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
+  crud(app, name, shelf) {
+    app.get(`/api/${name}`, wrap((req, res) => res.json(shelf.list(req.user))));
+    app.post(`/api/${name}`, wrap((req, res) => res.json(shelf.add(req.user, req.body))));
+    app.put(`/api/${name}/:id`, wrap((req, res) => res.json(shelf.update(req.user, req.params.id, req.body))));
     app.delete(`/api/${name}/:id`, wrap(async (req, res) => {
-      const item = this.access.find(kind, req.user, req.params.id);
-      if (!item) return fail(res, 404, '없는 항목입니다.');
-      beforeRemove?.(item);
-      await collection.remove(item.id);
+      await shelf.remove(req.user, req.params.id);
       res.json({ ok: true });
     }));
-  }
-
-  releaseCharacter(character) {
-    this.detachCharacter(character);
-    this.art.removeAll(character.id);
-  }
-
-  /**
-   * 캐릭터를 지워도 그 캐릭터와 나눈 대화는 계속 이어갈 수 있어야 합니다.
-   * 지우기 전에 캐릭터 정보를 대화 안에 복사해 1회성 캐릭터로 바꿔 둡니다.
-   * 마음이 바뀌면 대화 상단의 '캐릭터 저장' 으로 다시 목록에 넣을 수 있습니다.
-   */
-  detachCharacter(character) {
-    const copy = { ...characterFields(character), id: null };
-    const chats = this.store.chats;
-    // 캐릭터를 쓸 수 있는 대화는 그 캐릭터 주인의 대화뿐입니다.
-    for (const chat of this.access.chats(this.access.ownerOf(character))) {
-      if (Array.isArray(chat.castIds) && chat.castIds.includes(character.id)) {
-        chat.castIds = chat.castIds.filter((id) => id !== character.id);
-        chats.save(chat.id);
-      }
-      if (chat.characterId !== character.id || chat.character) continue;
-      chat.character = { ...copy };
-      chat.characterId = null;
-      chats.save(chat.id);
-    }
   }
 
   /**

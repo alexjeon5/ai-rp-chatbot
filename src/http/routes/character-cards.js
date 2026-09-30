@@ -9,13 +9,13 @@ export class CharacterCardRoutes {
 
   mount(app) {
     app.post('/api/characters/import', wrap((req, res) => this.importCard(req, res)));
-    app.get('/api/characters/:id/export', (req, res) => this.exportCard(req, res));
+    app.get('/api/characters/:id/export', wrap((req, res) => this.exportCard(req, res)));
   }
 
   /** body: { card } 또는 { png } (base64, 선택으로 줄인 그림 portrait). 만든 캐릭터와 함께 온 로어북, 옮기지 못한 정보를 돌려줍니다. */
   async importCard(req, res) {
     try {
-      res.json(await this.cards.import(req.body));
+      res.json(await this.cards.import(req.user, req.body));
     } catch (err) {
       if (err instanceof CardError) return fail(res, 400, err.message);
       throw err;
@@ -23,8 +23,7 @@ export class CharacterCardRoutes {
   }
 
   exportCard(req, res) {
-    const out = this.cards.export(req.params.id);
-    if (!out) return fail(res, 404, '없는 캐릭터입니다.');
+    const out = this.cards.export(req.user, req.params.id);
     res.set('Content-Disposition', `attachment; filename="card.json"; filename*=UTF-8''${encodeURIComponent(out.filename)}`);
     res.type('application/json').send(JSON.stringify(out.card, null, 2));
   }

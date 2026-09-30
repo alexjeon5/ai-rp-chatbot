@@ -52,7 +52,7 @@ export class ChatContext {
     const character = this.characterOf(chat);
     return {
       expressions: (character?.expressions || []).map((e) => e.label),
-      places: this.backgrounds ? this.access.backgrounds(this.access.ownerOf(chat)).map((b) => b.name) : []
+      places: this.backgrounds ? this.backgrounds.names(this.access.ownerOf(chat)) : []
     };
   }
 

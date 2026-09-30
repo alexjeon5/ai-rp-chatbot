@@ -59,16 +59,26 @@ test('Access.ownerOf: 대화의 주인으로 딸린 항목을 찾습니다', () 
 });
 
 /*
- * 권한 검사는 Access 한 곳에서만 합니다. 라우트가 저장소에서 항목을 직접 꺼내면 거르기를 건너뛰므로,
- * 읽기(get·all·has·size)는 Access 를 거치게 하고 쓰기(add·update·save·remove)만 저장소를 직접 부릅니다.
+ * 권한 검사는 Access 한 곳에서만 합니다. 라우트나 서비스가 저장소에서 항목을 직접 꺼내면 거르기를 건너뛰므로,
+ * 읽기(get·all·size)는 Access 를 거치게 하고 쓰기(add·update·save·remove)만 저장소를 직접 부릅니다.
+ * 라우트는 has 도 금지합니다. 서비스의 has 는 모든 계정이 나눠 쓰는 id 공간의 충돌 검사(백업 가져오기)에만 씁니다.
  */
-test('라우트는 대화·캐릭터·페르소나·로어북·배경을 저장소에서 직접 읽지 않습니다', async () => {
-  const dir = path.join(root, 'src/http/routes');
-  const direct = /store\.(chats|characters|personas|lorebooks|backgrounds)\.(get|all|has|size)\b|this\.(chats|books)\.(get|all|has|size)\b/;
+async function directReads(dir, pattern, skip = []) {
   const found = [];
-  for (const file of await readdir(dir)) {
-    const lines = (await readFile(path.join(dir, file), 'utf8')).split('\n');
-    lines.forEach((line, i) => { if (direct.test(line)) found.push(`${file}:${i + 1}: ${line.trim()}`); });
+  for (const file of await readdir(path.join(root, dir))) {
+    if (skip.includes(file)) continue;
+    const lines = (await readFile(path.join(root, dir, file), 'utf8')).split('\n');
+    lines.forEach((line, i) => { if (pattern.test(line)) found.push(`${dir}/${file}:${i + 1}: ${line.trim()}`); });
   }
-  assert.deepEqual(found, []);
+  return found;
+}
+
+test('라우트는 대화·캐릭터·페르소나·로어북·배경을 저장소에서 직접 읽지 않습니다', async () => {
+  const direct = /store\.(chats|characters|personas|lorebooks|backgrounds)\.(get|all|has|size)\b|this\.(chats|books)\.(get|all|has|size)\b/;
+  assert.deepEqual(await directReads('src/http/routes', direct), []);
+});
+
+test('서비스도 Access 를 거쳐 읽습니다', async () => {
+  const direct = /store\.(chats|characters|personas|lorebooks|backgrounds)\.(get|all|size)\b|collection\.(get|all|size)\b/;
+  assert.deepEqual(await directReads('src/services', direct, ['access.js']), []);
 });

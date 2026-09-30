@@ -11,7 +11,7 @@ import {
   coreViolationsText, GEMINI_RATIOS, renderGemini, renderOpenAi, listOpenAiImageModels,
   listSamplers, listCheckpoints, renderImage, freeMemory
 } from '../../image.js';
-import { wrap, fail, abortOnClose, EventStream } from '../helpers.js';
+import { wrap, fail, abortOnClose, EventStream, sendImage } from '../helpers.js';
 
 /** 한 메시지에 남겨 둘 그림 수. 넘으면 오래된 것부터 지웁니다. */
 const IMAGES_PER_MESSAGE = 6;
@@ -75,10 +75,7 @@ export class ImageRoutes {
   /** 그린 그림 파일. 대화 id 와 파일 이름을 엄격히 검사해 data/images 밖으로 못 나가게 하고, 대화를 볼 수 있어야 보냅니다. */
   file(req, res) {
     const { chatId, file } = req.params;
-    if (!this.images.isSafe(chatId, file) || !this.access.findChat(req.user, chatId)) return res.status(404).end();
-    res.sendFile(this.images.path(chatId, file), { maxAge: '30d', immutable: true }, (err) => {
-      if (err && !res.headersSent) res.status(404).end();
-    });
+    sendImage(res, this.images.isSafe(chatId, file) && this.access.findChat(req.user, chatId) && this.images.path(chatId, file));
   }
 
   remove(req, res) {

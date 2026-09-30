@@ -8,6 +8,7 @@ import { CHARACTER_FIELDS, BUILTIN_CHARACTERS } from '../content/characters.js';
 import { cleanFacts, CHAT_FLAGS } from '../chat-ops.js';
 import { cleanLorebook } from '../lorebook.js';
 import { SAFE_ID, isObj, str, characterFields, normalizePersona } from './records.js';
+import { Access } from './access.js';
 
 const characterSignature = (c) => JSON.stringify(CHARACTER_FIELDS.map((f) => str(c[f])));
 const personaSignature = (p) => JSON.stringify([str(p.name), str(p.description), str(p.gender), str(p.age), p.traits || []]);
@@ -103,38 +104,42 @@ function cleanChat(raw) {
 }
 
 export class Backup {
-  constructor(store) {
+  constructor(store, access = new Access(store)) {
     this.store = store;
+    this.access = access;
   }
 
-  /** API 키를 뺀 전체 사본. */
-  export() {
+  /** actor 가 볼 수 있는 항목과 설정의 사본. API 키는 뺍니다. */
+  export(actor) {
     const { providers, ...settings } = this.store.settings;
     return {
       exportedAt: new Date().toISOString(),
       settings,
-      characters: this.store.characters.all(),
-      personas: this.store.personas.all(),
-      lorebooks: this.store.lorebooks.all(),
-      chats: this.store.chats.all()
+      characters: this.access.characters(actor),
+      personas: this.access.personas(actor),
+      lorebooks: this.access.lorebooks(actor),
+      chats: this.access.chats(actor)
     };
   }
 
   /**
+   * @param {string} kind Access 의 종류 이름
    * @param {(raw) => object|null} clean  읽을 수 있는 항목만 골라 다듬습니다.
    * @param {(item) => string} [signature] 내용이 같은지 가리는 열쇠. 새로 설치한 앱은 기본 캐릭터를
-   *   다른 id 로 이미 갖고 있으므로, 내용이 똑같으면 같은 항목으로 보고 건너뜁니다.
+   *   다른 id 로 이미 갖고 있으므로, 내용이 똑같으면 같은 항목으로 보고 건너뜁니다. actor 의 항목과만 비교합니다.
    * @param {Map} [remap] 백업의 id → 이 앱의 id. 대화가 가리키는 캐릭터·페르소나를 고칠 때 씁니다.
    */
-  importItems(collection, list, clean, { signature, remap } = {}) {
+  importItems(actor, kind, list, clean, { signature, remap } = {}) {
+    const collection = this.access.collectionOf(kind);
     let added = 0;
     let skipped = 0;
-    const known = new Map(signature ? collection.all().map((x) => [signature(x), x.id]) : []);
+    const known = new Map(signature ? this.access.list(kind, actor).map((x) => [signature(x), x.id]) : []);
     for (const raw of Array.isArray(list) ? list : []) {
       const item = isObj(raw) ? clean(raw) : null;
       if (!item) { skipped += 1; continue; }
       item.id = SAFE_ID.test(str(raw.id)) ? raw.id : uid();
       if (typeof raw.id === 'string') remap?.set(raw.id, item.id);
+      // id 는 파일 이름이라 모든 계정이 한 공간을 씁니다. 그래서 여기만은 Access 가 아니라 저장소 전체를 봅니다.
       if (collection.has(item.id)) { skipped += 1; continue; }
       const same = signature && known.get(signature(item));
       if (same) {
@@ -150,14 +155,14 @@ export class Backup {
   }
 
   /** 백업 데이터를 합칩니다. includeSettings 면 샘플링 값·프롬프트·테마 같은 설정도 덮습니다. */
-  import(data, includeSettings) {
+  import(actor, data, includeSettings) {
     const { store } = this;
     const characterIds = new Map();
     const personaIds = new Map();
     // 백업 속 내장 캐릭터는 '기본' 탭 표시를 살립니다. 같은 내장 캐릭터가 이미 있으면 표시 없이 들어옵니다.
-    const builtinTaken = new Set(store.characters.all().map((c) => c.builtin).filter(Boolean));
+    const builtinTaken = new Set(this.access.characters(actor).map((c) => c.builtin).filter(Boolean));
     const builtinNames = new Set(BUILTIN_CHARACTERS.map((c) => c.name));
-    const characters = this.importItems(store.characters, data.characters, (raw) => {
+    const characters = this.importItems(actor, 'character', data.characters, (raw) => {
       const c = cleanCharacter(raw);
       if (c && builtinNames.has(raw.builtin) && !builtinTaken.has(raw.builtin)) {
         builtinTaken.add(raw.builtin);
@@ -166,14 +171,14 @@ export class Backup {
       }
       return c;
     }, { signature: characterSignature, remap: characterIds });
-    const personas = this.importItems(store.personas, data.personas, cleanPersona, { signature: personaSignature, remap: personaIds });
+    const personas = this.importItems(actor, 'persona', data.personas, cleanPersona, { signature: personaSignature, remap: personaIds });
     const lorebookIds = new Map();
-    const lorebooks = this.importItems(store.lorebooks, data.lorebooks, (raw) => {
+    const lorebooks = this.importItems(actor, 'lorebook', data.lorebooks, (raw) => {
       const book = cleanBook(raw);
       if (book) book.characterIds = book.characterIds.map((id) => characterIds.get(id) ?? id);
       return book;
     }, { signature: lorebookSignature, remap: lorebookIds });
-    const chats = this.importItems(store.chats, data.chats, (raw) => {
+    const chats = this.importItems(actor, 'chat', data.chats, (raw) => {
       const chat = cleanChat(raw);
       if (chat?.characterId) chat.characterId = characterIds.get(chat.characterId) ?? chat.characterId;
       if (chat?.personaId) chat.personaId = personaIds.get(chat.personaId) ?? chat.personaId;
@@ -200,7 +205,7 @@ export class Backup {
         s.activePresetId = saved.activePresetId;
       }
       const personaId = personaIds.get(saved.activePersonaId) ?? saved.activePersonaId;
-      if (typeof personaId === 'string' && store.personas.has(personaId)) s.activePersonaId = personaId;
+      if (this.access.findPersona(actor, personaId)) s.activePersonaId = personaId;
       // 성인 모드 클라우드 허용은 경고를 직접 보고 켜야 하므로 백업에서 옮겨 오지 않습니다.
       const adultCloud = s.dev.adultCloud;
       for (const key of ['params', 'assistant', 'dev', 'memory', 'lorebook']) {

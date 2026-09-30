@@ -5,16 +5,13 @@
  */
 import { ImageFiles } from './image-files.js';
 import { sniffImage } from './attachments.js';
+import { Access } from './access.js';
+import { AppError } from './errors.js';
 
 export const ART_LIMITS = { bytes: 8 * 1024 * 1024, expressions: 16, labelChars: 12 };
 
 /** 사용자에게 그대로 보여 줘도 되는 그림 오류 */
-export class ArtError extends Error {
-  constructor(message, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
+export class ArtError extends AppError {}
 
 /** 표정 이름. 모델이 `[[표정: 이름]]` 으로 고르므로 표식에 쓰는 글자는 뺍니다. */
 export const cleanLabel = (v) => String(v ?? '')
@@ -26,8 +23,9 @@ export const cleanLabel = (v) => String(v ?? '')
 const sameLabel = (a, b) => a.toLowerCase() === b.toLowerCase();
 
 export class CharacterArt {
-  constructor(store, root) {
+  constructor(store, root, access = new Access(store)) {
     this.store = store;
+    this.access = access;
     this.files = new ImageFiles(root);
   }
 
@@ -39,8 +37,13 @@ export class CharacterArt {
     return this.files.path(characterId, file);
   }
 
-  character(id) {
-    const character = this.store.characters.get(id);
+  /** 그림 파일을 보내도 되는지. 이름이 안전하고, actor 가 그 캐릭터를 볼 수 있어야 합니다. */
+  canServe(actor, characterId, file) {
+    return this.isSafe(characterId, file) && Boolean(this.access.findCharacter(actor, characterId));
+  }
+
+  character(actor, id) {
+    const character = this.access.findCharacter(actor, id);
     if (!character) throw new ArtError('없는 캐릭터입니다.', 404);
     return character;
   }
@@ -54,22 +57,22 @@ export class CharacterArt {
     return (await this.files.save(characterId, buffer, kind.ext)).file;
   }
 
-  async setPortrait(id, buffer) {
-    const character = this.character(id);
+  async setPortrait(actor, id, buffer) {
+    const character = this.character(actor, id);
     const file = await this.keep(id, buffer);
     if (character.portrait) await this.files.remove(id, character.portrait);
     return this.store.characters.update(id, { portrait: file });
   }
 
-  async clearPortrait(id) {
-    const character = this.character(id);
+  async clearPortrait(actor, id) {
+    const character = this.character(actor, id);
     if (character.portrait) await this.files.remove(id, character.portrait);
     return this.store.characters.update(id, { portrait: '' });
   }
 
   /** 같은 이름의 표정이 있으면 그림만 바꿉니다. */
-  async setExpression(id, label, buffer) {
-    const character = this.character(id);
+  async setExpression(actor, id, label, buffer) {
+    const character = this.character(actor, id);
     const name = cleanLabel(label);
     if (!name) throw new ArtError('표정 이름을 적어 주세요.');
     const list = character.expressions || [];
@@ -83,8 +86,8 @@ export class CharacterArt {
     return this.store.characters.update(id, { expressions: next });
   }
 
-  async removeExpression(id, label) {
-    const character = this.character(id);
+  async removeExpression(actor, id, label) {
+    const character = this.character(actor, id);
     const list = character.expressions || [];
     const gone = list.find((e) => sameLabel(e.label, cleanLabel(label)));
     if (!gone) throw new ArtError('없는 표정입니다.', 404);

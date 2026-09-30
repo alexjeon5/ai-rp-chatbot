@@ -4,14 +4,17 @@ import { cardFromPng, stripCardText, CardError } from '../png-card.js';
 import { cleanLorebook, LORE_LIMITS } from '../lorebook.js';
 import { ArtError } from './character-art.js';
 import { isObj } from './records.js';
+import { Access } from './access.js';
+import { NotFound } from './errors.js';
 
 /** 파일 이름에 못 쓰는 글자를 바꿉니다. */
 const safeName = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || 'character';
 
 export class CharacterCards {
-  constructor(store, art) {
+  constructor(store, art, access = new Access(store)) {
     this.store = store;
     this.art = art;
+    this.access = access;
   }
 
   /** 본문에서 카드 JSON 을 꺼냅니다. { card } 는 JSON 카드, { png } 는 base64 로 보낸 PNG 카드입니다. */
@@ -27,14 +30,14 @@ export class CharacterCards {
    * 그림을 못 쓰더라도 캐릭터는 만들고 dropped 에 적습니다.
    * @returns {{character: object, lorebook: object|null, dropped: string[]}}
    */
-  async import(payload) {
+  async import(actor, payload) {
     const { character: added, book, dropped } = parseCard(this.decode(payload));
     let character = this.store.characters.add(added);
 
     const picture = this.pictureOf(payload);
     if (picture) {
       try {
-        character = await this.art.setPortrait(character.id, picture);
+        character = await this.art.setPortrait(actor, character.id, picture);
       } catch (err) {
         if (!(err instanceof ArtError)) throw err;
         dropped.push(`프로필 그림 (${err.message})`);
@@ -44,7 +47,7 @@ export class CharacterCards {
     let lorebook = null;
     const clean = book && cleanLorebook(book);
     if (clean?.entries?.length) {
-      if (this.store.lorebooks.size >= LORE_LIMITS.books) dropped.push('세계관 (설정집이 너무 많아 넣지 못함)');
+      if (this.access.lorebooks(actor).length >= LORE_LIMITS.books) dropped.push('세계관 (설정집이 너무 많아 넣지 못함)');
       else {
         lorebook = this.store.lorebooks.add({ description: '', global: false, ...clean, characterIds: [character.id] });
       }
@@ -58,11 +61,11 @@ export class CharacterCards {
     return null;
   }
 
-  /** 캐릭터를 V2 카드로. 그 캐릭터에 묶인 로어북은 character_book 으로 함께 담습니다. */
-  export(id) {
-    const character = this.store.characters.get(id);
-    if (!character) return null;
-    const books = this.store.lorebooks.all().filter((b) => b.characterIds?.includes(id));
+  /** 캐릭터를 V2 카드로. 그 캐릭터에 묶인 (actor 가 볼 수 있는) 로어북은 character_book 으로 함께 담습니다. */
+  export(actor, id) {
+    const character = this.access.findCharacter(actor, id);
+    if (!character) throw new NotFound('없는 캐릭터입니다.');
+    const books = this.access.lorebooks(actor).filter((b) => b.characterIds?.includes(character.id));
     return { filename: `${safeName(character.name)}.json`, card: buildCard(character, books) };
   }
 }

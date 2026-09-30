@@ -47,3 +47,15 @@ export class EventStream {
     this.res.end();
   }
 }
+
+/**
+ * 그림 파일 보내기. 파일 경로 네 곳(장면 그림·붙인 그림·프로필·배경)이 같은 규칙을 씁니다.
+ * 볼 수 있는 파일이면 보내고, 아니면(이름이 이상하거나 남의 것이거나 없는 파일) 빈 404 를 보냅니다.
+ * @param {string|false|null} file 보낼 파일의 전체 경로. 권한 검사를 통과하지 못했으면 거짓 값
+ */
+export function sendImage(res, file) {
+  if (!file) return res.status(404).end();
+  res.sendFile(file, { maxAge: '30d', immutable: true }, (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
+}

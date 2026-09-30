@@ -2,7 +2,7 @@
 import express from 'express';
 import { SAFE_ID } from '../../services/records.js';
 import { ATTACHMENT_LIMITS } from '../../services/attachments.js';
-import { wrap, fail } from '../helpers.js';
+import { wrap, fail, sendImage } from '../helpers.js';
 
 const acceptTypes = ['image/png', 'image/jpeg', 'image/webp'];
 
@@ -41,9 +41,6 @@ export class AttachmentRoutes {
   /** 붙인 그림 파일. 그 대화를 볼 수 있어야 보냅니다. */
   file(req, res) {
     const { chatId, file } = req.params;
-    if (!this.attachments.isSafe(chatId, file) || !this.access.findChat(req.user, chatId)) return res.status(404).end();
-    res.sendFile(this.attachments.path(chatId, file), { maxAge: '30d', immutable: true }, (err) => {
-      if (err && !res.headersSent) res.status(404).end();
-    });
+    sendImage(res, this.attachments.isSafe(chatId, file) && this.access.findChat(req.user, chatId) && this.attachments.path(chatId, file));
   }
 }

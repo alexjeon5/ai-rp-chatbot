@@ -1,12 +1,64 @@
-/** 로어북과 대화를 잇습니다. 어떤 책이 이 대화에 적용되는지, 지금 어느 항목이 발동하는지. */
-import { LoreScanner, LORE_DEFAULTS, renderLore } from '../lorebook.js';
+/**
+ * 로어북 목록과, 로어북과 대화를 잇는 규칙. 어떤 책이 이 대화에 적용되는지, 지금 어느 항목이 발동하는지.
+ * 목록 다루기는 actor 를 받고, 문제가 있으면 AppError 를 던집니다.
+ */
+import { LoreScanner, LORE_DEFAULTS, LORE_LIMITS, renderLore, cleanLorebook } from '../lorebook.js';
 import { Access } from './access.js';
+import { AppError } from './errors.js';
 
 export class LoreBooks {
   constructor(store, access = new Access(store)) {
     this.store = store;
     this.access = access;
   }
+
+  /* ---------------- 목록 ---------------- */
+
+  list(actor) {
+    return this.access.lorebooks(actor);
+  }
+
+  create(actor, body) {
+    if (this.list(actor).length >= LORE_LIMITS.books) throw new AppError('로어북이 너무 많습니다.');
+    const clean = cleanLorebook(body || {});
+    if (!clean.name) throw new AppError('이름을 입력해 주세요.');
+    return this.store.lorebooks.add({ description: '', global: false, characterIds: [], entries: [], ...clean });
+  }
+
+  update(actor, id, body) {
+    const clean = cleanLorebook(body || {});
+    if ('name' in clean && !clean.name) throw new AppError('이름을 입력해 주세요.');
+    const book = this.access.lorebook(actor, id);
+    return this.store.lorebooks.update(book.id, clean);
+  }
+
+  async remove(actor, id) {
+    const book = this.access.lorebook(actor, id);
+    this.detach(book);
+    await this.store.lorebooks.remove(book.id);
+  }
+
+  /**
+   * 이 글을 대화로 봤을 때 이 책에서 발동하는 항목. 저장하지 않습니다.
+   * 화면에서 고치는 중인 항목도 시험할 수 있게, entries 를 주면 그걸 씁니다.
+   */
+  trial(actor, id, { text, entries } = {}) {
+    const book = this.access.lorebook(actor, id);
+    const draft = Array.isArray(entries) ? { ...book, ...cleanLorebook({ entries }) } : book;
+    return this.test(draft, text).map(({ entry, tokens }) => ({ id: entry.id, title: entry.title, tokens }));
+  }
+
+  /** 이 대화에 적용되는 책(적용 이유 포함)과 지금 발동 중인 항목, 스캔 설정. */
+  forChat(actor, chatId) {
+    const chat = this.access.chat(actor, chatId);
+    return {
+      applied: this.appliedTo(chat).map(({ book, via }) => ({ id: book.id, name: book.name, via })),
+      triggered: this.triggered(chat).map(({ book, entry, tokens }) => ({ bookId: book.id, id: entry.id, title: entry.title, tokens })),
+      settings: this.settings
+    };
+  }
+
+  /* ---------------- 대화에 적용 ---------------- */
 
   /** 스캔 깊이·토큰 상한. 저장된 설정 위에 기본값을 깝니다. */
   get settings() {
