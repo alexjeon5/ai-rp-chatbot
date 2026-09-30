@@ -1,12 +1,20 @@
 /** 라우트들이 같이 쓰는 작은 도구. */
+import { AppError } from '../services/errors.js';
 
-/** async 라우트의 오류를 500 으로 돌려줍니다. */
-export const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
+export const fail = (res, status, error, extra = {}) => res.status(status).json({ error, ...extra });
+
+/**
+ * async 라우트의 오류를 응답으로 바꿉니다.
+ * 서비스가 던진 AppError(NotFound 등)는 그 상태 코드와 안내로, 나머지는 500 으로 보냅니다.
+ */
+export const wrap = (fn) => (req, res) => Promise.resolve().then(() => fn(req, res)).catch((e) => {
+  if (e instanceof AppError) {
+    if (!res.headersSent) fail(res, e.status, e.message);
+    return;
+  }
   console.error(e);
   if (!res.headersSent) res.status(500).json({ error: e.message });
 });
-
-export const fail = (res, status, error, extra = {}) => res.status(status).json({ error, ...extra });
 
 /**
  * 브라우저가 창을 닫거나 연결을 끊으면 멈추는 컨트롤러.

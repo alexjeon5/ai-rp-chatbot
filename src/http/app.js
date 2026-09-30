@@ -1,7 +1,8 @@
 /** Express 앱 조립: 공통 미들웨어, 로그인, 정적 파일, 기능별 라우트. */
 import express from 'express';
 import path from 'node:path';
-import { rateLimit, sameOrigin } from '../security.js';
+import { rateLimit, RateLimiter, sameOrigin, userKey } from '../security.js';
+import { Access } from '../services/access.js';
 import { Engines } from '../services/engines.js';
 import { ChatContext } from '../services/chat-context.js';
 import { Jobs } from '../services/jobs.js';
@@ -65,21 +66,23 @@ export function createApp({ store, auth, publicDir }) {
   app.use(express.static(publicDir));
 
   // 밖으로 요청을 내보내는 경로만 제한합니다. 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.
-  const byUser = (req) => req.user && `user:${req.user.id}`;
+  // limits.generate.hit(userKey(actor)) 로 HTTP 밖(디스코드)에서도 같은 몫을 셉니다.
+  const byUser = (req) => userKey(req.user);
   const limits = {
-    generate: rateLimit({ windowMs: 60_000, max: 30, message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser }),
-    models: rateLimit({ windowMs: 60_000, max: 20, message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser })
+    generate: new RateLimiter({ windowMs: 60_000, max: 30, message: '요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser }),
+    models: new RateLimiter({ windowMs: 60_000, max: 20, message: '모델 목록 요청이 너무 잦습니다. 잠시 뒤에 다시 시도해 주세요.', keyOf: byUser })
   };
 
+  const access = new Access(store);
   const usage = new UsageLedger(store.usageDoc);
   const engines = new Engines(store, usage);
-  const lore = new LoreBooks(store);
+  const lore = new LoreBooks(store, access);
   const art = new CharacterArt(store, path.join(store.dir, 'portraits'));
   const backgrounds = new Backgrounds(store, path.join(store.dir, 'backgrounds', 'img'));
   const deps = {
-    store, auth, engines, limits, lore, usage, art, backgrounds,
+    store, access, auth, engines, limits, lore, usage, art, backgrounds,
     cards: new CharacterCards(store, art),
-    context: new ChatContext(store, engines, lore, backgrounds),
+    context: new ChatContext(store, access, engines, lore, backgrounds),
     jobs: new Jobs(),
     images: new ImageFiles(path.join(store.dir, 'images')),
     attachments: new Attachments(path.join(store.dir, 'uploads'))

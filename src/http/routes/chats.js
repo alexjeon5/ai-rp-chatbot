@@ -6,31 +6,30 @@ import { characterFields, SAFE_ID } from '../../services/records.js';
 import { wrap, fail } from '../helpers.js';
 
 export class ChatRoutes {
-  constructor({ store, context, jobs, images, attachments }) {
-    Object.assign(this, { store, context, jobs, images, attachments });
+  constructor({ store, access, context, jobs, images, attachments }) {
+    Object.assign(this, { store, access, context, jobs, images, attachments });
   }
 
   get chats() {
     return this.store.chats;
   }
 
-  /** 대화를 찾습니다. 없으면 404 를 보내고 null 을 돌려줍니다. */
+  /** 대화를 찾습니다. 없거나 남의 것이면 404 를 보내고 null 을 돌려줍니다. */
   chatOr404(req, res) {
-    const chat = this.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) fail(res, 404, '없는 대화입니다.');
     return chat;
   }
 
   /** 대화 속 메시지를 찾습니다. 없으면 404 를 보내고 null 을 돌려줍니다. */
   messageOr404(req, res) {
-    const chat = this.chats.get(req.params.id);
-    const msg = chat?.messages.find((m) => m.id === req.params.mid);
-    if (!msg) fail(res, 404, '없는 메시지입니다.');
-    return msg && { chat, msg };
+    const found = this.access.findMessage(req.user, req.params.id, req.params.mid);
+    if (!found) fail(res, 404, '없는 메시지입니다.');
+    return found;
   }
 
   mount(app) {
-    app.get('/api/chats', (req, res) => res.json(this.list()));
+    app.get('/api/chats', (req, res) => res.json(this.list(req.user)));
     app.get('/api/chats/:id', (req, res) => {
       const chat = this.chatOr404(req, res);
       if (chat) res.json(chat);
@@ -50,9 +49,9 @@ export class ChatRoutes {
   }
 
   /** 최근에 대화한 순서로 보여 줍니다. 오래된 대화를 이어가면 위로 올라옵니다. */
-  list() {
+  list(actor) {
     const time = (c) => c.updatedAt || c.createdAt || 0;
-    return this.chats.all().sort((a, b) => time(b) - time(a)).map(({ messages, ...rest }) => {
+    return this.access.chats(actor).sort((a, b) => time(b) - time(a)).map(({ messages, ...rest }) => {
       const assistant = rest.kind === 'assistant';
       const preset = this.context.presetOf(rest.presetId);
       const character = assistant ? null : this.context.characterOf(rest);
@@ -81,9 +80,9 @@ export class ChatRoutes {
     const inline = body?.character;
     const character = inline?.name?.trim()
       ? { ...characterFields(inline), id: null }
-      : this.store.characters.get(body?.characterId);
+      : this.access.findCharacter(req.user, body?.characterId);
     if (!character) return fail(res, 400, '캐릭터를 먼저 선택해 주세요.');
-    const persona = this.store.personas.get(body?.personaId ?? s.activePersonaId);
+    const persona = this.access.findPersona(req.user, body?.personaId ?? s.activePersonaId);
 
     const chat = {
       kind: 'rp',
@@ -128,13 +127,13 @@ export class ChatRoutes {
     if (Array.isArray(body.lorebookIds)) {
       // 이 대화에 직접 붙일 로어북. 있는 책만, 겹치지 않게 받습니다.
       chat.lorebookIds = [...new Set(body.lorebookIds)]
-        .filter((id) => typeof id === 'string' && this.store.lorebooks.has(id))
+        .filter((id) => this.access.findLorebook(req.user, id))
         .slice(0, 20);
     }
     if (Array.isArray(body.castIds)) {
       // 함께 등장할 인물. 목록에 있는 캐릭터만, 주인공은 빼고, 겹치지 않게 받습니다.
       chat.castIds = [...new Set(body.castIds)]
-        .filter((id) => typeof id === 'string' && id !== chat.characterId && this.store.characters.has(id))
+        .filter((id) => id !== chat.characterId && this.access.findCharacter(req.user, id))
         .slice(0, 8);
     }
     this.chats.save(chat.id);
@@ -156,10 +155,11 @@ export class ChatRoutes {
   }
 
   async remove(req, res) {
-    const { id } = req.params;
+    const chat = this.access.findChat(req.user, req.params.id);
+    if (!chat) return fail(res, 404, '없는 대화입니다.');
     // 이 대화에서 그린 그림도 함께 지웁니다.
-    if (this.chats.has(id) && SAFE_ID.test(id)) await Promise.all([this.images.removeAll(id), this.attachments.removeAll(id)]);
-    if (!(await this.chats.remove(id))) return fail(res, 404, '없는 대화입니다.');
+    if (SAFE_ID.test(chat.id)) await Promise.all([this.images.removeAll(chat.id), this.attachments.removeAll(chat.id)]);
+    await this.chats.remove(chat.id);
     res.json({ ok: true });
   }
 
@@ -230,7 +230,9 @@ export class ChatRoutes {
 
   /** 진행 중인 생성을 멈춥니다. 지금까지 쓴 내용은 저장되고 화면에도 남습니다. */
   stop(req, res) {
-    const run = this.jobs.running.get(req.params.id);
+    // 남의 대화는 돌고 있어도 '멈출 것 없음' 으로 답합니다. 있다는 사실을 드러내지 않습니다.
+    const chat = this.access.findChat(req.user, req.params.id);
+    const run = chat && this.jobs.running.get(chat.id);
     if (!run) return res.json({ stopped: false });
     run.controller.abort();
     res.json({ stopped: true });
@@ -238,7 +240,7 @@ export class ChatRoutes {
 
   /** 1회성 캐릭터를 캐릭터 목록에 넣습니다. 마음에 들면 계속 쓰라고. */
   saveCharacter(req, res) {
-    const chat = this.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat?.character) return fail(res, 400, '1회성 캐릭터가 아닙니다.');
     const saved = this.store.characters.add({ ...chat.character, id: undefined });
     chat.characterId = saved.id;

@@ -3,14 +3,20 @@ import { buildSystem, fillVars, withThinking } from '../prompt.js';
 import { planContext, contextLimitOf, estimateTokens, IMAGE_TOKENS } from '../context.js';
 import { isLocalUrl } from '../security.js';
 import { sceneBlock } from '../scene-prompt.js';
+import { Access } from './access.js';
 
 /** 보정 전 어림. 엔진이 알려 준 실제 토큰 수와 비교해 보정값을 만듭니다. */
 export const rawPromptTokens = (system, history) =>
   estimateTokens(system) + history.reduce((n, m) => n + estimateTokens(m.content) + 6 + IMAGE_TOKENS * (m.attachments?.length || 0), 0);
 
+/**
+ * 대화에 딸린 캐릭터·페르소나·배경은 요청한 사람이 아니라 '그 대화의 주인'이 볼 수 있는 것에서 찾습니다.
+ * 그래서 누가 부르든(웹, 디스코드) 같은 대화는 같은 프롬프트가 됩니다.
+ */
 export class ChatContext {
-  constructor(store, engines, lore, backgrounds) {
+  constructor(store, access, engines, lore, backgrounds) {
     this.store = store;
+    this.access = access || new Access(store);
     this.engines = engines;
     this.lore = lore;
     this.backgrounds = backgrounds;
@@ -22,7 +28,7 @@ export class ChatContext {
 
   /** 대화에 박혀 있는 1회성 캐릭터가 우선입니다. */
   characterOf(chat) {
-    return chat.character || this.store.characters.get(chat.characterId);
+    return chat.character || this.access.findCharacter(this.access.ownerOf(chat), chat.characterId);
   }
 
   presetOf(id) {
@@ -33,9 +39,10 @@ export class ChatContext {
   /** 함께 등장하는 인물. 목록에서 지워진 캐릭터나 주인공 자신은 빼고 돌려줍니다. */
   castOf(chat) {
     if (!Array.isArray(chat.castIds)) return [];
+    const owner = this.access.ownerOf(chat);
     return chat.castIds
       .filter((id) => id && id !== chat.characterId)
-      .map((id) => this.store.characters.get(id))
+      .map((id) => this.access.findCharacter(owner, id))
       .filter(Boolean);
   }
 
@@ -45,7 +52,7 @@ export class ChatContext {
     const character = this.characterOf(chat);
     return {
       expressions: (character?.expressions || []).map((e) => e.label),
-      places: this.backgrounds ? this.backgrounds.names() : []
+      places: this.backgrounds ? this.access.backgrounds(this.access.ownerOf(chat)).map((b) => b.name) : []
     };
   }
 
@@ -57,7 +64,8 @@ export class ChatContext {
     const s = this.settings;
     const character = this.characterOf(chat);
     if (!character) return null;
-    const persona = this.store.personas.get(chat.personaId) || this.store.personas.get(s.activePersonaId);
+    const owner = this.access.ownerOf(chat);
+    const persona = this.access.findPersona(owner, chat.personaId) || this.access.findPersona(owner, s.activePersonaId);
     const preset = this.presetOf(chat.presetId);
     const cast = this.castOf(chat);
     const system = buildSystem({

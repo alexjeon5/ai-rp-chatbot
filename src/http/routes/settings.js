@@ -37,7 +37,7 @@ export class SettingsRoutes {
   mount(app) {
     app.get('/api/settings', (req, res) => res.json(this.payload()));
     app.put('/api/settings', ownerFieldsOnly, (req, res) => this.update(req, res));
-    app.get('/api/models', this.limits.models, wrap((req, res) => this.models(req, res)));
+    app.get('/api/models', this.limits.models.middleware, wrap((req, res) => this.models(req, res)));
     // 대화 내용은 담지 않습니다 — 요청 대상 주소·상태 코드·걸린 시간·오류 메시지뿐입니다.
     app.get('/api/logs', this.auth.requireOwner, (req, res) => res.json({ logs: listLogs() }));
     app.delete('/api/logs', this.auth.requireOwner, (req, res) => { clearLogs(); res.json({ ok: true }); });

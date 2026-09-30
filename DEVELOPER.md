@@ -633,6 +633,7 @@ curl -s -N -X POST http://127.0.0.1:5199/api/chats/$ID/generate -d '{}'
 node test/golden/run.mjs ../base base.json
 node test/golden/run.mjs . new.json
 node test/golden/run.mjs . eng-new.json scenario-engines.mjs
+node test/golden/run.mjs . lib-new.json scenario-library.mjs   # 로어북·검색·붙인 그림·프로필·배경·카드
 node test/golden/auth.mjs . auth-new.json
 cmp base.json new.json
 ```

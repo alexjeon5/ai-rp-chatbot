@@ -3,8 +3,8 @@ import { searchChats, SEARCH_LIMITS } from '../../chat-search.js';
 import { fail } from '../helpers.js';
 
 export class SearchRoutes {
-  constructor({ store, context }) {
-    Object.assign(this, { store, context });
+  constructor({ access, context }) {
+    Object.assign(this, { access, context });
   }
 
   mount(app) {
@@ -16,7 +16,7 @@ export class SearchRoutes {
     const q = String(req.query.q ?? '');
     if (q.length > SEARCH_LIMITS.queryChars * 3) return fail(res, 400, '검색어가 너무 깁니다.');
     const kind = ['rp', 'assistant'].includes(req.query.kind) ? req.query.kind : undefined;
-    const chats = this.store.chats.all();
+    const chats = this.access.chats(req.user);
     const byId = new Map(chats.map((c) => [c.id, c]));
     const { terms, hits, truncated } = searchChats(chats, q, { kind });
 

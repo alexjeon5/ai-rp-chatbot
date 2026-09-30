@@ -18,12 +18,12 @@ import { wrap, fail, abortOnClose, EventStream } from '../helpers.js';
 const LOOP_NOTICE = '\n\n(같은 말이 되풀이되어 생성을 멈췄습니다. 재전송을 누르거나, 설정에서 반복 억제 값을 올려 보세요.)';
 
 export class GenerationRoutes {
-  constructor({ store, engines, context, jobs, limits, attachments, usage }) {
-    Object.assign(this, { store, engines, context, jobs, limits, attachments, usage });
+  constructor({ store, access, engines, context, jobs, limits, attachments, usage }) {
+    Object.assign(this, { store, access, engines, context, jobs, limits, attachments, usage });
   }
 
   mount(app) {
-    const post = (path, fn) => app.post(path, this.limits.generate, wrap((req, res) => fn.call(this, req, res)));
+    const post = (path, fn) => app.post(path, this.limits.generate.middleware, wrap((req, res) => fn.call(this, req, res)));
     post('/api/chats/:id/generate', this.generate);
     post('/api/chats/:id/summarize', this.summarize);
     post('/api/chats/:id/impersonate', this.impersonate);
@@ -39,7 +39,7 @@ export class GenerationRoutes {
    */
   async generate(req, res) {
     const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
     const assistant = chat.kind === 'assistant';
 
@@ -255,7 +255,7 @@ export class GenerationRoutes {
    */
   async summarize(req, res) {
     const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화는 요약하지 않습니다.');
     const auto = Boolean(req.body?.auto);
@@ -319,7 +319,7 @@ export class GenerationRoutes {
    */
   async impersonate(req, res) {
     const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화에서는 쓸 수 없습니다.');
     const engine = this.engineFor(req, res, chat, {});
@@ -377,7 +377,7 @@ export class GenerationRoutes {
    */
   async choices(req, res) {
     const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화에서는 쓸 수 없습니다.');
     const engine = this.engineFor(req, res, chat, {});
@@ -418,7 +418,7 @@ export class GenerationRoutes {
    */
   async extractFacts(req, res) {
     const s = this.store.settings;
-    const chat = this.store.chats.get(req.params.id);
+    const chat = this.access.findChat(req.user, req.params.id);
     if (!chat) return fail(res, 404, '없는 대화입니다.');
     if (chat.kind === 'assistant') return fail(res, 400, '어시스턴트 대화는 기억을 쓰지 않습니다.');
     const auto = Boolean(req.body?.auto);

@@ -11,26 +11,27 @@ import { characterFields, PERSONA_FIELDS, normalizePersona } from '../../service
 import { wrap, fail, abortOnClose } from '../helpers.js';
 
 export class LibraryRoutes {
-  constructor({ store, engines, limits, art }) {
-    Object.assign(this, { store, engines, limits, art });
+  constructor({ store, access, engines, limits, art }) {
+    Object.assign(this, { store, access, engines, limits, art });
   }
 
   mount(app) {
-    this.crud(app, 'characters', this.store.characters, CHARACTER_FIELDS, { beforeRemove: (c) => this.releaseCharacter(c) });
-    this.crud(app, 'personas', this.store.personas, PERSONA_FIELDS, { normalize: normalizePersona });
+    this.crud(app, 'characters', 'character', CHARACTER_FIELDS, { beforeRemove: (c) => this.releaseCharacter(c) });
+    this.crud(app, 'personas', 'persona', PERSONA_FIELDS, { normalize: normalizePersona });
     app.post('/api/personas/roll', (req, res) => this.rollPersona(req, res));
-    app.post('/api/personas/generate', this.limits.generate, wrap((req, res) => this.generatePersona(req, res)));
+    app.post('/api/personas/generate', this.limits.generate.middleware, wrap((req, res) => this.generatePersona(req, res)));
     // 내장 캐릭터 중 아직 없는 것만 추가합니다. 기존 캐릭터는 손대지 않습니다.
     app.post('/api/characters/seed', (req, res) => {
       const added = this.store.addMissingBuiltins();
-      res.json({ added, characters: this.store.characters.all() });
+      res.json({ added, characters: this.access.characters(req.user) });
     });
-    app.post('/api/characters/draft', this.limits.generate, wrap((req, res) => this.draftCharacter(req, res)));
+    app.post('/api/characters/draft', this.limits.generate.middleware, wrap((req, res) => this.draftCharacter(req, res)));
   }
 
-  /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. */
-  crud(app, name, collection, fields, { beforeRemove, normalize = (x) => x } = {}) {
-    app.get(`/api/${name}`, (req, res) => res.json(collection.all()));
+  /** 컬렉션 하나에 대한 목록·추가·수정·삭제 경로를 한 번에 만듭니다. kind 는 Access 의 종류 이름입니다. */
+  crud(app, name, kind, fields, { beforeRemove, normalize = (x) => x } = {}) {
+    const collection = this.access.collectionOf(kind);
+    app.get(`/api/${name}`, (req, res) => res.json(this.access.list(kind, req.user)));
 
     app.post(`/api/${name}`, (req, res) => {
       const draft = {};
@@ -43,15 +44,16 @@ export class LibraryRoutes {
       const patch = {};
       for (const f of fields) if (f in (req.body || {})) patch[f] = req.body[f];
       if ('name' in patch && !String(patch.name ?? '').trim()) return fail(res, 400, '이름을 입력해 주세요.');
-      const item = collection.update(req.params.id, normalize(patch));
-      if (!item) return fail(res, 404, '없는 항목입니다.');
-      res.json(item);
+      const found = this.access.find(kind, req.user, req.params.id);
+      if (!found) return fail(res, 404, '없는 항목입니다.');
+      res.json(collection.update(found.id, normalize(patch)));
     });
 
     app.delete(`/api/${name}/:id`, wrap(async (req, res) => {
-      const item = collection.get(req.params.id);
-      if (item) beforeRemove?.(item);
-      if (!(await collection.remove(req.params.id))) return fail(res, 404, '없는 항목입니다.');
+      const item = this.access.find(kind, req.user, req.params.id);
+      if (!item) return fail(res, 404, '없는 항목입니다.');
+      beforeRemove?.(item);
+      await collection.remove(item.id);
       res.json({ ok: true });
     }));
   }
@@ -69,7 +71,8 @@ export class LibraryRoutes {
   detachCharacter(character) {
     const copy = { ...characterFields(character), id: null };
     const chats = this.store.chats;
-    for (const chat of chats.all()) {
+    // 캐릭터를 쓸 수 있는 대화는 그 캐릭터 주인의 대화뿐입니다.
+    for (const chat of this.access.chats(this.access.ownerOf(character))) {
       if (Array.isArray(chat.castIds) && chat.castIds.includes(character.id)) {
         chat.castIds = chat.castIds.filter((id) => id !== character.id);
         chats.save(chat.id);

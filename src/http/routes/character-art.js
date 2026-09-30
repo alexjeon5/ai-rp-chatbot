@@ -6,8 +6,8 @@ import { wrap, fail } from '../helpers.js';
 const acceptTypes = ['image/png', 'image/jpeg', 'image/webp'];
 
 export class CharacterArtRoutes {
-  constructor({ art }) {
-    this.art = art;
+  constructor({ access, art }) {
+    Object.assign(this, { access, art });
   }
 
   mount(app) {
@@ -34,7 +34,7 @@ export class CharacterArtRoutes {
 
   file(req, res) {
     const { id, file } = req.params;
-    if (!this.art.isSafe(id, file)) return res.status(404).end();
+    if (!this.art.isSafe(id, file) || !this.access.findCharacter(req.user, id)) return res.status(404).end();
     res.sendFile(this.art.path(id, file), { maxAge: '30d', immutable: true }, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });

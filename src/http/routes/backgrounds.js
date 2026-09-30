@@ -4,8 +4,8 @@ import { ART_LIMITS, ArtError } from '../../services/character-art.js';
 import { wrap, fail } from '../helpers.js';
 
 export class BackgroundRoutes {
-  constructor({ backgrounds }) {
-    this.backgrounds = backgrounds;
+  constructor({ access, backgrounds }) {
+    Object.assign(this, { access, backgrounds });
   }
 
   mount(app) {
@@ -34,7 +34,7 @@ export class BackgroundRoutes {
 
   file(req, res) {
     const { id, file } = req.params;
-    if (!this.backgrounds.isSafe(id, file)) return res.status(404).end();
+    if (!this.backgrounds.isSafe(id, file) || !this.access.findBackground(req.user, id)) return res.status(404).end();
     res.sendFile(this.backgrounds.path(id, file), { maxAge: '30d', immutable: true }, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });

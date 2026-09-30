@@ -151,35 +151,53 @@ export function maskProviders(providers = {}) {
 
 /* ---------------- 요청 제한 ---------------- */
 
+/** 요청 제한에서 한 사람을 가리키는 열쇠. 웹과 디스코드가 같은 열쇠를 써야 같은 몫을 나눠 씁니다. */
+export const userKey = (actor) => (actor?.id ? `user:${actor.id}` : null);
+
 /**
  * 창 단위로 세는 간단한 제한기. 의존성을 늘리지 않으려고 직접 만들었습니다.
- * 1인용 앱이라 이 정도로 충분합니다.
+ * 세는 일(hit)은 요청과 상관없이 열쇠만 받으므로, HTTP 가 아닌 곳(디스코드 봇)도 같은 몫을 씁니다.
  */
-export function rateLimit({ windowMs, max, message, keyOf }) {
-  const hits = new Map();
+export class RateLimiter {
+  /**
+   * @param {{ windowMs: number, max: number, message: string, keyOf?: (req) => string|null }} o
+   *   keyOf 는 middleware 가 요청에서 열쇠를 뽑는 방법. 없거나 null 이면 접속 IP 로 셉니다.
+   */
+  constructor({ windowMs, max, message, keyOf }) {
+    Object.assign(this, { windowMs, max, message, keyOf });
+    this.hits = new Map();
+    this.middleware = (req, res, next) => {
+      // 기본은 접속 IP. 로그인한 뒤의 요청은 사용자 기준으로 세는 게 정확합니다 (keyOf).
+      const key = (this.keyOf && this.keyOf(req)) || req.ip || 'unknown';
+      if (!this.hit(key)) return res.status(429).json({ error: this.message });
+      next();
+    };
+  }
 
-  return (req, res, next) => {
-    const now = Date.now();
-    // 기본은 접속 IP. 로그인한 뒤의 요청은 사용자 기준으로 세는 게 정확합니다 (keyOf).
-    const key = (keyOf && keyOf(req)) || req.ip || 'unknown';
-    const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
-
-    if (list.length >= max) {
-      hits.set(key, list);
-      return res.status(429).json({ error: message });
+  /** 한 번 셉니다. 한도 안이면 true, 넘었으면 세지 않고 false. */
+  hit(key, now = Date.now()) {
+    const list = (this.hits.get(key) || []).filter((t) => now - t < this.windowMs);
+    if (list.length >= this.max) {
+      this.hits.set(key, list);
+      return false;
     }
     list.push(now);
-    hits.set(key, list);
+    this.hits.set(key, list);
+    this.prune(now);
+    return true;
+  }
 
-    // 오래된 기록은 가끔 치웁니다. 항목이 무한정 쌓이지 않게.
-    if (hits.size > 500) {
-      for (const [k, v] of hits) {
-        if (!v.some((t) => now - t < windowMs)) hits.delete(k);
-      }
+  /** 오래된 기록은 가끔 치웁니다. 항목이 무한정 쌓이지 않게. */
+  prune(now) {
+    if (this.hits.size <= 500) return;
+    for (const [k, v] of this.hits) {
+      if (!v.some((t) => now - t < this.windowMs)) this.hits.delete(k);
     }
-    next();
-  };
+  }
 }
+
+/** 제한기 하나를 만들어 미들웨어만 돌려줍니다. 열쇠를 따로 쓸 일이 없는 곳(로그인)에 씁니다. */
+export const rateLimit = (options) => new RateLimiter(options).middleware;
 
 /* ---------------- 같은 출처에서 온 요청인지 ---------------- */
 
