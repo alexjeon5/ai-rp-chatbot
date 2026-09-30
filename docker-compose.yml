@@ -38,6 +38,10 @@ services:
       # 서버 id 를 적으면 명령이 그 서버에 바로 올라갑니다(쉼표로 여럿). 비우면 전역이라 반영에 시간이 걸립니다.
       DISCORD_TOKEN: "${DISCORD_TOKEN:-}"
       DISCORD_GUILD_IDS: "${DISCORD_GUILD_IDS:-}"
+      # 밖에서 들어오는 https 주소. 있으면 봇이 캐릭터 프로필·표정 그림을 서명된 주소(/pub/art)로 붙입니다.
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      # 그림 주소 서명 비밀. 비우면 data/discord.json 에 한 번 만들어 둡니다. 바꾸면 옛 그림 주소는 모두 무효.
+      PUBLIC_ART_SECRET: "${PUBLIC_ART_SECRET:-}"
 
       # --- 계정 ---
       # 로그인 계정은 컨테이너 안에서 만듭니다. 데이터 폴더(./data/users.json)에 저장됩니다.

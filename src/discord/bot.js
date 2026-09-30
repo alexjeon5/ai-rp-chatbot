@@ -6,7 +6,9 @@
  *   DISCORD_GUILD_IDS   명령을 올릴 서버 id (쉼표로 여럿). 비우면 전역 명령 — 반영에 시간이 걸릴 수 있습니다
  *
  * 개발자 포털에서 켤 것: Bot → Privileged Gateway Intents → MESSAGE CONTENT INTENT (스레드의 말을 읽으려면 필요)
- * 봇 권한: 채널 보기, 메시지 보내기, 공개·비공개 스레드 만들기, 스레드에 메시지 보내기, 메시지 기록 보기, 반응 추가
+ * 봇 권한: 채널 보기, 메시지 보내기, 공개·비공개 스레드 만들기, 스레드에 메시지 보내기, 메시지 기록 보기, 반응 추가,
+ *         웹훅 관리(캐릭터 이름·그림으로 말하기. 없으면 봇 이름으로 말합니다)
+ *   PUBLIC_BASE_URL     밖에서 들어오는 주소(https://…). 있으면 캐릭터 프로필·표정 그림을 서명된 주소로 붙입니다
  */
 import { COMMANDS } from './commands.js';
 import { ThreadBindings } from './bindings.js';
@@ -26,13 +28,15 @@ export async function startDiscord({ services, env = process.env, log = console 
   // 봇을 쓰지 않는 서버는 discord.js 를 불러오지도 않습니다. 메모리를 아낍니다.
   const { Client, Events, GatewayIntentBits, Partials } = await import('discord.js');
   const { DiscordController } = await import('./controller.js');
+  const { Webhooks } = await import('./webhooks.js');
 
   const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     // 비공개 스레드의 메시지는 캐시에 없는 채널에서 올 수 있습니다.
     partials: [Partials.Channel]
   });
-  const controller = new DiscordController({ services, bindings: new ThreadBindings(services.store.discordDoc), log });
+  const webhooks = new Webhooks({ applicationId: () => client.application?.id || null, log });
+  const controller = new DiscordController({ services, bindings: new ThreadBindings(services.store.discordDoc), webhooks, log });
 
   client.once(Events.ClientReady, async (ready) => {
     services.discordLinks.bot = { enabled: true, name: ready.user.username };

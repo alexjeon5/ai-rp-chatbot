@@ -24,6 +24,7 @@ src/
     chats.js               Chats — 대화·메시지 다루기 (목록·만들기·고치기·분기·지우기·멈추기)
     replies.js             Replies — 모델에게 글 쓰게 하기 (답변·대신 쓰기·선택지·요약·자동 기억). 조각은 emit 으로
     discord-links.js       DiscordLinks — 디스코드 계정과 앱 계정 잇기 (1회용 코드, 연결 검사)
+    public-art.js          PublicArt — 캐릭터 프로필·표정 그림의 서명된 공개 주소(/pub/art, 디스코드 아바타용)
     library.js             Library, Shelf — 캐릭터·페르소나 목록, 내장 캐릭터 추가
     prefs.js               UserPrefs — 계정별 설정(data/prefs/<id>.json), 모드 틀 다듬기
     settings.js            Settings — 공용 설정과 계정별 설정을 합쳐 보여 주고 나눠 저장
@@ -46,10 +47,11 @@ src/
   discord/                 디스코드 봇 — 서비스(createServices)를 웹과 같이 씀. DISCORD_TOKEN 이 있을 때만 켜짐
     bot.js                 startDiscord — Client 만들기, 명령 올리기, 이벤트를 DiscordController 로
     controller.js          DiscordController — 명령·자동완성·버튼·스레드 메시지를 서비스로 잇기
-    commands.js            슬래시 명령 정의(/rp start·end·link·unlink, API JSON 그대로)
+    commands.js            슬래시 명령 정의(/rp start·roll·end·link·unlink, /ask — API JSON 그대로)
     relay.js               ReplyRelay — 답변 조각을 모아 메시지 편집으로 옮기기(간격, 길면 다음 메시지로)
     split.js               splitMessage — 2000자 한도에 맞춰 문단·줄·문장 순으로 나누기
-    bindings.js            ThreadBindings — 스레드 ↔ 대화, 가장 최근 답변의 메시지 id
+    bindings.js            ThreadBindings — 스레드 ↔ 대화, 가장 최근 답변 { messageIds, chatMessageId, via }
+    webhooks.js            Webhooks — 채널마다 봇이 만든 웹훅 하나(캐릭터 이름·그림으로 말하기), webhookName
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
   store.js                 Store 클래스, 공용 설정 기본값
@@ -515,9 +517,20 @@ data: {"done": true, "message": {...}}   완료
 - 답변은 `Replies.reply` 의 `emit` 조각을 `ReplyRelay` 가 옮깁니다. **첫 조각이 온 뒤에야** 메시지를 건드리므로, 시작 전에 막히면(엔진 설정 등) 지금 답변이 그대로 남습니다.
   1.2초마다 한 번 고치고, 1900자를 넘으면 다음 메시지로 넘어갑니다. 다시 쓰기는 같은 메시지를 고쳐 쓰고 짧아지면 남는 메시지를 지우며, 이어 쓰기는 새 메시지로 덧붙입니다
 - 화면 표식은 `stripForDisplay` 로 떼고(쓰는 중 아직 닫히지 않은 `[[…` 까지), 봇이 보내는 메시지는 `allowedMentions: { parse: [] }` 로 멘션을 모두 끕니다 — 모델이 쓴 `@everyone` 이 울리지 않게
-- 버튼 id 는 `rp:<stop|regen|cont>:<대화 id>`. 다시 쓰기·이어 쓰기는 `binding.reply.messageIds` 에 든 메시지(가장 최근 답변)에서만 받습니다
+- 버튼 id 는 `rp:<일>:<대화 id>[:<덧붙임>]`. 가장 최근 답변에 다는 것(`regen·cont·prev·next·choices·imp·check`)은 `binding.reply.messageIds` 에 든 메시지에서만 받습니다.
+  나만 보는 메시지(선택지·초안)에 다는 것(`pick·send·edit·redraft`)은 받아 둔 목록(`controller.pending`, 메모리)이 **그 뒤로 대화가 움직이지 않았을 때만** 씁니다
+- 버튼·명령으로 넣은 차례(선택지·초안·판정·`/rp roll`·`/ask` 질문)는 `postTurn` 이 내 페르소나 이름(어시스턴트는 디스코드 이름)으로 스레드에 보이고, 모두 `takeTurn` 을 거칩니다
+- 주사위는 **서버가 굴립니다**(`dice.js` 의 `rollDice` 에 `crypto.randomInt`). 웹은 브라우저가 굴립니다
+- **웹훅**: 롤플레이 답은 부모 채널의 봇 소유 웹훅(`withComponents: true` 라 버튼도 붙음)에 `threadId` 를 붙여 캐릭터 이름·프로필 주소로 보냅니다.
+  웹훅 관리 권한이 없으면 봇 이름으로 보내고 10분 동안 다시 묻지 않습니다. 웹훅 메시지는 봇이 직접 고칠 수 없으므로 `reply.via` 로 보낸 쪽을 기억해 그쪽으로 고칩니다.
+  어시스턴트 답은 늘 봇 이름으로 보냅니다
+- **공개 그림**(`PublicArt`, `GET /pub/art/:id/:file?s=`): 디스코드는 우리 서버에 로그인할 수 없어 서명한 주소로 그림을 넘깁니다. `HMAC-SHA256(비밀, "art:<id>/<file>")` 16바이트,
+  비밀은 `PUBLIC_ART_SECRET` 또는 `discord.json` 의 `artSecret`. 서명이 맞고 그 파일이 **지금** 그 캐릭터의 프로필·표정일 때만 보냅니다(`Cache-Control: public`).
+  `PUBLIC_BASE_URL` 이 없으면 주소를 만들지 않고 아바타 없이 이름만 씁니다. 계정 없이 오는 요청이라 `access.test.mjs` 의 직접 읽기 금지에서 이 파일만 뺐습니다
+- 비주얼 노벨을 켠 대화는 답의 `scene.expression` 표정 그림을 썸네일 카드로, 어시스턴트는 출처를 카드로 붙입니다(`embedsFor`)
+- 어시스턴트 글은 화면 표식 거르기 없이 그대로 보이고, `splitMessage` 는 코드 블록(```) 한가운데서 나뉘면 닫고 같은 언어로 다시 엽니다(`balanceFences`)
 - 성인 모드는 연령 제한 채널(스레드는 부모 채널)에서만 — `/rp start` 와 말할 때마다 봅니다. 엔진 쪽 허용(`adultAllowed`)은 `Replies` 가 그대로 봅니다
-- 답변 뒤에는 웹처럼 자동 기억 → 자동 요약을 부릅니다(`afterReply`). 이 두 호출은 요청 한도에 세지 않습니다(답변 하나에 최대 두 번)
+- 답변 뒤에는 웹처럼 자동 기억 → 자동 요약을 부릅니다(`afterReply`, 롤플레이만). 이 두 호출은 요청 한도에 세지 않습니다(답변 하나에 최대 두 번)
 - 시험: `test/unit/discord-controller.test.mjs` 는 진짜 서비스에 가짜 디스코드 객체와 가짜 `replies` 를 끼워 흐름을 봅니다. `discord-relay.test.mjs` 는 나누기·중계
 
 ### 대화 검색 — `src/chat-search.js`, `src/http/routes/search.js`
@@ -600,6 +613,7 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/discord/link` | 이 계정의 디스코드 연결 `{ linked: { name, linkedAt } \| null, pending: { expiresAt } \| null, bot: { enabled, name } }` |
 | POST | `/api/discord/link-code` | 1회용 연결 코드 `{ code: 'XXXX-XXXX', expiresAt }`. 전에 받은 코드는 무효. 로그인을 잠시 꺼 둔 동안(auth off)은 403 |
 | DELETE | `/api/discord/link` | 이 계정의 디스코드 연결 끊기 `{ ok, removed }` |
+| GET | `/pub/art/:characterId/:file?s=` | **로그인 없이** 캐릭터 프로필·표정 그림. 서명(`PublicArt`)이 맞고 지금 쓰는 그림일 때만, 아니면 빈 404 |
 | GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |

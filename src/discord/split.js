@@ -33,5 +33,23 @@ export function splitMessage(text, limit = CHUNK_LIMIT) {
     rest = rest.slice(cut).replace(/^\s+/, '');
   }
   if (rest.trim()) out.push(rest);
-  return out.filter((chunk) => chunk.trim());
+  return balanceFences(out.filter((chunk) => chunk.trim()));
+}
+
+const FENCE = /^\s*```(\S*)/;
+
+/**
+ * 코드 블록(```) 한가운데서 나뉜 조각은 앞 조각 끝에서 닫고 다음 조각 앞에서 같은 언어로 다시 엽니다.
+ * 그러지 않으면 뒤 메시지의 코드가 본문처럼, 본문이 코드처럼 보입니다. 붙는 글자는 조각마다 20자 안팎입니다.
+ */
+export function balanceFences(chunks) {
+  let open = null;
+  return chunks.map((chunk) => {
+    const head = open === null ? '' : `\`\`\`${open}\n`;
+    for (const line of chunk.split('\n')) {
+      const m = FENCE.exec(line);
+      if (m) open = open === null ? m[1] : null;
+    }
+    return `${head}${chunk}${open === null ? '' : '\n```'}`;
+  });
 }

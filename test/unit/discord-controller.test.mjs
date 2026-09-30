@@ -35,6 +35,7 @@ function fakeMessage(channel, { content, components = [], author }) {
 }
 
 function fakeThread(parent, id) {
+  const find = (mid) => thread.sent.find((m) => m.id === mid && !m.deleted);
   const thread = {
     id, parent, type: ChannelType.PrivateThread, archived: false, sent: [], added: [],
     isThread: () => true,
@@ -44,7 +45,11 @@ function fakeThread(parent, id) {
       thread.sent.push(msg);
       return msg;
     },
-    messages: { fetch: async (mid) => thread.sent.find((m) => m.id === mid && !m.deleted) || Promise.reject(new Error('없음')) },
+    messages: {
+      fetch: async (mid) => find(mid) || Promise.reject(new Error('없음')),
+      edit: async (mid, patch) => { const m = find(mid); if (!m) throw new Error('없음'); Object.assign(m, patch); return m; },
+      delete: async (mid) => { const m = find(mid); if (m) m.deleted = true; }
+    },
     members: { add: async (userId) => { thread.added.push(userId); } },
     sendTyping: async () => {},
     setArchived: async (v) => { thread.archived = v; }
@@ -62,13 +67,18 @@ function fakeChannel({ nsfw = false } = {}) {
 }
 
 /** 슬래시 명령·버튼·자동완성 흉내. 답한 것은 replies 에 쌓입니다. */
-function fakeInteraction({ kind = 'command', user, channel, sub, values = {}, focused, customId, message }) {
+function fakeInteraction({ kind = 'command', command = 'rp', user, channel, sub, values = {}, focused, customId, message, fields = {} }) {
   const i = {
-    user, channel, channelId: channel.id, commandName: 'rp', customId, message,
-    deferred: false, replied: false, answers: [], choices: null,
+    user, channel, channelId: channel.id, commandName: command, customId, message,
+    deferred: false, replied: false, answers: [], choices: null, modal: null,
     isAutocomplete: () => kind === 'autocomplete',
     isChatInputCommand: () => kind === 'command',
     isButton: () => kind === 'button',
+    isModalSubmit: () => kind === 'modal',
+    isFromMessage: () => kind === 'modal',
+    fields: { getTextInputValue: (id) => fields[id] ?? '' },
+    update: async (body) => { i.replied = true; i.answers.push(body); },
+    showModal: async (modal) => { i.replied = true; i.modal = modal; },
     options: {
       getSubcommand: () => sub,
       getString: (name, required) => {
@@ -88,34 +98,72 @@ function fakeInteraction({ kind = 'command', user, channel, sub, values = {}, fo
   return i;
 }
 
-/** 가짜 모델 답변. 조각 몇 개를 흘리고 저장한 척합니다. */
-function fakeReplies(services) {
+/**
+ * 가짜 모델 답변. 조각 몇 개를 흘리고, 저장은 진짜 Replies.saveReply 로 합니다(넘겨보기·이어 쓰기가 진짜 데이터로 돕니다).
+ * next 에 글을 넣으면 그 글로, sources 를 넣으면 출처도 흘립니다.
+ */
+function fakeReplies(services, real) {
   const calls = [];
   return {
     calls,
     failNext: null,
+    next: null,
+    sources: null,
     async reply(actor, chatId, { mode, emit }) {
       calls.push({ actor: actor.id, chatId, mode });
-      services.access.chat(actor, chatId);
+      const chat = services.access.chat(actor, chatId);
       if (this.failNext) { const e = this.failNext; this.failNext = null; throw e; }
+      // 화면 표식은 비주얼 노벨을 켠 대화에서만 씁니다(진짜 모델처럼).
+      const text = this.next ?? `${chat.vn ? '[[표정: 기쁨]]' : ''}어서 와요. (${mode} ${calls.length})`;
+      this.next = null;
       emit({ context: {} });
-      emit({ delta: '[[표정: 기쁨]]어서 ' });
-      emit({ delta: `와요. (${mode})` });
-      return { id: `saved${calls.length}`, role: 'assistant', content: `어서 와요. (${mode})` };
+      for (const part of text.match(/[\s\S]{1,7}/g) || []) emit({ delta: part });
+      if (this.sources) emit({ sources: this.sources });
+      const last = chat.messages[chat.messages.length - 1];
+      const target = mode !== 'new' && last?.role === 'assistant' ? last : null;
+      const names = chat.vn ? services.context.sceneNames(chat) : null;
+      return real.saveReply(chat, { mode, target, text, thought: '', sources: this.sources || [], provider: 'fake', config: { model: 'm' }, names });
     },
+    async choices() { calls.push({ choices: true }); return [{ text: '문을 연다.' }, { text: '설득해 본다.', check: { label: '설득', sides: 20, dc: 12 } }]; },
+    async impersonate() { calls.push({ impersonate: true }); return '조용히 고개를 끄덕인다.'; },
     async extractFacts() { calls.push({ facts: true }); return {}; },
     async summarize() { calls.push({ summary: true }); return {}; }
   };
 }
 
-async function setup() {
+/** 캐릭터 이름·그림으로 보내는 가짜 웹훅. 보낸 것은 스레드에 쌓아 봇 메시지와 같이 봅니다. */
+function fakeWebhooks() {
+  const hooks = new Map();
+  const hookFor = (thread) => {
+    if (!hooks.has(thread.parent.id)) {
+      hooks.set(thread.parent.id, {
+        sends: [],
+        send: async (body) => {
+          assert.equal(body.threadId, thread.id);
+          assert.deepEqual(body.allowedMentions, { parse: [] });
+          const msg = fakeMessage(thread, { ...body, author: { id: 'hook', bot: true } });
+          msg.webhook = { username: body.username, avatarURL: body.avatarURL };
+          thread.sent.push(msg);
+          hooks.get(thread.parent.id).sends.push(msg);
+          return msg;
+        },
+        editMessage: async (mid, patch) => thread.messages.edit(mid, patch),
+        deleteMessage: async (mid) => thread.messages.delete(mid)
+      });
+    }
+    return hooks.get(thread.parent.id);
+  };
+  return { for: async (thread) => hookFor(thread), forget() {} };
+}
+
+async function setup({ webhooks = false } = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'discord-'));
   const store = await new Store(dir).load();
-  const services = createServices({ store, auth: { disabled: false }, users: () => USERS });
+  const services = createServices({ store, auth: { disabled: false }, users: () => USERS, env: { PUBLIC_BASE_URL: 'https://rp.example' } });
   await services.admin.tick();
-  services.replies = fakeReplies(services);
+  services.replies = fakeReplies(services, services.replies);
   const bindings = new ThreadBindings(store.discordDoc);
-  const controller = new DiscordController({ services, bindings, relay: { interval: 1 }, log: quiet });
+  const controller = new DiscordController({ services, bindings, webhooks: webhooks ? fakeWebhooks() : null, relay: { interval: 1 }, log: quiet });
   const alice = USERS[0];
   services.setup.ensure(alice);
   const link = () => services.discordLinks.redeem({ id: ALICE_D.id, name: ALICE_D.username }, services.discordLinks.issueCode(alice).code);
@@ -197,13 +245,14 @@ test('스레드에서는 주인의 말만 대화에 들어가고, 답은 메시�
     assert.equal(t.services.replies.calls.length, 0);
 
     await t.controller.onMessage(fakeMessage(thread, { content: '안녕!', author: ALICE_D }));
-    assert.equal(chat.messages.at(-1).content, '안녕!');
+    assert.equal(chat.messages.at(-2).content, '안녕!');
     assert.deepEqual(t.services.replies.calls[0], { actor: 'alice01', chatId: chat.id, mode: 'new' });
     const reply = thread.sent.at(-1);
-    assert.equal(reply.content, '어서 와요. (new)', '화면 표식은 떼고 보임');
-    assert.equal(reply.components[0].components.length, 2);
+    assert.equal(reply.content, '어서 와요. (new 1)');
+    assert.equal(reply.components[0].components.length, 2, '다시 쓰기·이어 쓰기');
+    assert.equal(reply.components[1].components.length, 2, '선택지·대신 쓰기');
     assert.deepEqual(thread.sent[0].components, [], '앞 답변의 버튼은 뗌');
-    assert.deepEqual(t.bindings.get(thread.id).reply.messageIds, [reply.id]);
+    assert.deepEqual(t.bindings.get(thread.id).reply, { messageIds: [reply.id], chatMessageId: chat.messages.at(-1).id, via: 'bot' });
     await t.controller.background;
     assert.ok(t.services.replies.calls.some((c) => c.facts) && t.services.replies.calls.some((c) => c.summary), '답 뒤에 자동 기억');
   } finally {
@@ -211,40 +260,191 @@ test('스레드에서는 주인의 말만 대화에 들어가고, 답은 메시�
   }
 });
 
-test('버튼: 주인만, 가장 최근 답변에서만. 다시 쓰기는 같은 메시지를 고쳐 쓰고, 막히면 그대로 둠', async () => {
+test('버튼: 주인만, 가장 최근 답변에서만. 다시 쓰기는 같은 메시지를 고치고 ◀ n/m ▶ 로 넘겨봄, 막히면 그대로 둠', async () => {
   const t = await setup();
   try {
     const { thread } = await started(t);
     const { chatId } = t.bindings.get(thread.id);
+    const chat = t.services.store.chats.get(chatId);
     const greeting = thread.sent[0];
+    const press = (action, message = greeting, user = ALICE_D) =>
+      fakeInteraction({ kind: 'button', user, channel: thread, customId: `rp:${action}:${chatId}`, message });
 
-    const stranger = fakeInteraction({ kind: 'button', user: STRANGER_D, channel: thread, customId: `rp:regen:${chatId}`, message: greeting });
+    const stranger = press('regen', greeting, STRANGER_D);
     await t.controller.onInteraction(stranger);
     assert.match(stranger.answers[0].content, /스레드를 연 사람만/);
 
     // 엔진 설정 문제처럼 시작 전에 막히면 지금 답변은 그대로입니다.
     t.services.replies.failNext = new AppError('엔진을 먼저 설정해 주세요.');
-    const blocked = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:regen:${chatId}`, message: greeting });
+    const blocked = press('regen');
     await t.controller.onInteraction(blocked);
     assert.match(blocked.answers.at(-1).content, /엔진을 먼저/);
     assert.equal(greeting.deleted, false);
-    assert.equal(greeting.components.length, 1);
+    assert.equal(greeting.components.length, 2);
 
-    const regen = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:regen:${chatId}`, message: greeting });
-    await t.controller.onInteraction(regen);
-    assert.equal(greeting.content, '어서 와요. (regenerate)', '같은 메시지를 고쳐 씀');
+    await t.controller.onInteraction(press('regen'));
+    assert.equal(greeting.content, '어서 와요. (regenerate 2)', '같은 메시지를 고쳐 씀');
     assert.equal(thread.sent.filter((m) => !m.deleted).length, 1);
+    const nav = greeting.components[0].components.map((b) => b.label || b.emoji?.name);
+    assert.deepEqual(nav.slice(0, 3), ['◀', '2/2', '▶']);
 
-    const cont = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:cont:${chatId}`, message: greeting });
-    await t.controller.onInteraction(cont);
+    await t.controller.onInteraction(press('prev'));
+    assert.equal(greeting.content, displayGreeting(chat), '첫 번째 답(첫 대사)으로 돌아감');
+    assert.equal(greeting.components[0].components[1].label, '1/2');
+    assert.equal(chat.messages.at(-1).swipeIndex, 0, '대화에도 넘겨본 장이 남음');
+    await t.controller.onInteraction(press('next'));
+    assert.equal(greeting.content, '어서 와요. (regenerate 2)');
+
+    await t.controller.onInteraction(press('cont'));
     const added = thread.sent.at(-1);
-    assert.equal(added.content, '어서 와요. (continue)');
+    assert.match(added.content, /^어서 와요\. \(continue \d+\)$/);
     assert.deepEqual(greeting.components, [], '이어 쓰면 앞 메시지의 버튼은 뗌');
     assert.deepEqual(t.bindings.get(thread.id).reply.messageIds, [greeting.id, added.id]);
 
-    const old = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:regen:${chatId}`, message: { id: 'gone' } });
+    const old = press('regen', { id: 'gone' });
     await t.controller.onInteraction(old);
     assert.match(old.answers[0].content, /가장 최근 답변/);
+  } finally {
+    await t.stop();
+  }
+});
+
+/** 첫 대사가 보이는 모양 (이름 자리표시자가 채워진 글). */
+const displayGreeting = (chat) => chat.messages[0].swipes[0].content;
+
+test('💡 선택지: 나만 보는 번호 버튼, 고르면 내 차례로 보이고 답이 옴. 판정이 붙은 후보는 굴려서 보냄', async () => {
+  const t = await setup();
+  try {
+    const { thread } = await started(t);
+    const { chatId } = t.bindings.get(thread.id);
+    const chat = t.services.store.chats.get(chatId);
+    const offer = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:choices:${chatId}`, message: thread.sent[0] });
+    await t.controller.onInteraction(offer);
+    assert.match(offer.answers.at(-1).content, /1\.\*\* 문을 연다/);
+    assert.equal(offer.answers.at(-1).components[0].components.length, 2);
+
+    const pick = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:pick:${chatId}:1` });
+    await t.controller.onInteraction(pick);
+    const mine = chat.messages.at(-2);
+    assert.match(mine.content, /^설득해 본다\.\n🎲 설득 판정 \(d20, 난이도 12\): \d+ — /);
+    assert.ok(thread.sent.some((m) => m.content.startsWith('**나** ▸ 설득해 본다.')), '고른 차례를 페르소나 이름으로 보임');
+    assert.equal(chat.messages.at(-1).role, 'assistant');
+
+    const stale = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:pick:${chatId}:0` });
+    await t.controller.onInteraction(stale);
+    assert.match(stale.answers[0].content, /지난 차례/);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('✍️ 대신 쓰기: 초안 → 보내기, 또는 고쳐서 보내기 창', async () => {
+  const t = await setup();
+  try {
+    const { thread } = await started(t);
+    const { chatId } = t.bindings.get(thread.id);
+    const chat = t.services.store.chats.get(chatId);
+    const imp = () => fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:imp:${chatId}`, message: thread.sent.find((m) => m.components?.length) });
+
+    const first = imp();
+    await t.controller.onInteraction(first);
+    assert.match(first.answers.at(-1).content, /조용히 고개를 끄덕인다/);
+    const send = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:send:${chatId}` });
+    await t.controller.onInteraction(send);
+    assert.equal(chat.messages.at(-2).content, '조용히 고개를 끄덕인다.');
+
+    await t.controller.onInteraction(imp());
+    const edit = fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: `rp:edit:${chatId}` });
+    await t.controller.onInteraction(edit);
+    assert.equal(edit.modal.components[0].component.value, '조용히 고개를 끄덕인다.');
+    const submit = fakeInteraction({ kind: 'modal', user: ALICE_D, channel: thread, customId: edit.modal.custom_id, fields: { text: '고개를 젓는다.' } });
+    await t.controller.onInteraction(submit);
+    assert.equal(chat.messages.at(-2).content, '고개를 젓는다.');
+  } finally {
+    await t.stop();
+  }
+});
+
+test('🎲 판정 버튼과 /rp roll: 서버가 굴린 결과가 내 차례가 됨', async () => {
+  const t = await setup();
+  try {
+    const { thread } = await started(t);
+    const { chatId } = t.bindings.get(thread.id);
+    const chat = t.services.store.chats.get(chatId);
+    t.services.chats.update(t.alice, chatId, { dice: true, vn: true });
+    t.services.replies.next = '문지기가 막아선다. [[판정: 설득 d20 난이도 15]]';
+    await t.controller.onMessage(fakeMessage(thread, { content: '들여보내 줘', author: ALICE_D }));
+    const reply = thread.sent.at(-1);
+    assert.equal(reply.content, '문지기가 막아선다.', '판정 표식은 보이지 않음');
+    const checkBtn = reply.components[1].components.find((b) => b.custom_id.startsWith('rp:check:'));
+    assert.match(checkBtn.label, /설득 판정 \(d20, 난이도 15\)/);
+
+    await t.controller.onInteraction(fakeInteraction({ kind: 'button', user: ALICE_D, channel: thread, customId: checkBtn.custom_id, message: reply }));
+    assert.match(chat.messages.at(-2).content, /^🎲 설득 판정 \(d20, 난이도 15\): \d+ — (대성공|대실패|성공|실패)$/);
+
+    const bad = fakeInteraction({ user: ALICE_D, channel: thread, sub: 'roll', values: { dice: 'd7' } });
+    await t.controller.onInteraction(bad);
+    assert.match(bad.answers[0].content, /주사위를 읽지 못했습니다/);
+    const roll = fakeInteraction({ user: ALICE_D, channel: thread, sub: 'roll', values: { dice: '2d6+3', memo: '문을 걷어찬다.' } });
+    await t.controller.onInteraction(roll);
+    assert.match(chat.messages.at(-2).content, /^문을 걷어찬다\.\n🎲 2d6\+3 → \d+ \+ \d+ \+3 = \d+$/);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('웹훅: 롤플레이 답은 캐릭터 이름·서명된 프로필 주소로, 표정 그림은 썸네일로', async () => {
+  const t = await setup({ webhooks: true });
+  try {
+    t.link();
+    const hero = t.services.library.characters.list(t.alice).find((c) => c.greeting?.trim());
+    t.services.store.characters.update(hero.id, { portrait: 'p1.png', expressions: [{ label: '기쁨', file: 'e1.png' }] });
+    const channel = fakeChannel();
+    await t.controller.onInteraction(fakeInteraction({ user: ALICE_D, channel, sub: 'start', values: { character: hero.id } }));
+    const thread = channel.created[0];
+    const greeting = thread.sent[0];
+    assert.equal(greeting.webhook.username, hero.name);
+    assert.match(greeting.webhook.avatarURL, new RegExp(`^https://rp\\.example/pub/art/${hero.id}/p1\\.png\\?s=`));
+    assert.equal(t.bindings.get(thread.id).reply.via, 'webhook');
+
+    const { chatId } = t.bindings.get(thread.id);
+    t.services.chats.update(t.alice, chatId, { vn: true });
+    await t.controller.onMessage(fakeMessage(thread, { content: '안녕', author: ALICE_D }));
+    const reply = thread.sent.at(-1);
+    assert.equal(reply.webhook.username, hero.name);
+    assert.match(reply.embeds[0].thumbnail.url, /\/pub\/art\/[^/]+\/e1\.png\?s=/);
+    assert.equal(reply.embeds[0].footer.text, '표정: 기쁨');
+  } finally {
+    await t.stop();
+  }
+});
+
+test('/ask: 어시스턴트 스레드. 질문을 보이고 봇 이름으로 답하며 출처를 붙임. 롤플레이 버튼은 없음', async () => {
+  const t = await setup({ webhooks: true });
+  try {
+    t.link();
+    const channel = fakeChannel();
+    t.services.replies.next = '```js\nconst a = [[1]];\n```';
+    t.services.replies.sources = [{ url: 'https://example.com/a', title: '예시 [문서]' }];
+    const ask = fakeInteraction({ command: 'ask', user: { ...ALICE_D, globalName: '앨리스' }, channel, values: { question: '배열 만드는 법' } });
+    await t.controller.onInteraction(ask);
+    const thread = channel.created[0];
+    assert.equal(thread.opts.name, '배열 만드는 법');
+    const chat = t.services.store.chats.get(t.bindings.get(thread.id).chatId);
+    assert.equal(chat.kind, 'assistant');
+    assert.equal(chat.ownerId, 'alice01');
+    assert.equal(chat.messages[0].content, '배열 만드는 법');
+    assert.equal(thread.sent[0].webhook.username, '앨리스', '질문은 내 디스코드 이름으로');
+    const answer = thread.sent.at(-1);
+    assert.equal(answer.webhook, undefined, '답은 봇 이름으로');
+    assert.equal(answer.content, '```js\nconst a = [[1]];\n```', '어시스턴트 글은 표식 거르기 없이 그대로');
+    assert.equal(answer.components.length, 1, '다시 쓰기·이어 쓰기 줄만');
+    assert.match(answer.embeds[0].description, /\[예시 문서\]\(<https:\/\/example\.com\/a>\)/);
+    await t.controller.background;
+    assert.ok(!t.services.replies.calls.some((c) => c.facts), '어시스턴트는 자동 기억을 돌리지 않음');
+
+    await t.controller.onMessage(fakeMessage(thread, { content: '더 알려줘', author: ALICE_D }));
+    assert.equal(chat.messages.at(-2).content, '더 알려줘');
   } finally {
     await t.stop();
   }
@@ -291,4 +491,13 @@ test('/rp end: 대화를 보관하고 스레드를 닫음. 다시 말하면 보�
   } finally {
     await t.stop();
   }
+});
+
+test('webhookName: 디스코드가 거절하는 이름을 고침', async () => {
+  const { webhookName } = await import('../../src/discord/webhooks.js');
+  assert.equal(webhookName('유하린'), '유하린');
+  assert.equal(webhookName('Discord 봇@#'), '봇');
+  assert.equal(webhookName('everyone'), '캐릭터');
+  assert.equal(webhookName(''), '캐릭터');
+  assert.equal(webhookName('가'.repeat(100)).length, 80);
 });

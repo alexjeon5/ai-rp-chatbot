@@ -81,5 +81,7 @@ test('라우트는 대화·캐릭터·페르소나·로어북·배경을 저장�
 test('서비스도 Access 를 거쳐 읽습니다', async () => {
   const direct = /store\.(chats|characters|personas|lorebooks|backgrounds)\.(get|all|size)\b|collection\.(get|all|size)\b/;
   // prefs.js 의 컬렉션은 계정별 설정이라 actor.id 로만 찾습니다.
-  assert.deepEqual(await directReads('src/services', direct, ['access.js', 'prefs.js']), []);
+  // public-art.js 는 로그인 없이 오는 요청(디스코드 아바타)이라 계정이 없습니다. 서버가 서명한 주소가 곧 권한이고,
+  // 서명을 확인한 뒤에 그 파일이 지금 캐릭터의 프로필·표정인지만 봅니다.
+  assert.deepEqual(await directReads('src/services', direct, ['access.js', 'prefs.js', 'public-art.js']), []);
 });

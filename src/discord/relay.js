@@ -24,9 +24,10 @@ export class ReplyRelay {
    * @param {number} [o.interval] 메시지를 고치는 간격(ms)
    * @param {number} [o.limit] 한 메시지 길이
    * @param {{ set: typeof setTimeout, clear: typeof clearTimeout }} [o.timers]
+   * @param {(raw: string) => string} [o.display] 모델이 쓴 글 → 보여 줄 글. 기본은 화면 표식을 떼는 displayText
    */
-  constructor({ sink, handles = [], liveComponents = [], interval = 1200, limit = CHUNK_LIMIT, timers = { set: setTimeout, clear: clearTimeout } }) {
-    Object.assign(this, { sink, liveComponents, interval, limit, timers });
+  constructor({ sink, handles = [], liveComponents = [], interval = 1200, limit = CHUNK_LIMIT, timers = { set: setTimeout, clear: clearTimeout }, display = displayText }) {
+    Object.assign(this, { sink, liveComponents, interval, limit, timers, display });
     this.handles = [...handles];
     this.shown = this.handles.map(() => null);
     this.raw = '';
@@ -51,38 +52,48 @@ export class ReplyRelay {
     }, this.interval);
   }
 
-  /** 다 썼을 때: 마지막 글로 맞추고, 마지막 메시지에 components 를 답니다. 글이 없으면 메시지를 모두 지웁니다. */
-  async finish({ components = [] } = {}) {
+  /**
+   * 다 썼을 때: 마지막 글로 맞추고, 마지막 메시지에 components 와 embeds(표정 그림·출처)를 답니다.
+   * 글이 없으면 메시지를 모두 지웁니다.
+   */
+  async finish({ components = [], embeds = [] } = {}) {
     this.closed = true;
     if (this.timer) this.timers.clear(this.timer);
     this.timer = null;
-    await this.queue(true, components);
+    await this.queue(true, components, embeds);
     return this.handles;
   }
 
+  /** 다 쓴 글을 한 번에 보여 줍니다 (넘겨보기·첫 대사). 모델이 쓴 글이 아니라 저장된 글이면 raw 로 그대로 줍니다. */
+  show(raw, finishOptions) {
+    this.raw = String(raw ?? '');
+    return this.finish(finishOptions);
+  }
+
   get text() {
-    return displayText(this.raw);
+    return this.display(this.raw);
   }
 
   /** 앞 요청이 끝난 뒤 차례로 맞춥니다. 디스코드 오류는 모아 두고 다음 차례를 막지 않습니다. */
-  queue(final, components = []) {
+  queue(final, components = [], embeds = []) {
     this.chain = this.chain
-      .then(() => this.sync(final, components))
+      .then(() => this.sync(final, components, embeds))
       .catch((e) => { this.failure ||= e; });
     return this.chain;
   }
 
-  async sync(final, components) {
+  async sync(final, components, embeds) {
     const text = this.text;
     const chunks = text ? splitMessage(text, this.limit) : final ? [] : [PLACEHOLDER];
     for (let i = 0; i < chunks.length; i += 1) {
       const last = i === chunks.length - 1;
       const comps = last ? (final ? components : this.liveComponents) : [];
-      const key = `${chunks[i]}\u0000${JSON.stringify(comps)}`;
+      const extra = last && final ? embeds : [];
+      const key = `${chunks[i]}\u0000${JSON.stringify(comps)}\u0000${JSON.stringify(extra)}`;
       if (!this.handles[i]) {
-        this.handles[i] = await this.sink.send(chunks[i], comps);
+        this.handles[i] = await this.sink.send(chunks[i], comps, extra);
       } else if (this.shown[i] !== key) {
-        await this.sink.edit(this.handles[i], chunks[i], comps);
+        await this.sink.edit(this.handles[i], chunks[i], comps, extra);
       }
       this.shown[i] = key;
     }

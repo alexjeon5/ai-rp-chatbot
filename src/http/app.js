@@ -17,6 +17,7 @@ import { SearchRoutes } from './routes/search.js';
 import { UsageRoutes } from './routes/usage.js';
 import { BackupRoutes } from './routes/backup.js';
 import { DiscordRoutes } from './routes/discord.js';
+import { PublicArtRoutes } from './routes/public-art.js';
 
 /**
  * 리버스 프록시(Nginx Proxy Manager) 뒤에 있으면 켭니다. 켜야 요청 제한이 실제 접속자 기준으로 걸립니다.
@@ -70,7 +71,7 @@ export function createApp({ store, auth, publicDir, services = createServices({ 
 
   // 밖으로 요청을 내보내는 경로만 제한합니다 (services.limits). 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.
   const deps = { ...services, auth };
-  for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, CharacterArtRoutes, BackgroundRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes, DiscordRoutes]) {
+  for (const Routes of [SettingsRoutes, LibraryRoutes, CharacterCardRoutes, CharacterArtRoutes, BackgroundRoutes, LorebookRoutes, ChatRoutes, GenerationRoutes, ImageRoutes, AttachmentRoutes, SearchRoutes, UsageRoutes, BackupRoutes, DiscordRoutes, PublicArtRoutes]) {
     new Routes(deps).mount(app);
   }
   return app;

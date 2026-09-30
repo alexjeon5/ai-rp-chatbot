@@ -84,3 +84,11 @@ test('ReplyRelay: 쓴 글이 없으면 메시지를 남기지 않고, 디스코�
   await broken.finish();
   assert.equal(broken.failure.message, '429');
 });
+
+test('splitMessage: 코드 블록 한가운데서 나뉘면 닫고 같은 언어로 다시 엶', () => {
+  const text = `설명\n\`\`\`js\n${'const a = 1;\n'.repeat(40)}\`\`\`\n끝`;
+  const parts = splitMessage(text, 200);
+  assert.ok(parts.length >= 3);
+  for (const p of parts) assert.equal((p.match(/```/g) || []).length % 2, 0, '조각마다 열고 닫힘이 짝');
+  assert.ok(parts[1].startsWith('```js\n'));
+});
