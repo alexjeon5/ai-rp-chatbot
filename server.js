@@ -5,6 +5,7 @@ import { store } from './src/store.js';
 import { createAuth } from './src/auth.js';
 import { createApp } from './src/http/app.js';
 import { createServices } from './src/services/index.js';
+import { startDiscord } from './src/discord/bot.js';
 
 const PORT = process.env.PORT || 5173;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -16,9 +17,14 @@ const services = createServices({ store, auth });
 await services.admin.start();
 const app = createApp({ store, auth, services, publicDir: path.join(path.dirname(fileURLToPath(import.meta.url)), 'public') });
 
-// 종료 신호를 받으면 큐에 남은 쓰기를 끝내고 나갑니다.
+// DISCORD_TOKEN 이 있으면 같은 서비스로 디스코드 봇도 켭니다. 접속을 기다리지 않고, 실패해도 웹은 그대로 돕니다.
+let discord = null;
+startDiscord({ services }).then((bot) => { discord = bot; }, (e) => console.error(e));
+
+// 종료 신호를 받으면 봇을 끄고 큐에 남은 쓰기를 끝내고 나갑니다.
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
+    await discord?.stop().catch(console.error);
     await flushAll().catch(console.error);
     process.exit(0);
   });

@@ -7,6 +7,7 @@ import { applyTheme } from './theme.js';
 import { ImageSettings } from './settings-image.js';
 import { DevSettings } from './settings-dev.js';
 import { UsageSettings } from './settings-usage.js';
+import { DiscordSettings } from './settings-discord.js';
 
 const TABS = [...$('s-tabs').querySelectorAll('[data-tab]')].map((t) => t.dataset.tab);
 
@@ -35,6 +36,7 @@ export class Settings {
     this.image = new ImageSettings(app);
     this.dev = new DevSettings(app, this);
     this.usage = new UsageSettings(app);
+    this.discord = new DiscordSettings(app);
     this.modelCombo = makeCombo($('s-model'), {
       items: () => this.modelOptions,
       emptyText: '먼저 불러오기를 눌러 주세요.',
@@ -256,6 +258,7 @@ export class Settings {
     this.modelCombo.close();
     this.image.combo.close();
     if (tab === 'usage') this.usage.load();
+    if (tab === 'discord') this.discord.load();
     storage.set('settingsTab', tab);
   }
 

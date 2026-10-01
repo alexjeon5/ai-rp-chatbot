@@ -13,15 +13,18 @@ server.js                 부팅만 합니다 — 저장소·로그인·서비�
 src/
   http/
     app.js                 createApp — 미들웨어 순서, 로그인, 계정 준비, 라우트 클래스 등록
-    helpers.js             wrap(AppError → 상태 코드) / fail / abortOnClose / sendImage, SSE 를 보내는 EventStream
+    helpers.js             wrap(AppError → 상태 코드) / fail / abortOnClose / sendImage, SSE 를 보내는 EventStream·lazyStream
     routes/                기능별 라우트 클래스 — settings, library(캐릭터·페르소나), chats,
-                           generation(생성·대신 쓰기·기억), lorebooks, character-cards, images, backup 등.
+                           generation(생성·대신 쓰기·선택지·기억 — 일은 Replies), lorebooks, character-cards, images, backup 등.
                            req.user 를 actor 로 서비스에 넘기는 얇은 층입니다
   services/                HTTP 를 모르고 actor({ id, name, role })를 받습니다. 디스코드 봇도 같은 것을 씁니다
     index.js               createServices — 서비스 조립. 웹과 봇이 같은 묶음을 씀
     access.js              Access — 누가 어떤 항목을 볼 수 있는지 정하는 한 곳 (2절 '계정별로 나누기')
     errors.js              AppError, NotFound — 서비스가 던지고 라우트가 상태 코드로 바꾸는 오류
     chats.js               Chats — 대화·메시지 다루기 (목록·만들기·고치기·분기·지우기·멈추기)
+    replies.js             Replies — 모델에게 글 쓰게 하기 (답변·대신 쓰기·선택지·요약·자동 기억). 조각은 emit 으로
+    discord-links.js       DiscordLinks — 디스코드 계정과 앱 계정 잇기 (1회용 코드, 연결 검사)
+    public-art.js          PublicArt — 캐릭터 프로필·표정 그림의 서명된 공개 주소(/pub/art, 디스코드 아바타용)
     library.js             Library, Shelf — 캐릭터·페르소나 목록, 내장 캐릭터 추가
     prefs.js               UserPrefs — 계정별 설정(data/prefs/<id>.json), 모드 틀 다듬기
     settings.js            Settings — 공용 설정과 계정별 설정을 합쳐 보여 주고 나눠 저장
@@ -41,6 +44,15 @@ src/
     records.js             입력값 정리 — SAFE_ID, characterFields, normalizePersona
     backup.js              Backup — 내 데이터 내려받기·불러오기(합치기)
   admin-requests.js        AdminRequests — 계정 명령과 서버 사이의 요청 파일 (data/admin/)
+  discord/                 디스코드 봇 — 서비스(createServices)를 웹과 같이 씀. DISCORD_TOKEN 이 있을 때만 켜짐
+    bot.js                 startDiscord — Client 만들기, 명령 올리기, 이벤트를 DiscordController 로
+    controller.js          DiscordController — 명령·자동완성·버튼·스레드 메시지를 서비스로 잇기
+    commands.js            슬래시 명령 정의(/rp start·roll·end·link·unlink, /ask, /assistant on·off·new — API JSON 그대로)
+    relay.js               ReplyRelay — 답변 조각을 모아 메시지 편집으로 옮기기(간격, 길면 다음 메시지로)
+    split.js               splitMessage — 2000자 한도에 맞춰 문단·줄·문장 순으로 나누기
+    bindings.js            ThreadBindings — 스레드 ↔ 대화, ChannelBindings — 어시스턴트 채널의 사람별 대화.
+                           둘 다 같은 모양의 대화 자리(slot)를 내주고, 가장 최근 답변 { messageIds, chatMessageId, via } 를 기억
+    webhooks.js            Webhooks — 채널마다 봇이 만든 웹훅 하나(캐릭터 이름·그림으로 말하기), webhookName
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
   store.js                 Store 클래스, 공용 설정 기본값
@@ -80,7 +92,7 @@ mock-lmstudio.mjs           로컬 통합 테스트용 가짜 OpenAI 호환 서�
 Dockerfile, docker-compose.yml
 ```
 
-의존성은 `express` 하나뿐입니다. 프런트엔드는 빌드 스텝 없이 브라우저가 ES 모듈을 직접 읽습니다.
+의존성은 `express` 와 디스코드 봇용 `discord.js` 뿐입니다. 프런트엔드는 빌드 스텝 없이 브라우저가 ES 모듈을 직접 읽습니다.
 
 ---
 
@@ -252,6 +264,7 @@ data/
   images/<chatId>/       # 장면 그리기로 그린 그림 (대화 권한을 따름)
   uploads/<chatId>/      # 사용자가 메시지에 붙인 그림 (대화 권한을 따름)
   portraits/<characterId>/  # 프로필 그림(portrait.*)과 표정 그림. 백업에는 들어가지 않음
+  discord.json           # 디스코드 연결 { links: { 디스코드 id: { userId, epoch, name, linkedAt } }, codes: { sha256(코드): { userId, expiresAt } }, threads, channels(guests·hostUserId·users), artSecret }
   admin/requests/, admin/results/  # 계정 명령 ↔ 서버 요청 파일
 ```
 
@@ -383,12 +396,24 @@ OpenAI 호환 서버(Ollama, Vercel, vLLM, llama.cpp)는 `OpenAiEngine` 을 이�
 - Anthropic: 본문 중간에 끼어드는 `content_block_start` 타입 `web_search_tool_result`
 - OpenAI: `delta.annotations[].url_citation`
 
-출처는 본문에 이어 붙이지 않고 `generation.js`에서 `send({ sources })`로 별도 SSE 이벤트로 보내며,
+출처는 본문에 이어 붙이지 않고 `Replies.reply` 가 `emit({ sources })` 로 별도 조각(웹에서는 SSE 이벤트)으로 보내며,
 저장 시에도 `msg.sources`에 따로 담습니다 — 다음 턴 프롬프트에 섞여 들어가지 않게 하기 위함입니다.
 
 ---
 
-## 5. 생성 파이프라인 — `src/http/routes/generation.js` 의 `/api/chats/:id/generate`
+## 5. 생성 파이프라인 — `src/services/replies.js` 의 `Replies.reply`
+
+일은 `Replies` 서비스가 하고, `src/http/routes/generation.js` 는 `req.user` 와 본문을 넘기는 얇은 층입니다.
+디스코드 봇도 같은 메서드를 부릅니다. 규칙:
+
+- **시작 전에 막히면 던집니다.** 없는 대화·남의 대화(`NotFound`), 이어 쓸 답변 없음, 엔진 문제, 성인 틀 거부는 `AppError` 이고
+  이때는 조각을 하나도 보내지 않았습니다. 웹은 `wrap` 이 JSON 오류로 바꿉니다.
+- **시작한 뒤에는 던지지 않습니다.** 조각은 `emit(event)` 로 넘기고, 엔진 오류도 `{ error }` 조각입니다. 반환값은 저장한 메시지(없으면 `null`)입니다.
+  웹 라우트는 `lazyStream(res)` 로 첫 조각을 보낼 때 SSE 를 열고, 끝에 `{ done, message }` 를 붙입니다.
+- **멈추기.** `opts.signal` 이 끊기면(웹은 `abortOnClose(res).signal`) 멈춥니다. 답변 중이면 `jobs.running` 에 컨트롤러가 있어
+  `Chats.stop` 으로도 멈추고, 그때까지 쓴 것은 저장됩니다. 요약·기억은 `jobs.backgroundFor(chatId, signal)` 로 돌고 새 답변이 오면 멈춰
+  `{ skipped, reason }` 을 돌려줍니다.
+- 대신 쓰기(`impersonate`)는 조각을 흘린 뒤 다듬은 초안을, 선택지(`choices`)는 `[{ text, check? }]` 를(멈췄으면 `null`) 돌려줍니다.
 
 요청 하나가 처리되는 순서:
 
@@ -472,6 +497,54 @@ data: {"done": true, "message": {...}}   완료
 - 계정별로 나누기 전의 줄에는 `userId` 가 없습니다. 옛 데이터를 받는 계정이 함께 받습니다(`UsageLedger.reassign`). 계정을 지워도(`purge`) 줄은 요금 기록이라 남깁니다
 - `GET /api/usage` 는 내 줄만 모은 `summarizeUsage` 결과(`periods`: 오늘·7일·30일 합계와 모델별 행, `daily`: 30일 날짜별)에 `scope`·`canSeeAll` 을 붙입니다. 주인은 `?scope=all` 로 모든 줄과 기간별 계정별 합계(`periods[].users: [{ userId, name, requests, ... }]`, 숫자만)를 봅니다
 
+### 디스코드 계정 잇기 — `src/services/discord-links.js`
+
+- 디스코드 봇은 **이어 둔 앱 계정(actor)으로만** 일합니다. 연결이 곧 권한이라 따로 허용 목록을 두지 않습니다
+- 잇는 방향은 **웹 → 디스코드** 하나뿐입니다. 로그인한 화면에서 코드를 받고(`issueCode`) 디스코드 `/rp link` 에 넣습니다(`redeem`).
+  반대 방향(봇이 준 링크를 웹에서 승인)은 남이 자기 디스코드용 링크를 보내 누르게 하면 그 디스코드가 내 계정에 붙으므로 쓰지 않습니다
+- 코드는 헷갈리는 글자를 뺀 31자 중 8자리, 5분, 1회용이고, 저장은 sha256 해시만 합니다. 같은 계정이 새 코드를 받으면 앞의 코드는 무효입니다.
+  맞춰 보기는 디스코드 사용자마다 10분에 5번(`RateLimiter.hit`)입니다
+- 앱 계정 하나에 디스코드 하나입니다. 다시 이으면 앞의 연결은 끊깁니다
+- `actorOf(discordId)` 는 쓸 때마다 계정이 있는지, `epoch` 가 이을 때와 같은지 봅니다. 비밀번호 변경·`logout-all` 이면 연결이 끊깁니다(세션과 같은 규칙)
+- 로그인을 잠시 꺼 둔 동안(`req.authBypass`)은 코드를 내주지 않습니다. 그 틈에 남의 디스코드가 주인 계정에 영영 붙을 수 있어서입니다
+- 로그인을 끈 개발 모드에서는 목록에 없는 `local` 도 이을 수 있습니다(`createServices` 의 `resolveUser`)
+
+### 디스코드 봇 — `src/discord/`
+
+- `server.js` 가 웹을 띄운 뒤 `startDiscord({ services })` 를 기다리지 않고 부릅니다. 토큰이 없으면 `null`, 접속이 실패해도 로그만 남기고 웹은 돕니다
+- 봇은 웹과 **같은 서비스 인스턴스**를 씁니다. 그래서 `Jobs`(중복 생성 막기·멈추기), 요청 한도(`limits.generate.hit(userKey(actor))`), 저장소가 하나입니다
+- **스레드 하나 = 대화 하나**(`ThreadBindings`, `data/discord.json` 의 `threads`). 스레드 주인(`discordUserId`)만 말하고 버튼을 누릅니다.
+  권한은 두 번 봅니다 — 디스코드 쪽(스레드 주인), 앱 쪽(`Access`, 연결된 계정이 대화 주인). 이을 때와 연결된 앱 계정이 달라지면 멈춥니다
+- 답변은 `Replies.reply` 의 `emit` 조각을 `ReplyRelay` 가 옮깁니다. **첫 조각이 온 뒤에야** 메시지를 건드리므로, 시작 전에 막히면(엔진 설정 등) 지금 답변이 그대로 남습니다.
+  1.2초마다 한 번 고치고, 1900자를 넘으면 다음 메시지로 넘어갑니다. 다시 쓰기는 같은 메시지를 고쳐 쓰고 짧아지면 남는 메시지를 지우며, 이어 쓰기는 새 메시지로 덧붙입니다
+- 화면 표식은 `stripForDisplay` 로 떼고(쓰는 중 아직 닫히지 않은 `[[…` 까지), 봇이 보내는 메시지는 `allowedMentions: { parse: [] }` 로 멘션을 모두 끕니다 — 모델이 쓴 `@everyone` 이 울리지 않게
+- 버튼 id 는 `rp:<일>:<대화 id>[:<덧붙임>]`. 가장 최근 답변에 다는 것(`regen·cont·prev·next·choices·imp·check`)은 `binding.reply.messageIds` 에 든 메시지에서만 받습니다.
+  나만 보는 메시지(선택지·초안)에 다는 것(`pick·send·edit·redraft`)은 받아 둔 목록(`controller.pending`, 메모리)이 **그 뒤로 대화가 움직이지 않았을 때만** 씁니다
+- 버튼·명령으로 넣은 차례(선택지·초안·판정·`/rp roll`·`/ask` 질문)는 `postTurn` 이 내 페르소나 이름(어시스턴트는 디스코드 이름)으로 스레드에 보이고, 모두 `takeTurn` 을 거칩니다
+- 주사위는 **서버가 굴립니다**(`dice.js` 의 `rollDice` 에 `crypto.randomInt`). 웹은 브라우저가 굴립니다
+- **웹훅**: 롤플레이 답은 부모 채널의 봇 소유 웹훅(`withComponents: true` 라 버튼도 붙음)에 `threadId` 를 붙여 캐릭터 이름·프로필 주소로 보냅니다.
+  웹훅 관리 권한이 없으면 봇 이름으로 보내고 10분 동안 다시 묻지 않습니다. 웹훅 메시지는 봇이 직접 고칠 수 없으므로 `reply.via` 로 보낸 쪽을 기억해 그쪽으로 고칩니다.
+  어시스턴트 답은 늘 봇 이름으로 보냅니다
+- **공개 그림**(`PublicArt`, `GET /pub/art/:id/:file?s=`): 디스코드는 우리 서버에 로그인할 수 없어 서명한 주소로 그림을 넘깁니다. `HMAC-SHA256(비밀, "art:<id>/<file>")` 16바이트,
+  비밀은 `PUBLIC_ART_SECRET` 또는 `discord.json` 의 `artSecret`. 서명이 맞고 그 파일이 **지금** 그 캐릭터의 프로필·표정일 때만 보냅니다(`Cache-Control: public`).
+  `PUBLIC_BASE_URL` 이 없으면 주소를 만들지 않고 아바타 없이 이름만 씁니다. 계정 없이 오는 요청이라 `access.test.mjs` 의 직접 읽기 금지에서 이 파일만 뺐습니다
+- `/rp start` 는 첫 대사 앞에 봇 이름으로 캐릭터 소개 카드를 올립니다(`postIntro`: `description`·`tags`·대화 모드·페르소나·`scenario`, 이름 자리표시자는 채움, 프로필 그림 썸네일)
+- **어시스턴트 채널**(`/assistant on`, 채널 관리 권한은 `interaction.memberPermissions` 로 봄): 그 채널(스레드 아님)의 메시지는 `onChannelMessage` 가 받습니다.
+  `ChannelBindings`(`data/discord.json` 의 `channels`)가 채널 × 앱 계정마다 어시스턴트 대화 하나를 기억하고, 없거나 웹에서 지웠으면 새로 만듭니다(`/assistant new` 는 자리를 비움).
+  답은 `mentionSink` 가 질문 메시지에 답장으로 보내며 첫 메시지 앞에 `<@질문한 사람>` 을 붙입니다 — 보낼 때만 알림이 가고, 고칠 때는 멘션을 지키되 다시 울리지 않습니다.
+  알림 미리보기에 답의 첫머리가 보이도록 '…' 자리 없이(`ReplyRelay` 의 `placeholder: null`) 보일 글이 처음 생기는 순간 답장하고, 그때까지는 입력 중 표시를 8초마다 다시 켭니다.
+  버튼은 누른 사람 자기 자리의 대화 id 와 맞아야 해서(`slotFor`) 남의 답에 달린 버튼은 막힙니다
+- **게스트 모드**(`/assistant on guests:True`): 켠 사람의 앱 계정이 호스트(`channels[id].hostUserId`, `setBy` 는 호스트의 디스코드 id)입니다.
+  `channelSeat` 가 누가 일하는지 정합니다 — 이어 둔 사람은 자기 계정, 아니면 게스트 자리(`users['guest:<디스코드 id>']`)에 호스트 actor.
+  호스트의 디스코드 연결이 지금도 살아 있고 그 계정일 때만 게스트에게 답하므로, 호스트가 연결을 끊으면 멈춥니다.
+  게스트 대화는 호스트 계정의 것이라 제목을 `게스트 · 이름` 으로 붙여 둡니다. 한도는 게스트 몫(`controller.guestLimit`, 한 명당 1분 5번)과 호스트 몫(`limits.generate`)을 둘 다 셉니다
+- 컨트롤러는 스레드와 어시스턴트 채널을 **대화 자리(slot)** 하나로 다룹니다: `{ kind, key, discordUserId, chatId, reply, setReply, forget }`. 메시지를 보낼 곳(place)은 스레드 또는 채널입니다
+- 비주얼 노벨을 켠 대화는 답의 `scene.expression` 표정 그림을 썸네일 카드로, 어시스턴트는 출처를 카드로 붙입니다(`embedsFor`)
+- 어시스턴트 글은 화면 표식 거르기 없이 그대로 보이고, `splitMessage` 는 코드 블록(```) 한가운데서 나뉘면 닫고 같은 언어로 다시 엽니다(`balanceFences`)
+- 성인 모드는 연령 제한 채널(스레드는 부모 채널)에서만 — `/rp start` 와 말할 때마다 봅니다. 엔진 쪽 허용(`adultAllowed`)은 `Replies` 가 그대로 봅니다
+- 답변 뒤에는 웹처럼 자동 기억 → 자동 요약을 부릅니다(`afterReply`, 롤플레이만). 이 두 호출은 요청 한도에 세지 않습니다(답변 하나에 최대 두 번)
+- 시험: `test/unit/discord-controller.test.mjs` 는 진짜 서비스에 가짜 디스코드 객체와 가짜 `replies` 를 끼워 흐름을 봅니다. `discord-relay.test.mjs` 는 나누기·중계
+
 ### 대화 검색 — `src/chat-search.js`, `src/http/routes/search.js`
 
 - `searchChats(chats, query, { kind })` 는 순수 함수입니다. 검색어를 공백으로 나눠(최대 6개, 소문자·NFC) **모두 포함한** 메시지만 찾고, 대화는 최근 수정 순, 한 대화에서는 최근 메시지부터 3개까지(`moreInChat`), 전체 60개까지입니다(`truncated`)
@@ -549,6 +622,10 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/search?q=&kind=rp\|assistant` | 대화 제목·본문 검색. `{ terms, truncated, hits: [{ chatId, messageId, role, snippet, title, character, archived, adult, moreInChat }] }` |
 | GET | `/api/usage[?scope=all]` | 내 토큰 사용량 요약(오늘·7일·30일, 모델별, 날짜별). `scope=all` 은 주인만 — 모든 계정의 합계와 계정별 숫자 |
 | DELETE | `/api/usage` | 모든 계정의 사용량 기록 지우기. 주인 계정만 |
+| GET | `/api/discord/link` | 이 계정의 디스코드 연결 `{ linked: { name, linkedAt } \| null, pending: { expiresAt } \| null, bot: { enabled, name } }` |
+| POST | `/api/discord/link-code` | 1회용 연결 코드 `{ code: 'XXXX-XXXX', expiresAt }`. 전에 받은 코드는 무효. 로그인을 잠시 꺼 둔 동안(auth off)은 403 |
+| DELETE | `/api/discord/link` | 이 계정의 디스코드 연결 끊기 `{ ok, removed }` |
+| GET | `/pub/art/:characterId/:file?s=` | **로그인 없이** 캐릭터 프로필·표정 그림. 서명(`PublicArt`)이 맞고 지금 쓰는 그림일 때만, 아니면 빈 404 |
 | GET | `/api/chats/:id/context` | 컨텍스트 게이지. 한도·시스템·대화·답변 여유 토큰, 보내는/잘린 메시지 수, 요약 대기 수 |
 | POST | `/api/chats/:id/summarize` | `{ auto }` 밀려난 옛 대화를 `chat.memory` 로 요약. auto 는 10개 이상 쌓였을 때만 한 묶음 |
 | POST | `/api/chats/:id/stop` | 진행 중인 생성을 멈춤. 쓰던 답변은 저장되고 SSE 의 `done` 으로 돌아감 |
@@ -658,7 +735,7 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 | `lorebooks` | `features/lorebooks.js` | 세계관 설정집 창 — 목록·이름·적용 범위·발동 시험. 항목 편집은 `lore-entry.js` 의 `LoreEntryEditor` |
 | `chatLore` | `features/chat-lore.js` | 대화의 ⋯ 메뉴 「세계관 적용」 창 — 이 대화에 붙일 설정집과 지금 발동 중인 항목 |
 | `cardTransfer` | `features/card-transfer.js` | 캐릭터 카드 가져오기(JSON·PNG)·내보내기 버튼 |
-| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js`, 사용량 탭은 `settings-usage.js` |
+| `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js`, 사용량 탭은 `settings-usage.js`, 디스코드 탭은 `settings-discord.js` |
 
 `theme.js` 의 `applyTheme(dev)` 는 테마 색·글꼴·파비콘·표기법을 화면에 적용합니다.
 

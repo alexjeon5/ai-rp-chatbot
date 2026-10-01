@@ -18,18 +18,21 @@ import { CharacterCards } from './character-cards.js';
 import { CharacterArt } from './character-art.js';
 import { Backgrounds } from './backgrounds.js';
 import { Chats } from './chats.js';
+import { Replies } from './replies.js';
 import { Library } from './library.js';
 import { UserPrefs } from './prefs.js';
 import { Settings } from './settings.js';
-import { Ownership } from './ownership.js';
+import { Ownership, LOCAL_ID } from './ownership.js';
 import { AccountSetup } from './account-setup.js';
 import { AdminWorker } from './admin.js';
+import { DiscordLinks } from './discord-links.js';
+import { PublicArt } from './public-art.js';
 
 /**
- * @param {{ store: import('../store.js').Store, auth?: { disabled?: boolean }, users?: () => object[] }} o
- *   users 는 계정 목록을 읽는 함수. 기본은 data/users.json
+ * @param {{ store: import('../store.js').Store, auth?: { disabled?: boolean }, users?: () => object[], env?: object }} o
+ *   users 는 계정 목록을 읽는 함수. 기본은 data/users.json. env 는 PUBLIC_BASE_URL·PUBLIC_ART_SECRET 을 읽는 곳
  */
-export function createServices({ store, auth = {}, users = readUsers }) {
+export function createServices({ store, auth = {}, users = readUsers, env = process.env }) {
   const byUser = (req) => userKey(req.user);
   // 밖으로 요청을 내보내는 일의 몫. limits.generate.hit(userKey(actor)) 로 HTTP 밖(디스코드)에서도 같은 몫을 셉니다.
   const limits = {
@@ -55,12 +58,20 @@ export function createServices({ store, auth = {}, users = readUsers }) {
     files: { images, attachments, art, backgrounds }
   });
 
+  // 디스코드 연결이 가리키는 앱 계정. 로그인을 끈 개발 모드에서는 계정 목록에 없는 local 도 계정으로 봅니다.
+  const resolveUser = (id) => users().find((u) => u.id === id)
+    || (auth.disabled && id === LOCAL_ID ? { id: LOCAL_ID, name: 'local', role: 'owner' } : null);
+
   return {
     store, access, prefs, settings, engines, limits, lore, usage, art, backgrounds, context, jobs, images, attachments,
     library, ownership,
     cards: new CharacterCards(store, art, access),
     chats: new Chats({ store, access, settings, context, jobs, images, attachments }),
+    replies: new Replies({ store, access, settings, engines, context, jobs, attachments, usage }),
     setup: new AccountSetup({ store, access, prefs, library, ownership }),
+    discordLinks: new DiscordLinks({ doc: store.discordDoc, resolveUser }),
+    // 디스코드 웹훅 아바타용 서명된 그림 주소. PUBLIC_BASE_URL 이 없으면 주소를 만들지 않습니다.
+    publicArt: new PublicArt({ store, art, baseUrl: env.PUBLIC_BASE_URL, secret: env.PUBLIC_ART_SECRET }),
     admin: new AdminWorker({ requests: new AdminRequests(path.join(store.dir, 'admin')), ownership })
   };
 }

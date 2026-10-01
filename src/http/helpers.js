@@ -9,7 +9,7 @@ export const fail = (res, status, error, extra = {}) => res.status(status).json(
  */
 export const wrap = (fn) => (req, res) => Promise.resolve().then(() => fn(req, res)).catch((e) => {
   if (e instanceof AppError) {
-    if (!res.headersSent) fail(res, e.status, e.message);
+    if (!res.headersSent) fail(res, e.status, e.message, e.extra);
     return;
   }
   console.error(e);
@@ -25,6 +25,19 @@ export function abortOnClose(res) {
   let finished = false;
   res.on('close', () => { if (!finished) controller.abort(); });
   return Object.assign(controller, { finish: () => { finished = true; } });
+}
+
+/**
+ * 첫 조각을 보낼 때 여는 SSE. 서비스는 시작 전에 막히면 던지므로(wrap 이 JSON 오류로 바꿈),
+ * 응답 머리는 실제로 흘려보낼 것이 생겼을 때 씁니다.
+ */
+export function lazyStream(res) {
+  let out = null;
+  const open = () => (out ||= new EventStream(res));
+  return {
+    send: (obj) => open().send(obj),
+    end: () => open().end()
+  };
 }
 
 /** 조각을 흘려보내는 응답(SSE). 한 줄에 JSON 하나씩 보냅니다. */

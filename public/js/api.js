@@ -53,6 +53,9 @@ export const api = {
   // scope: 'mine'(기본) 또는 'all'(주인만 — 모든 계정의 합계와 계정별 숫자)
   usage: (scope) => req(scope === 'all' ? '/api/usage?scope=all' : '/api/usage'),
   clearUsage: () => req('/api/usage', { method: 'DELETE' }),
+  discordLink: () => req('/api/discord/link'),
+  discordLinkCode: () => req('/api/discord/link-code', { method: 'POST' }),
+  discordUnlink: () => req('/api/discord/link', { method: 'DELETE' }),
   logs: () => req('/api/logs'),
   clearLogs: () => req('/api/logs', { method: 'DELETE' }),
 

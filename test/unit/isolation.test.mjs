@@ -23,7 +23,12 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 /** 쿠키 대신 헤더로 사람을 정하는 로그인. 나머지 모양은 src/auth.js 의 createAuth 와 같습니다. */
 const fakeAuth = {
   disabled: false,
-  attachUser: (req, res, next) => { req.user = USERS[req.get('x-test-user')] || null; next(); },
+  attachUser: (req, res, next) => {
+    req.user = USERS[req.get('x-test-user')] || null;
+    // auth off(로그인 잠시 끄기)로 들어온 요청 흉내
+    if (req.get('x-test-bypass')) req.authBypass = true;
+    next();
+  },
   pageGate: (req, res, next) => next(),
   requireAuth: (req, res, next) => (req.user ? next() : res.status(401).json({ error: '로그인이 필요합니다.' })),
   requireOwner: (req, res, next) => (req.user?.role === 'owner' ? next() : res.status(403).json({ error: '주인 계정만 쓸 수 있는 기능입니다.' })),
@@ -42,11 +47,11 @@ async function start() {
   const base = `http://127.0.0.1:${server.address().port}`;
 
   /** who 로 한 번 부릅니다. 본문이 Buffer 면 그림 파일로 보냅니다. */
-  const as = (who) => async (method, url, body) => {
+  const as = (who, extra = {}) => async (method, url, body) => {
     const raw = Buffer.isBuffer(body);
     const res = await fetch(base + url, {
       method,
-      headers: { 'x-test-user': who, 'Content-Type': raw ? 'image/png' : 'application/json' },
+      headers: { 'x-test-user': who, 'Content-Type': raw ? 'image/png' : 'application/json', ...extra },
       body: body === undefined ? undefined : raw ? body : JSON.stringify(body)
     });
     const type = res.headers.get('content-type') || '';
@@ -54,7 +59,7 @@ async function start() {
     return { status: res.status, body: data, headers: res.headers };
   };
   return {
-    store, services, alice: as('alice'), bob: as('bob'),
+    store, services, alice: as('alice'), bob: as('bob'), bypassed: as('bob', { 'x-test-bypass': '1' }),
     stop: async () => { server.close(); services.admin.stop(); await flushAll(); await rm(dir, { recursive: true, force: true }); }
   };
 }
@@ -195,6 +200,58 @@ test('남의 대화 파일 경로를 알아도 대화를 지우면 파일도 사
     const backup = (await bob('GET', '/api/export')).body;
     const imported = await alice('POST', '/api/import', { data: backup });
     assert.equal(imported.status, 200, '멤버도 자기 계정으로 불러옵니다');
+  } finally {
+    await t.stop();
+  }
+});
+
+test('HTTP 없이 부르는 생성 서비스(Replies)도 남의 대화는 없는 것으로 보고, 아무것도 흘려보내지 않습니다', async () => {
+  const t = await start();
+  const { alice } = t;
+  const { replies, jobs } = t.services;
+  try {
+    const hero = (await alice('GET', '/api/characters')).body[0];
+    const chat = (await alice('POST', '/api/chats', { characterId: hero.id })).body;
+    const sent = [];
+    const emit = (event) => sent.push(event);
+    const refused = async (work) => {
+      await assert.rejects(work, (e) => e.status === 404 && e.message === '없는 대화입니다.');
+    };
+
+    await refused(replies.reply(USERS.bob, chat.id, { emit }));
+    await refused(replies.impersonate(USERS.bob, chat.id, { emit }));
+    await refused(replies.choices(USERS.bob, chat.id));
+    await refused(replies.summarize(USERS.bob, chat.id));
+    await refused(replies.extractFacts(USERS.bob, chat.id));
+    assert.deepEqual(sent, [], '막힌 요청은 조각을 하나도 보내지 않습니다');
+    assert.equal(jobs.running.has(chat.id), false);
+
+    // 주인은 시작 전 검사(이어 쓸 답변 없음)를 지나 같은 모양의 오류를 받습니다.
+    const empty = (await alice('POST', '/api/chats', { kind: 'assistant' })).body;
+    await assert.rejects(replies.reply(USERS.alice, empty.id, { mode: 'continue', emit }), (e) => e.status === 400);
+    assert.deepEqual(sent, []);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('디스코드 연결 코드는 내 계정에만 걸리고, 로그인을 잠시 꺼 둔 동안에는 받을 수 없습니다', async () => {
+  const t = await start();
+  const { alice, bob, bypassed } = t;
+  try {
+    const issued = await alice('POST', '/api/discord/link-code');
+    assert.equal(issued.status, 200);
+    assert.ok((await alice('GET', '/api/discord/link')).body.pending);
+    assert.equal((await bob('GET', '/api/discord/link')).body.pending, null);
+
+    const refused = await bypassed('POST', '/api/discord/link-code');
+    assert.equal(refused.status, 403);
+
+    const actor = t.services.discordLinks.redeem({ id: '333333333333333333', name: 'a' }, issued.body.code);
+    assert.equal(actor.id, 'alice01');
+    assert.equal((await alice('GET', '/api/discord/link')).body.linked.name, 'a');
+    assert.equal((await bob('DELETE', '/api/discord/link')).body.removed, false, 'bob 은 alice 의 연결을 못 끊음');
+    assert.equal((await alice('DELETE', '/api/discord/link')).body.removed, true);
   } finally {
     await t.stop();
   }

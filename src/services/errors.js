@@ -3,9 +3,15 @@
  * 라우트의 wrap() 이 status 로 바꿔 보냅니다. 디스코드처럼 HTTP 가 아닌 곳도 같은 오류를 받습니다.
  */
 export class AppError extends Error {
-  constructor(message, status = 400) {
+  /**
+   * @param {string} message
+   * @param {number} [status]
+   * @param {object} [extra] 안내와 함께 돌려줄 값 (예: 요약이 어디까지 됐는지)
+   */
+  constructor(message, status = 400, extra = {}) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
