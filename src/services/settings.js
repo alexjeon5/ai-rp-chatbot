@@ -7,7 +7,8 @@
  *   계정별             prefs.js 의 PREF_KEYS
  */
 import { supportsWebSearch } from '../providers.js';
-import { checkBaseUrl, maskProviders } from '../security.js';
+import { checkBaseUrl, maskProviders, resolveApiKey } from '../security.js';
+import { updateApiKeys } from '../api-keys.js';
 import { DEFAULT_SYSTEM_TEMPLATE, BUILTIN_TEMPLATES } from '../content/templates.js';
 import { BUILTIN_CHARACTERS } from '../content/characters.js';
 import {
@@ -105,9 +106,17 @@ export class Settings {
     const manage = Settings.canManage(actor);
 
     let image = null;
+    const providerKeys = new Map();
     if (manage) {
       for (const [key, cfg] of Object.entries(body.providers || {})) {
-        if (cfg?.baseUrl === undefined) continue;
+        if (!isObj(cfg)) throw new AppError('엔진 설정 형식이 올바르지 않습니다.');
+        try {
+          providerKeys.set(key, updateApiKeys(shared.providers[key], cfg));
+        } catch (e) {
+          if (e instanceof AppError) throw new AppError(`'${shared.providers[key]?.label || key}' 엔진의 ${e.message}`);
+          throw e;
+        }
+        if (cfg.baseUrl === undefined) continue;
         const verdict = checkBaseUrl(String(cfg.baseUrl));
         if (!verdict.ok) throw new AppError(`'${key}' 엔진 주소를 쓸 수 없습니다.\n${verdict.reason}`);
       }
@@ -118,15 +127,15 @@ export class Settings {
       }
     }
 
-    if (manage) this.applyShared(shared, body, image);
+    if (manage) this.applyShared(shared, body, image, providerKeys);
     this.applyPrefs(this.prefs.of(actor), body, actor);
     return this.payload(actor);
   }
 
   /** 주인만 바꾸는 공용 항목. */
-  applyShared(s, body, image) {
+  applyShared(s, body, image, providerKeys) {
     if (image) s.image = image;
-    for (const [key, cfg] of Object.entries(body.providers || {})) this.applyProvider(s, key, cfg);
+    for (const [key, cfg] of Object.entries(body.providers || {})) this.applyProvider(s, key, cfg, providerKeys.get(key));
     if (Array.isArray(body.removeProviders)) {
       for (const key of body.removeProviders) {
         if (s.providers[key] && !s.providers[key].builtin) delete s.providers[key];
@@ -228,30 +237,27 @@ export class Settings {
   }
 
   /** 엔진 하나를 고치거나, 없던 이름이면 커스텀 엔진으로 추가합니다. */
-  applyProvider(s, key, cfg) {
-    if (s.providers[key]) {
-      // 이 기록은 서버가 실제 오류를 보고 쌓는 것이라, 클라이언트 사본으로 덮지 않습니다.
-      // hasApiKey / keyFromEnv 는 서버가 만들어 내보낸 표시용 값이라 되돌려 받지 않습니다.
-      const { unavailableModels, hasApiKey, keyFromEnv, apiKey, ...safe } = cfg || {};
-      Object.assign(s.providers[key], safe);
-      /*
-       * 키는 마스킹해서 내려보내므로, 화면에서 돌아오는 값은 대개 빈 문자열입니다. 그대로 덮으면 저장해 둔 키가 지워집니다.
-       *   빈 값 → 그대로 둠,  null → 지우기 (화면의 '키 지우기'),  그 외 → 새 키로 교체
-       */
-      if (apiKey === null) s.providers[key].apiKey = '';
-      else if (typeof apiKey === 'string' && apiKey.trim()) s.providers[key].apiKey = apiKey.trim();
-    } else if (cfg && cfg.label) {
-      // 커스텀 엔진 추가. 내장 엔진 키와 겹치지 않는 이름만 받습니다.
+  applyProvider(s, key, cfg, keys) {
+    const previous = s.providers[key];
+    const oldKey = previous ? resolveApiKey(key, previous) : '';
+    if (previous) {
+      // 키·마스킹 정보·서버의 모델 오류 기록은 클라이언트 사본으로 덮지 않습니다.
+      const { unavailableModels, hasApiKey, keyFromEnv, apiKey, apiKeys, activeApiKeyId, ...safe } = cfg;
+      Object.assign(previous, safe, keys);
+    } else if (cfg.label) {
       s.providers[key] = {
         label: String(cfg.label),
         type: ['openai', 'anthropic', 'gemini'].includes(cfg.type) ? cfg.type : 'openai',
         builtin: false,
         baseUrl: String(cfg.baseUrl || ''),
-        apiKey: String(cfg.apiKey || ''),
         model: String(cfg.model || ''),
-        unavailableModels: []
+        unavailableModels: [],
+        ...keys
       };
     }
+    const next = s.providers[key];
+    // 다른 계정의 키는 모델 접근 권한이 다를 수 있어 이전 키로 숨긴 모델을 다시 조회합니다.
+    if (next && oldKey !== resolveApiKey(key, next)) next.unavailableModels = [];
   }
 
   /** 엔진이 알려 준 실제 토큰 수로 고친 어림 보정값. 엔진의 성질이라 모두가 같이 씁니다. */

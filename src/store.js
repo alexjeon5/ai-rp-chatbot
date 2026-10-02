@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { normalizeApiKeys } from './api-keys.js';
 import { readFile, rename } from 'node:fs/promises';
 import { Collection, JsonDoc, flushAll, DATA_DIR } from './db.js';
 import { IMAGE_DEFAULTS } from './image.js';
@@ -133,6 +134,7 @@ export class Store {
     if (!s.providers[s.defaultProvider]) s.defaultProvider = 'lmstudio';
 
     for (const cfg of Object.values(s.providers)) {
+      Object.assign(cfg, normalizeApiKeys(cfg));
       if (!Array.isArray(cfg.unavailableModels)) cfg.unavailableModels = [];
     }
     this.saveSettings();

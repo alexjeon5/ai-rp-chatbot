@@ -539,7 +539,18 @@
 
         <div class="provider-box">
           <label class="field"><span>서버 주소</span><input id="s-baseurl" spellcheck="false"></label>
-          <label class="field" id="s-key-field"><span>API 키</span>
+          <div id="s-saved-keys" class="stack">
+            <label class="field"><span>사용할 API 키</span>
+              <span class="model-row">
+                <select id="s-api-key-select" aria-label="사용할 API 키"></select>
+                <button id="s-api-key-add" class="ghost-btn" type="button">키 추가</button>
+                <button id="s-api-key-delete" class="ghost-btn danger" type="button">삭제</button>
+              </span>
+            </label>
+            <label class="field"><span>키 이름</span><input id="s-api-key-name" maxlength="64" placeholder="개인용, 업무용 등" autocomplete="off"></label>
+            <p id="s-api-key-hint" class="field-hint"></p>
+          </div>
+          <label class="field" id="s-key-field"><span>API 키 <small class="field-hint">— 선택한 키를 교체하려면 입력하세요</small></span>
             <span class="model-row">
               <input id="s-apikey" type="password" spellcheck="false" autocomplete="off" placeholder="sk-...">
               <button id="s-key-toggle" class="ghost-btn" type="button" aria-pressed="false">보기</button>

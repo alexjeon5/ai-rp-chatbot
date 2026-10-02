@@ -5,6 +5,8 @@
  * 밖에서 들어올 때 한 겹 더 두는 것이고, 이 파일은 로그인을 통과한 요청에도 걸리는 제한들입니다.
  */
 
+import { normalizeApiKeys } from './api-keys.js';
+
 /* ---------------- 주소 판별 ---------------- */
 
 /**
@@ -125,7 +127,7 @@ const ENV_KEYS = {
 /** 환경변수가 있으면 그쪽이 우선입니다. */
 export function resolveApiKey(providerKey, cfg = {}) {
   const fromEnvVar = ENV_KEYS[providerKey] ? process.env[ENV_KEYS[providerKey]] : '';
-  return (fromEnvVar || '').trim() || cfg.apiKey || '';
+  return (fromEnvVar || '').trim() || normalizeApiKeys(cfg).apiKey;
 }
 
 export const keyComesFromEnv = (providerKey) =>
@@ -138,10 +140,13 @@ export const keyComesFromEnv = (providerKey) =>
 export function maskProviders(providers = {}) {
   const out = {};
   for (const [key, cfg] of Object.entries(providers)) {
-    const { apiKey, ...rest } = cfg;
+    const { apiKey, apiKeys, activeApiKeyId, ...rest } = cfg;
+    const normalized = normalizeApiKeys(cfg);
     out[key] = {
       ...rest,
       apiKey: '',
+      apiKeys: normalized.apiKeys.map((k) => ({ id: k.id, name: k.name, apiKey: '', hasApiKey: true })),
+      activeApiKeyId: normalized.activeApiKeyId,
       hasApiKey: Boolean(resolveApiKey(key, cfg)),
       keyFromEnv: keyComesFromEnv(key)
     };

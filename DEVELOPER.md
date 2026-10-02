@@ -214,6 +214,14 @@ export const store = new Store();  // 싱글턴
 
 멤버가 보낸 주인 전용 항목은 거절하지 않고 조용히 뺍니다(설정 창은 모든 탭을 한 번에 보내므로).
 
+제공자별 `apiKeys: [{ id, name, apiKey }]`와 `activeApiKeyId`는 공용 설정입니다. `src/api-keys.js`가 기존 단일 키를
+`legacy`(기본 키)로 옮기고 최대 20개·이름·ID·키 형식을 검사합니다. PUT의 목록은 교체 목록이며 기존 ID의 빈 키 값은
+서버의 비밀을 유지합니다. `apiKey`는 호환용으로 선택한 값과 맞춥니다. 선택한 키를 삭제하면 다른 키를 자동 선택하지 않습니다.
+`Settings.update`는 모든 제공자의 키 변경을 먼저 검증해 일부만 저장하지 않습니다. `maskProviders`는 목록의 비밀까지 가리고,
+`resolveApiKey`는 환경변수 또는 선택한 키만 반환하므로 삭제·선택 해제 후 옛 `apiKey`로 돌아가지 않습니다.
+실제 사용 키 변경 시 `unavailableModels`를 초기화합니다. 화면은 `public/js/features/settings-keys.js`에서 임시본을 관리합니다.
+
+
 **계정 준비.** 로그인한 요청마다 `AccountSetup.ensure(actor)` 가 돌지만 계정마다 한 번만 일합니다.
 처음 들어온 계정(`prefs.onboarded` 가 없음)에 기본 페르소나 '나'와 내장 캐릭터 사본을 넣고, 넣은 적 없는 내장
 페르소나를 추가합니다. 내장 콘텐츠를 공용 읽기 전용으로 두지 않고 계정마다 사본을 주는 이유는, 내장 캐릭터도

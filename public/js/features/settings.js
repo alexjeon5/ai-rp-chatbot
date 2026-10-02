@@ -5,6 +5,7 @@ import { makeCombo } from '../select.js';
 import { $, storage, on } from '../core/dom.js';
 import { applyTheme } from './theme.js';
 import { ImageSettings } from './settings-image.js';
+import { ProviderKeys } from './settings-keys.js';
 import { DevSettings } from './settings-dev.js';
 import { UsageSettings } from './settings-usage.js';
 import { DiscordSettings } from './settings-discord.js';
@@ -18,7 +19,7 @@ const MODEL_HINTS = {
 };
 
 /** 서버가 거부한 이유를 보고, 고칠 칸이 있는 탭을 짐작합니다. */
-const tabForError = (message = '') => (/ComfyUI|워크플로/.test(message) ? 'image' : /엔진 주소/.test(message) ? 'engine' : null);
+const tabForError = (message = '') => (/ComfyUI|워크플로/.test(message) ? 'image' : /엔진 주소|API 키/.test(message) ? 'engine' : null);
 
 export class Settings {
   constructor(app) {
@@ -43,6 +44,7 @@ export class Settings {
       noMatchText: (q) => `'${q}' 와 일치하는 모델이 없습니다. 직접 입력한 이름을 그대로 써도 됩니다.`,
       onPick: (name) => { $('s-model-msg').textContent = `선택한 모델: ${name}`; }
     });
+    this.keys = new ProviderKeys(this);
     this.bindEngine();
     this.bindPresets();
     this.bindTabs();
@@ -97,12 +99,7 @@ export class Settings {
     this.setKeyVisible(false);
     const cfg = this.draftProviders[key];
     $('s-baseurl').value = cfg.baseUrl || '';
-    // 서버는 키를 내려보내지 않습니다. 칸은 늘 비어 있고, 뭔가 입력했을 때만 교체됩니다. 저장된 키가 있는지는 placeholder 로 알려 줍니다.
-    $('s-apikey').value = '';
-    $('s-apikey').placeholder = cfg.keyFromEnv
-      ? '환경변수로 지정되어 있습니다 (여기서 바꿀 수 없음)'
-      : cfg.hasApiKey ? '저장됨 — 바꾸려면 새 키를 입력하세요' : 'API 키를 입력하세요';
-    $('s-apikey').disabled = Boolean(cfg.keyFromEnv);
+    this.keys.fill();
     $('s-model').value = cfg.model || '';
     $('s-context').value = cfg.contextTokens || '';
     $('s-context').placeholder = key === 'lmstudio' || /localhost|127\.0\.0\.1|192\.168\./.test(cfg.baseUrl || '') ? '16384' : '128000';
@@ -117,21 +114,25 @@ export class Settings {
   stashProvider() {
     const cfg = this.draftProviders?.[this.shownProvider];
     if (!cfg) return;
-    const typedKey = $('s-apikey').value.trim();
+    this.keys.stash();
     const contextTokens = Number($('s-context').value);
     // 컨텍스트를 비워 두면 서버가 엔진 종류에 맞는 기본값을 씁니다.
     Object.assign(cfg, { baseUrl: $('s-baseurl').value.trim(), model: $('s-model').value.trim(), contextTokens: contextTokens >= 1024 ? contextTokens : null });
-    // 빈 칸은 '건드리지 않음' 입니다. 서버가 저장해 둔 키를 그대로 씁니다.
-    if (typedKey) cfg.apiKey = typedKey;
   }
 
   async fetchModels() {
     this.stashProvider();
     const key = $('s-provider').value;
     $('s-model-msg').textContent = '모델을 불러오는 중…';
+    $('s-fetch-models').disabled = true;
+    $('s-provider').disabled = true;
+    this.keys.busy = true;
+    this.keys.paintControls();
     try {
-      // 아직 저장 전이므로 임시로 저장한 뒤 조회합니다.
-      await api.saveSettings({ providers: this.draftProviders });
+      // 불러오기는 선택한 키도 저장합니다. 응답의 마스킹된 목록으로 입력한 비밀을 지웁니다.
+      this.state.settings = await api.saveSettings({ providers: this.draftProviders });
+      this.draftProviders = structuredClone(this.state.settings.providers);
+      this.keys.fill();
       const { models } = await api.models(key);
       this.modelOptions = models;
       $('s-model-msg').textContent = models.length
@@ -144,6 +145,11 @@ export class Settings {
       this.app.toolbar.paintWebSearch();
     } catch (e) {
       $('s-model-msg').textContent = `불러오지 못했습니다 — ${e.message}`;
+    } finally {
+      $('s-fetch-models').disabled = false;
+      $('s-provider').disabled = false;
+      this.keys.busy = false;
+      this.keys.paintControls();
     }
   }
 

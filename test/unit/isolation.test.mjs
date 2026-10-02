@@ -258,3 +258,31 @@ test('디스코드 연결 코드는 내 계정에만 걸리고, 로그인을 잠
     await t.stop();
   }
 });
+
+
+test('HTTP 설정 API: 여러 키 마스킹·주인만 전환·백업에서 키 제외', async () => {
+  const t = await start();
+  try {
+    const keys = [
+      { id: 'one', name: '개인', apiKey: 'http-test-secret-one' },
+      { id: 'two', name: '업무', apiKey: 'http-test-secret-two' }
+    ];
+    const saved = await t.bob('PUT', '/api/settings', { providers: { openai: { apiKeys: keys, activeApiKeyId: 'one' } } });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.providers.openai.activeApiKeyId, 'one');
+    for (const request of [t.bob, t.alice]) {
+      for (const url of ['/api/settings', '/api/export']) {
+        const json = JSON.stringify((await request('GET', url)).body);
+        for (const key of keys) assert.ok(!json.includes(key.apiKey));
+      }
+    }
+    await t.alice('PUT', '/api/settings', { providers: { openai: { activeApiKeyId: 'two', apiKeys: [] } } });
+    assert.equal(t.services.engines.config('openai').apiKey, keys[0].apiKey);
+    const switched = await t.bob('PUT', '/api/settings', { providers: { openai: { activeApiKeyId: 'two' } } });
+    assert.equal(switched.status, 200);
+    assert.equal(t.services.engines.config('openai').apiKey, keys[1].apiKey);
+    const bad = await t.bob('PUT', '/api/settings', { providers: { openai: { activeApiKeyId: 'missing' } } });
+    assert.equal(bad.status, 400);
+    assert.equal(t.services.engines.config('openai').apiKey, keys[1].apiKey);
+  } finally { await t.stop(); }
+});
