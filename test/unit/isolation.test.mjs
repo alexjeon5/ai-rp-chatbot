@@ -23,6 +23,8 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 /** 쿠키 대신 헤더로 사람을 정하는 로그인. 나머지 모양은 src/auth.js 의 createAuth 와 같습니다. */
 const fakeAuth = {
   disabled: false,
+  filterStatus: () => ({ eligible: false, active: false, expiresAt: 0 }),
+  setFilterRelaxation: (req, res) => res.status(403).json({ error: '성인 확인 필요' }),
   attachUser: (req, res, next) => {
     req.user = USERS[req.get('x-test-user')] || null;
     // auth off(로그인 잠시 끄기)로 들어온 요청 흉내

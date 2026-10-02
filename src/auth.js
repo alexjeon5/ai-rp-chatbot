@@ -31,6 +31,7 @@ const SESSION_MS = SESSION_DAYS * 24 * 60 * 60 * 1000;
 /** 마지막 사용 시각은 이 간격보다 자주 쓰지 않습니다. 라즈베리파이 SD 카드를 아끼려고. */
 const TOUCH_MS = 60 * 60 * 1000;
 const MAX_SESSIONS_PER_USER = 20;
+const FILTER_RELAXATION_MS = 30 * 60 * 1000;
 
 export const ROLES = ['owner', 'member'];
 
@@ -437,7 +438,39 @@ export async function createAuth({ host }) {
     res.json({ ok: true });
   }
 
+  /** 성인 확인은 터미널에서만 기록합니다. 요청 본문·역할·로그인 우회로는 얻을 수 없습니다. */
+  function filterStatus(req) {
+    const session = !disabled && !req.authBypass && sessions.data.sessions[req.sessionKey];
+    const user = session && userById(session.userId);
+    const now = Date.now();
+    const authenticated = Boolean(user && user.id === req.user?.id && session.expiresAt > now &&
+      (session.epoch || 0) === (user.epoch || 0));
+    const eligible = authenticated && Number.isFinite(user.adultVerifiedAt) && user.adultVerifiedAt > 0;
+    const active = Boolean(eligible && session.filterRelaxedUntil > now &&
+      session.filterVerificationEpoch === (user.adultVerificationEpoch || 0));
+    return { eligible: Boolean(eligible), active, expiresAt: active ? session.filterRelaxedUntil : 0 };
+  }
+
+  function setFilterRelaxation(req, res) {
+    const status = filterStatus(req);
+    if (req.method !== 'DELETE' && !status.eligible) {
+      return res.status(403).json({ error: '성인 확인을 마친 계정으로 로그인해야 사용할 수 있습니다.' });
+    }
+    const session = sessions.data.sessions[req.sessionKey];
+    if (session) {
+      if (req.method === 'DELETE') {
+        delete session.filterRelaxedUntil;
+        delete session.filterVerificationEpoch;
+      } else if (!status.active) {
+        session.filterRelaxedUntil = Date.now() + FILTER_RELAXATION_MS;
+        session.filterVerificationEpoch = userById(session.userId).adultVerificationEpoch || 0;
+      }
+      sessions.save();
+    }
+    return res.json(filterStatus(req));
+  }
+
   const me = (req, res) => res.json({ user: req.user, authDisabled: disabled || Boolean(req.authBypass) });
 
-  return { disabled, attachUser, requireAuth, requireOwner, pageGate, login, logout, me };
+  return { disabled, attachUser, requireAuth, requireOwner, pageGate, login, logout, me, filterStatus, setFilterRelaxation };
 }

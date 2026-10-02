@@ -446,6 +446,8 @@ data: {"done": true, "message": {...}}   완료
 - 흐름: `IMAGE_PROMPT_SYSTEM` 으로 LLM 에게 장면 → Danbooru 태그 → `parseSceneTags` → `composePrompt`(품질 태그 + 성인 강제 태그 + 외형 + 장면, 필터) → `fillWorkflow` → `renderImage`(`/prompt` → `/history` 1초 폴링 → `/view`) → `data/images/<chatId>/<file>` 저장 → `msg.images`
 - 워크플로는 `settings.image.workflow`(API 형식 JSON) 또는 `DEFAULT_WORKFLOW`. 값 전체가 `"{{seed}}"` 면 원래 타입(숫자)으로, 글 안에 섞이면 글자로 채웁니다
 - 필터: 사용자 설정(`image.adult.forceTags/blockTags/extraNegative`)은 성인 대화에만. `CORE_BLOCK_TERMS`·나이 표기·`CORE_NEGATIVE` 는 **모든 대화에** 고정 적용이며, 걸리면 지우지 않고 그리기를 거부합니다. 설정 API 로도 바꿀 수 없게 코드에만 둡니다
+- 임시 완화: `GET/POST/DELETE /api/content-filter`. `auth.filterStatus(req)`가 실제 로그인 세션과 계정의 `adultVerifiedAt`·`adultVerificationEpoch`를 검사합니다. POST는 서버 시간 기준 30분이며 활성 중 재요청으로 연장하지 않습니다. CLI `adult <아이디> verify|revoke`로만 성인 확인을 기록·취소하고, 확인 버전 변경으로 기존 완화가 되살아나지 않게 합니다. 로그인 우회는 사용할 수 없습니다.
+- `ImageRoutes.composeTags`는 LLM 호출 후 다시 권한·만료를 검사한 `relaxUserFilter`로 `blockTags`만 건너뜁니다. 고정 차단은 사용자 필터보다 먼저 검사하며, `forceTags`·네거티브는 계속 적용합니다. 프런트 상태는 `public/js/features/content-filter.js`가 표시하고 서버가 매 요청의 권한을 결정합니다.
 - 그림 경로는 `SAFE_ID` + `IMAGE_FILE` 로 검사해 `data/images` 밖으로 못 나갑니다. 메시지·대화를 지우면 파일도 지웁니다. 메시지당 6장
 
 ### 프로필·표정·배경 — `src/services/character-art.js`, `src/services/backgrounds.js`

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { makeCombo } from '../select.js';
 import { $, esc, on } from '../core/dom.js';
+import { ContentFilter } from './content-filter.js';
 
 /** 목록으로 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
 function fillChoice(id, list, current) {
@@ -19,6 +20,7 @@ const API_IDS = { gemini: 'g', openai: 'o' };
 export class ImageSettings {
   constructor(app) {
     this.state = app.state;
+    this.contentFilter = new ContentFilter();
     // 연결 확인으로 받아 온 ComfyUI 의 실제 샘플러·스케줄러 목록. 없으면 서버가 준 흔한 목록을 씁니다.
     this.comfyLists = null;
     // undefined: 건드리지 않음, null: 기본으로 되돌림, object: 새로 올린 것
@@ -118,6 +120,7 @@ export class ImageSettings {
   }
 
   fill() {
+    this.contentFilter.refresh();
     const { settings } = this.state;
     const img = settings.image || {};
     const gem = img.gemini || {};

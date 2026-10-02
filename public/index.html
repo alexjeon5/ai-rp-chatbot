@@ -33,6 +33,11 @@
     <button class="mode-tab" data-mode="assistant">어시스턴트</button>
   </nav>
 
+  <div id="filter-relaxation-banner" class="rail-group" hidden>
+    <p id="filter-relaxation-remaining" class="field-hint"></p>
+    <button id="filter-relaxation-stop" class="ghost-btn" type="button">필터 완화 종료</button>
+  </div>
+
   <div class="rail-scroll">
     <section class="rail-group">
       <div class="rail-head">
@@ -631,6 +636,12 @@
         <p class="field-hint">어시스턴트 모드는 캐릭터와 페르소나를 쓰지 않습니다. 이 프롬프트와 대화 내용만 보냅니다.</p>
       </div>
       <div class="sheet-body settings-pane" id="pane-image" data-pane="image" role="tabpanel" hidden>
+        <h3 class="sheet-sub">내 세션의 성인 태그 필터</h3>
+        <p class="field-hint">관리자가 성인으로 확인한 계정만, 성인 대화에서 ComfyUI 태그 방식의 ‘지울 태그’를 30분간 건너뜁니다. 이 기기의 로그인 세션에 즉시 적용됩니다.</p>
+        <p id="filter-relaxation-status" class="field-hint" role="status">확인 중…</p>
+        <button id="filter-relaxation-toggle" class="ghost-btn" type="button" disabled>30분간 필터 완화</button>
+        <p class="field-hint">성인 확인이 필요하면 서버 관리자에게 요청하세요. 고정 차단 목록과 네거티브는 계속 적용됩니다.</p>
+        <div class="divider"></div>
         <label class="check-row">
           <input id="i-enabled" type="checkbox">
           <span>장면 그리기 켜기 — 답변 아래에 <b>🎨 그리기</b> 버튼이 생깁니다</span>

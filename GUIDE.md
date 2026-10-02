@@ -126,6 +126,8 @@ PORT=5174 npm start
 npm run user -- add <아이디>            # 계정 만들기. 첫 계정은 주인, 그다음부터는 멤버
 npm run user -- add <아이디> --owner    # 주인으로 만들기
 npm run user -- passwd <아이디>         # 비밀번호 바꾸기. 로그인해 둔 기기는 모두 로그아웃
+npm run user -- adult <아이디> verify  # 관리자가 성인 확인을 마친 뒤 기록
+npm run user -- adult <아이디> revoke  # 성인 확인 취소. 기존 필터 완화 종료
 npm run user -- logout-all <아이디>     # 비밀번호는 그대로 두고 모든 기기 로그아웃
 npm run user -- role <아이디> member    # 역할 바꾸기
 npm run user -- remove <아이디>         # 계정 지우기. 로그인은 바로 끊기고, 데이터는 남겨 둠 (아래 참고)

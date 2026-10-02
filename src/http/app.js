@@ -67,6 +67,9 @@ export function createApp({ store, auth, publicDir, services = createServices({ 
     next();
   });
   app.get('/api/me', auth.me);
+  app.get('/api/content-filter', (req, res) => res.set('Cache-Control', 'private, no-store').json(auth.filterStatus(req)));
+  app.post('/api/content-filter', auth.setFilterRelaxation);
+  app.delete('/api/content-filter', auth.setFilterRelaxation);
   app.use(express.static(publicDir));
 
   // 밖으로 요청을 내보내는 경로만 제한합니다 (services.limits). 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.

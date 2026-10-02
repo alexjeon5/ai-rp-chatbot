@@ -159,7 +159,9 @@ export class ImageRoutes {
       if (viaApi) return await this.drawApi({ backend, body, cfg, chat, msg, ctx, typed, provider, config, apiConfig, controller, out, stage, finish });
 
       // 1) 장면 → 태그 또는 묘사, 2) 조립·필터
-      const scene = { body, cfg, chat, msg, ctx, typed, adult, provider, config, controller, stage };
+      const scene = { body, cfg, chat, msg, ctx, typed, adult, provider, config, controller, stage,
+        // LLM 호출이 길어져도 조립 시점에 만료·성인 확인 취소를 다시 검사합니다.
+        relaxUserFilter: () => this.auth.filterStatus(req).active };
       const composed = cfg.promptStyle === 'prose' ? await this.composeProse(scene) : await this.composeTags(scene);
       if (composed.failed) return finish({ error: composed.failed });
       if (composed.blocked) return finish({ error: blockedMessage(composed.blocked) });
@@ -206,7 +208,7 @@ export class ImageRoutes {
   }
 
   /** ComfyUI · 태그: 장면을 Danbooru 태그로 옮기고 품질·외형 태그와 필터를 적용합니다. */
-  async composeTags({ body, cfg, chat, msg, ctx, typed, adult, provider, config, controller, stage }) {
+  async composeTags({ body, cfg, chat, msg, ctx, typed, adult, provider, config, controller, stage, relaxUserFilter }) {
     let sceneTags;
     let sceneNegative = typeof body?.negative === 'string' ? splitTags(body.negative) : [];
     if (typed) {
@@ -218,7 +220,7 @@ export class ImageRoutes {
     }
     // 등장인물이 한 명이면 외형 태그를 앞에 확실히 박아 둡니다.
     const appearance = ctx.cast.length ? [] : splitTags(ctx.character.appearance || '');
-    return composePrompt({ cfg, sceneTags, sceneNegative, appearance, adult });
+    return composePrompt({ cfg, sceneTags, sceneNegative, appearance, adult, relaxUserFilter: relaxUserFilter?.() === true });
   }
 
   /**

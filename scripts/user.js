@@ -6,6 +6,7 @@
  *   npm run user -- list
  *   npm run user -- add <아이디> [--owner | --member]
  *   npm run user -- passwd <아이디>
+ *   npm run user -- adult <아이디> verify | revoke   성인 확인 기록·취소
  *   npm run user -- logout-all <아이디>
  *   npm run user -- remove <아이디> [--purge]
  *   npm run user -- claim <아이디> [--from <아이디|계정 id>]
@@ -196,6 +197,17 @@ async function main() {
       return console.log(`비밀번호를 바꿨습니다: ${users[i].name}. 로그인해 둔 기기는 모두 로그아웃됩니다.`);
     }
 
+    case 'adult': {
+      const user = users[need(name)];
+      const action = flags[0];
+      if (!['verify', 'revoke'].includes(action)) fail('adult <아이디> 뒤에는 verify / revoke 를 적어 주세요.');
+      user.adultVerificationEpoch = (user.adultVerificationEpoch || 0) + 1;
+      if (action === 'verify') user.adultVerifiedAt = Date.now();
+      else delete user.adultVerifiedAt;
+      writeUsers(users);
+      return console.log(`${user.name}: 성인 확인 ${action === 'verify' ? '기록' : '취소'}. 기존 필터 완화는 종료됩니다.`);
+    }
+
     case 'logout-all': {
       const i = need(name);
       users[i].epoch = (users[i].epoch || 0) + 1;
@@ -303,6 +315,7 @@ async function main() {
         '  list                          계정 목록',
         '  add <아이디> [--owner|--member]  계정 만들기 (첫 계정은 주인)',
         '  passwd <아이디>                 비밀번호 바꾸기 (모든 기기 로그아웃)',
+        '  adult <아이디> <verify|revoke>   관리자가 성인 확인 후 기록 / 취소',
         '  logout-all <아이디>             모든 기기 로그아웃',
         '  role <아이디> <owner|member>     역할 바꾸기',
         '  remove <아이디> [--purge]       계정 지우기. --purge 면 그 계정의 대화·캐릭터 등도 지움',

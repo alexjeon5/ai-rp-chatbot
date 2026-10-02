@@ -35,6 +35,9 @@ async function req(url, options = {}) {
 
 export const api = {
   me: () => req('/api/me'),
+  contentFilter: () => req('/api/content-filter'),
+  relaxContentFilter: () => req('/api/content-filter', { method: 'POST' }),
+  restoreContentFilter: () => req('/api/content-filter', { method: 'DELETE' }),
   logout: () => req('/api/logout', { method: 'POST', body: {} }),
 
   settings: () => req('/api/settings'),

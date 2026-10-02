@@ -197,21 +197,21 @@ function userBlockMatcher(list) {
  * 최종 프롬프트를 조립합니다.
  * @returns {{ prompt, negative, removed: string[] } | { blocked: string[] }}
  */
-export function composePrompt({ cfg, sceneTags, sceneNegative = [], appearance = [], adult = false }) {
+export function composePrompt({ cfg, sceneTags, sceneNegative = [], appearance = [], adult = false, relaxUserFilter = false }) {
   let tags = splitTags([cfg.prefix, adult ? cfg.adult?.forceTags : '', appearance.join(', '), sceneTags.join(', ')]
     .filter(Boolean).join(', '));
 
-  // 사용자가 고칠 수 있는 필터는 성인 대화에만 적용합니다.
+  // 사용자 필터로 지우기 전에 고정 차단을 확인합니다.
+  const bad = coreViolations(tags);
+  if (bad.length) return { blocked: bad };
+
+  // 성인 확인을 마친 로그인 세션에서만 사용자 차단 태그를 잠시 건너뜁니다.
   let removed = [];
-  if (adult) {
+  if (adult && !relaxUserFilter) {
     const blocked = userBlockMatcher(cfg.adult?.blockTags || '');
     removed = tags.filter(blocked);
     tags = tags.filter((t) => !blocked(t));
   }
-  // 고정 차단은 모든 대화에 적용합니다.
-  const bad = coreViolations(tags);
-  if (bad.length) return { blocked: bad };
-
   // 설정의 네거티브와 고정 네거티브는 늘 붙고, 장면마다 만든(또는 사람이 고친) 부정 태그가 뒤에 옵니다.
   const negative = splitTags([cfg.negative, CORE_NEGATIVE, adult ? cfg.adult?.extraNegative : '', sceneNegative.join(', ')]
     .filter(Boolean).join(', ')).join(', ');
