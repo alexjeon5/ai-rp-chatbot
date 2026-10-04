@@ -33,7 +33,7 @@ src/
     admin.js               AdminWorker — 계정 명령이 남긴 요청을 서버에서 처리
     engines.js             Engines — 지금 엔진 설정, 성인 허용 판정, 실패 설명, 한 번에 받는 완성
     chat-context.js        ChatContext — 대화 한 개의 캐릭터·페르소나·틀·컨텍스트 예산 (대화 주인 기준)
-    character-cards.js     CharacterCards — 카드 가져오기(캐릭터+묶인 로어북 만들기)·내보내기
+    character-cards.js     CharacterCards — 카드 가져오기(캐릭터+묶인 로어북 만들기)·내보내기(export, exportCharx)
     character-art.js       CharacterArt — 프로필·표정 그림
     backgrounds.js         Backgrounds — 비주얼 노벨 배경 그림
     lorebooks.js           LoreBooks — 로어북 목록, 대화에 적용되는 책 고르기, 발동 항목, 책 삭제 시 떼어내기
@@ -56,8 +56,10 @@ src/
   content/                 내장 콘텐츠 — templates(대화 모드 틀), characters, personas
   db.js                    파일 저장 기반 클래스 — JsonDoc, Collection
   store.js                 Store 클래스, 공용 설정 기본값
-  character-card.js        캐릭터 카드 V1·V2·V3 ↔ 캐릭터·로어북 변환 (parseCard, buildCard)
+  character-card.js        캐릭터 카드 V1·V2·V3 ↔ 캐릭터·로어북 변환 (parseCard, buildCard, buildCardV3)
   png-card.js              PNG 의 tEXt/iTXt 조각에서 카드 JSON 꺼내기 (CardError)
+  zip.js                  의존성 없는 ZIP 읽기·쓰기 (openZip, writeZip, ZipError)
+  charx-card.js            CHARX 카드·그림 해석과 생성 (cardFromCharx, buildCharx)
   lorebook.js              로어북 순수 규칙 — 값 정리(cleanEntry·cleanLorebook), 발동 판정(LoreScanner), renderLore
   prompt.js                시스템 프롬프트 조립 (조사 교정은 public/js/shared/korean.js 를 가져다 씀)
   providers.js             엔진 클래스 — Engine 을 잇는 OpenAI/LM Studio/Ollama/Vercel/Anthropic/Gemini
@@ -314,7 +316,7 @@ data/
   책을 묶는 `characterIds` 는 내 캐릭터만 받습니다. 책을 지우면 `detach` 가 책 주인의 대화들의 `lorebookIds` 에서도 뺍니다. 대화 분기는 `lorebookIds` 를 복사하고, 백업은 `lorebooks` 를 함께 내보내고
   불러옵니다(`characterIds`·`lorebookIds` 는 id 매핑으로 다시 이음).
 
-### 캐릭터 카드 — `src/character-card.js`, `src/png-card.js`
+### 캐릭터 카드 — `src/character-card.js`, `src/png-card.js`, `src/charx-card.js`, `src/zip.js`
 
 - `pngCard.cardFromPng(buf)` — PNG 조각을 훑어 tEXt/iTXt 의 `ccv3` → `chara` 순으로 base64 JSON 을 꺼냅니다. 압축 조각은 건너뜁니다. 그림은 쓰지 않고 CRC 도 검사하지 않습니다. 사용자에게 보여도 되는 오류는 `CardError` 입니다(라우트가 400 으로 돌려줌).
 - `parseCard(raw)` — V1(납작한 JSON)·V2·V3(`spec`+`data`)을 읽어 `{ character, book, dropped }`. 카드의 긴 `description` 은
@@ -322,9 +324,19 @@ data/
   `extensions.rpchat.character` 가 있으면(이 앱에서 낸 카드) 그 칸을 그대로 써서 손실 없이 되살립니다.
 - `buildCard(character, books)` — V2 카드. 이 앱의 칸은 표준 칸에 풀어 담고(`description` 에 성격·말투·외형·추가 설정을 이어 붙이고 한 줄 소개는 `creator_notes`),
   원래 칸은 `extensions.rpchat` 에 둡니다. `bookToCard`/`bookFromCard` 가 로어북 항목과 `character_book` 을 오갑니다(우선순위는 `priority`).
+- `buildCardV3(character, books)` — 같은 칸을 V3 카드(`spec: 'chara_card_v3'`, `spec_version: '3.0'`)에 담고 `group_only_greetings: []`, `assets: []` 를 더합니다.
+- CHARX 는 루트의 `card.json` 과 그림을 묶은 ZIP 입니다. `openZip(buf)` 는 중앙 디렉터리를 읽어 `entries`, `has(name)`, `read(name, { maxBytes })` 를 돌려줍니다.
+  `read` 는 stored·deflate 를 풀며 크기 한도(기본 8MB)와 CRC 를 검사합니다. ZIP64·암호화·다른 압축 방식은 `ZipError` 입니다.
+  `writeZip(files)` 는 `{ name, data, compress? }` 배열을 ZIP 으로 만듭니다. 기본은 deflate(작아질 때만), `compress: false` 면 stored 입니다. 외부 의존성은 없습니다.
+- `cardFromCharx(buf)` — `{ card, icon, expressions, dropped }` 를 돌려줍니다. `data.assets` 의 `embeded://`·`embedded://` 경로나 base64 data URI 에서
+  프로필(`icon`)·표정(`emotion`)을 꺼내고 `ccdefault:` 는 그림 없음으로 봅니다. 외부 주소 그림·배경·소리·RisuAI 모듈(`module.risum`)·스크립트는 가져오지 않습니다.
+  ZIP·JSON 오류는 `CardError` 로 바꿉니다. `buildCharx(card, { icon, expressions })` 는 그림 경로를 `data.assets` 에 채워 V3 CHARX 를 만듭니다(입력 카드는 바꾸지 않음).
 - `CharacterCards`(서비스)가 저장소와 잇습니다. 가져올 때 세계관이 있으면 `characterIds: [새 캐릭터]` 로 묶인 로어북을 만들고,
-  내보낼 때는 `characterIds` 에 그 캐릭터가 든 로어북을 모읍니다. PNG 로 내보내기는 없습니다(카드는 JSON 만).
-  PNG 를 가져올 때는 `CharacterCards` 가 그림을 프로필로 저장합니다(`CharacterArt.setPortrait`). 그림 파일 저장·삭제는 `src/services/image-files.js` 를 공유합니다
+  내보낼 때는 `characterIds` 에 그 캐릭터가 든 로어북을 모읍니다. `export(actor, id)` 는 V2 JSON,
+  `exportCharx(actor, id)` 는 V3 카드와 저장된 프로필·표정 그림을 묶은 `{ filename, data: Buffer }` 를 돌려줍니다. PNG 로 내보내기는 없습니다.
+  PNG 를 가져올 때는 `CharacterCards` 가 그림을 프로필로 저장합니다(`CharacterArt.setPortrait`). CHARX 는 프로필과 표정(최대 `ART_LIMITS.expressions`, 16개)을 저장하며,
+  그림 저장 실패는 `dropped` 로 알립니다. 그림 파일 저장·삭제는 `src/services/image-files.js` 를 공유합니다.
+  프런트는 CHARX 파일을 28MB 까지 base64 로 보내고, 서버는 이 가져오기 경로의 JSON 본문을 40MB 까지 받습니다
 
 프런트는 `features/lorebooks.js`(설정집 창) · `lore-entry.js`(항목 편집기) · `chat-lore.js`(대화에 붙이기 창)로 나뉩니다.
 
@@ -603,8 +615,8 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/models?provider=` | 모델 목록 (엔진별 필터·페이지네이션 적용됨) |
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
-| POST | `/api/characters/import` | `{ card }`(JSON) 또는 `{ png }`(base64) 캐릭터 카드를 새 캐릭터로. 응답 `{ character, lorebook, dropped }`. 이 경로만 본문 한도 16MB. 카드가 아니면 400 |
-| GET | `/api/characters/:id/export` | 캐릭터를 V2 카드 JSON 으로 내려받기. 묶인 로어북은 `character_book` |
+| POST | `/api/characters/import` | `{ card }`(JSON), `{ png, portrait? }`(base64) 또는 `{ charx }`(base64) 캐릭터 카드를 새 캐릭터로. 응답 `{ character, lorebook, dropped }`. 이 경로만 본문 한도 40MB. 카드가 아니면 400 |
+| GET | `/api/characters/:id/export` | 캐릭터를 V2 카드 JSON 으로 내려받기. 묶인 로어북은 `character_book`. `?format=charx` 는 V3 카드·프로필·표정 그림을 묶은 `.charx`(`application/zip`). 없거나 다른 format 이면 JSON |
 | PUT/DELETE | `/api/characters/:id/portrait` | 프로필 그림 올리기(본문이 PNG·JPEG·WebP 파일 그대로)/지우기 |
 | PUT/DELETE | `/api/characters/:id/expressions?label=` | 표정 그림 올리기/지우기 |
 | GET | `/api/character-art/:id/:file` | 프로필·표정 그림 파일 |
@@ -744,7 +756,7 @@ console.log('빠진 id:', [...ids].filter((id) => !html.includes('id=\"' + id + 
 | `personas` | `features/personas.js` | 페르소나 창과 랜덤 페르소나 |
 | `lorebooks` | `features/lorebooks.js` | 세계관 설정집 창 — 목록·이름·적용 범위·발동 시험. 항목 편집은 `lore-entry.js` 의 `LoreEntryEditor` |
 | `chatLore` | `features/chat-lore.js` | 대화의 ⋯ 메뉴 「세계관 적용」 창 — 이 대화에 붙일 설정집과 지금 발동 중인 항목 |
-| `cardTransfer` | `features/card-transfer.js` | 캐릭터 카드 가져오기(JSON·PNG)·내보내기 버튼 |
+| `cardTransfer` | `features/card-transfer.js` | 캐릭터 카드 가져오기(JSON·PNG·CHARX)·내보내기(V2 JSON·V3 CHARX) 버튼 |
 | `settings` | `features/settings.js` | 설정 창 — 엔진·대화 모드·탭·저장. 이미지 탭은 `settings-image.js`, 화면·개발자 탭은 `settings-dev.js`, 사용량 탭은 `settings-usage.js`, 디스코드 탭은 `settings-discord.js` |
 
 `theme.js` 의 `applyTheme(dev)` 는 테마 색·글꼴·파비콘·표기법을 화면에 적용합니다.

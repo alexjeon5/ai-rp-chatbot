@@ -3,12 +3,14 @@
  *
  * 카드의 `description` 은 외형·성격·배경이 한데 든 긴 글이라 이 앱의 `personality` 로 받습니다.
  * 이 앱에서 내보낸 카드는 원래 칸을 `extensions.rpchat` 에 함께 담아, 다시 불러올 때 그대로 되살립니다.
+ * CHARX 로 내보낼 때는 V3 카드에 그림 에셋을 함께 담습니다.
  */
 import { CHARACTER_FIELDS } from './content/characters.js';
 import { CardError } from './png-card.js';
 import { isObj, str, characterFields } from './services/records.js';
 
 export const CARD_SPEC = 'chara_card_v2';
+export const CARD_SPEC_V3 = 'chara_card_v3';
 const KNOWN_SPECS = new Set(['chara_card_v2', 'chara_card_v3']);
 
 /** 예전 카드의 <USER>/<BOT>, 줄바꿈 형식을 이 앱의 자리표시자에 맞춥니다. */
@@ -146,4 +148,14 @@ export function buildCard(character, books = []) {
   const book = bookToCard(books, `${c.name} 세계관`);
   if (book) data.character_book = book;
   return { spec: CARD_SPEC, spec_version: '2.0', data };
+}
+
+/** 캐릭터와 로어북을 CHARX 에 담을 V3 카드로 만듭니다. */
+export function buildCardV3(character, books = []) {
+  const v2 = buildCard(character, books);
+  const data = { ...v2.data, group_only_greetings: [], assets: [] };
+  if (data.character_book) {
+    data.character_book.entries = data.character_book.entries.map((entry) => ({ ...entry, use_regex: false }));
+  }
+  return { spec: CARD_SPEC_V3, spec_version: '3.0', data };
 }

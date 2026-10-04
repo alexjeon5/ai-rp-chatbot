@@ -40,7 +40,7 @@ export function createApp({ store, auth, publicDir, services = createServices({ 
   // 백업 불러오기는 대화가 쌓이면 수십 MB 가 되므로 그 경로만 한도를 넉넉히 둡니다.
   // 캐릭터 카드는 PNG 를 base64 로 받으므로 그 경로도 2MB 보다 넉넉히 둡니다.
   const jsonBody = express.json({ limit: '2mb' });
-  const bodyByPath = { '/api/import': express.json({ limit: '64mb' }), '/api/characters/import': express.json({ limit: '16mb' }) };
+  const bodyByPath = { '/api/import': express.json({ limit: '64mb' }), '/api/characters/import': express.json({ limit: '40mb' }) };
   app.use((req, res, next) => (bodyByPath[req.path] || jsonBody)(req, res, next));
 
   // 쿠키를 보고 req.user 를 채웁니다. 로그인하지 않았으면 첫 화면 대신 로그인 페이지로 보냅니다.

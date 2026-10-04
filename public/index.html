@@ -64,9 +64,9 @@
       <div class="rail-head">
         <h2>캐릭터</h2>
         <span class="head-pair">
-          <button id="btn-import-card" class="ghost-btn" title="다른 곳에서 받은 캐릭터 카드(JSON·PNG)를 가져옵니다">가져오기</button>
+          <button id="btn-import-card" class="ghost-btn" title="다른 곳에서 받은 캐릭터 카드(JSON·PNG·CHARX)를 가져옵니다">가져오기</button>
           <button id="btn-new-character" class="ghost-btn">새로 만들기</button>
-          <input id="card-file" type="file" accept=".json,.png,application/json,image/png" hidden>
+          <input id="card-file" type="file" accept=".json,.png,application/json,image/png,.charx,application/zip" hidden>
         </span>
       </div>
       <nav id="char-tabs" class="char-tabs" role="tablist" aria-label="캐릭터 분류">
@@ -245,6 +245,7 @@
     <div class="sheet-foot">
       <button id="c-delete" class="ghost-btn danger" type="button">삭제</button>
       <button id="c-export" class="ghost-btn" type="button" title="캐릭터 카드(V2 JSON)로 내려받습니다. 이 캐릭터에 묶은 세계관도 함께 담깁니다" hidden>카드로 내보내기</button>
+      <button id="c-export-charx" class="ghost-btn" type="button" title="캐릭터 카드(V3 CHARX)로 내려받습니다. 프로필 그림·표정 그림과 이 캐릭터에 묶은 세계관이 함께 담깁니다" hidden>CHARX로 내보내기</button>
       <button id="c-copy" class="ghost-btn" type="button" title="이 기본 캐릭터를 원본 그대로 두고, 같은 내용으로 내 캐릭터를 새로 만듭니다" hidden>복사해서 내 캐릭터로</button>
       <span class="spacer"></span>
       <button id="c-once" class="ghost-btn" type="button" title="목록에 남기지 않고 이번 대화에만 씁니다">이번만 쓰기</button>

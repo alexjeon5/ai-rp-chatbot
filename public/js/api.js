@@ -69,7 +69,7 @@ export const api = {
   updateCharacter: (id, body) => req(`/api/characters/${id}`, { method: 'PUT', body }),
   deleteCharacter: (id) => req(`/api/characters/${id}`, { method: 'DELETE' }),
   importCard: (body) => req('/api/characters/import', { method: 'POST', body }),
-  cardUrl: (id) => `/api/characters/${id}/export`,
+  cardUrl: (id, format) => `/api/characters/${id}/export${format ? `?format=${encodeURIComponent(format)}` : ''}`,
   setPortrait: (id, blob) => sendImage(`/api/characters/${id}/portrait`, 'PUT', blob),
   clearPortrait: (id) => req(`/api/characters/${id}/portrait`, { method: 'DELETE' }),
   setExpression: (id, label, blob) => sendImage(`/api/characters/${id}/expressions?label=${encodeURIComponent(label)}`, 'PUT', blob),
