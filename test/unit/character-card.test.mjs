@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCard, buildCard } from '../../src/character-card.js';
+import { parseCard, buildCard, bookFromCard, splitContent } from '../../src/character-card.js';
 import { cardFromPng, pngTextChunks, CardError } from '../../src/png-card.js';
 import { CharacterCards } from '../../src/services/character-cards.js';
-import { cleanLorebook } from '../../src/lorebook.js';
+import { cleanLorebook, LORE_LIMITS } from '../../src/lorebook.js';
 
 const v2 = (data) => ({ spec: 'chara_card_v2', spec_version: '2.0', data });
 
@@ -41,9 +41,85 @@ test('parseCard: V2 카드를 이 앱의 칸으로 옮기고 <START>·<USER> 를
 
 test('parseCard: 1판(납작한 JSON)도 읽고, 카드가 아니면 CardError', () => {
   assert.equal(parseCard({ name: '옛 카드', description: '설명', first_mes: '안녕' }).character.greeting, '안녕');
+  assert.deepEqual(parseCard({ name: '옛 카드' }).notices, []);
   assert.throws(() => parseCard({ foo: 1 }), CardError);
   assert.throws(() => parseCard([]), CardError);
   assert.throws(() => parseCard(v2({ name: '  ' })), /이름/);
+});
+
+test('splitContent: 빈 줄·줄바꿈·공백을 우선하고 내용은 보존합니다', () => {
+  assert.deepEqual(splitContent('aa\n\nbb\ncc dd', 10), ['aa', 'bb\ncc dd']);
+  assert.deepEqual(splitContent('aa\nbb cc dd', 8), ['aa', 'bb cc dd']);
+  assert.deepEqual(splitContent('aa bb cc dd', 8), ['aa bb', 'cc dd']);
+  assert.deepEqual(splitContent('abcdefghij', 4), ['abcd', 'efgh', 'ij']);
+  assert.deepEqual(splitContent(' \n \t ', 4), []);
+  assert.throws(() => splitContent('a', 0), RangeError);
+  const content = ('여러 낱말\n한 줄\n\n다음 문단\t끝 ').repeat(900);
+  const parts = splitContent(content);
+  assert.ok(parts.every((part) => part.length && part.length <= LORE_LIMITS.contentChars));
+  assert.equal(parts.join('').replace(/\s/g, ''), content.replace(/\s/g, ''));
+});
+
+test('parseCard: 10,000자 세계관을 3조각으로 나누고 원래 발동 조건을 보존합니다', () => {
+  const entry = {
+    comment: '긴 세계관', content: '가'.repeat(10000), keys: ['왕도'], secondary_keys: ['성벽'], selective: true,
+    enabled: false, constant: true, case_sensitive: true, priority: 77
+  };
+  const out = parseCard(v2({ name: '리아', character_book: { entries: [entry] } }));
+  assert.deepEqual(out.book.entries.map((e) => e.content.length), [4000, 4000, 2000]);
+  assert.deepEqual(out.book.entries.map((e) => e.title), ['긴 세계관 (1/3)', '긴 세계관 (2/3)', '긴 세계관 (3/3)']);
+  assert.equal(out.book.entries.map((e) => e.content).join(''), entry.content);
+  for (const e of out.book.entries) {
+    assert.deepEqual(e.keys, ['왕도']);
+    assert.deepEqual(e.secondaryKeys, ['성벽']);
+    assert.equal(e.enabled, false);
+    assert.equal(e.constant, true);
+    assert.equal(e.caseSensitive, true);
+    assert.equal(e.priority, 77);
+  }
+  assert.deepEqual(out.notices, ['긴 세계관 항목 1개를 3개로 나눠 담음']);
+  assert.deepEqual(out.dropped, []);
+  assert.equal(cleanLorebook(out.book).entries.map((e) => e.content).join(''), entry.content);
+});
+
+test('parseCard: 나눈 제목의 꼬리를 남기고 4,000자 이하는 제목을 유지합니다', () => {
+  const out = parseCard(v2({ name: 'x', character_book: { entries: [
+    { comment: '나'.repeat(100), content: '가'.repeat(4001), keys: ['x'] },
+    { content: '가'.repeat(4001), keys: ['x'] },
+    { comment: '원래 제목', content: '가'.repeat(4000), keys: ['x'] }
+  ] } }));
+  assert.equal(out.book.entries[0].title.length, LORE_LIMITS.titleChars);
+  assert.ok(out.book.entries[0].title.endsWith(' (1/2)'));
+  assert.equal(out.book.entries[2].title, '세계관 (1/2)');
+  assert.equal(out.book.entries[4].title, '원래 제목');
+  assert.deepEqual(out.notices, ['긴 세계관 항목 2개를 4개로 나눠 담음']);
+});
+
+test('parseCard: 키워드 없는 원래 항목만 안내하고 빈 폴더는 조용히 제외합니다', () => {
+  const out = parseCard(v2({ name: 'x', character_book: { entries: [
+    { mode: 'folder', keys: [''], content: '' },
+    { keys: [' ', ''], content: '가'.repeat(10000) },
+    { content: '키워드 없음' },
+    { keys: [], content: '항상 켜짐', constant: true },
+    { keys: ['x'], content: '키워드 있음' }
+  ] } }));
+  assert.equal(out.book.entries.length, 6);
+  assert.deepEqual(out.notices, [
+    '긴 세계관 항목 1개를 3개로 나눠 담음',
+    '키워드도 없고 항상 켜기도 아닌 세계관 항목 2개 (대화에 쓰이지 않음)'
+  ]);
+  assert.equal(bookFromCard({ entries: [{ mode: 'folder', content: ' ' }] }, '빈 책'), null);
+  assert.deepEqual(bookFromCard({ entries: [{ keys: ['x'], content: 'v' }] }, '호환').entries[0].keys, ['x']);
+});
+
+test('parseCard: 나눈 뒤 300개를 넘는 세계관 항목 수를 dropped 로 안내합니다', () => {
+  const entries = Array.from({ length: 300 }, (_, i) => ({ comment: `${i}`, keys: ['x'], content: `내용 ${i}` }));
+  entries.splice(299, 0, { keys: ['x'], content: '가'.repeat(10000) });
+  const out = parseCard(v2({ name: 'x', character_book: { entries } }));
+  assert.equal(out.book.entries.length, 300);
+  assert.equal(out.book.entries[299].title, '세계관 (1/3)');
+  assert.deepEqual(out.notices, ['긴 세계관 항목 1개를 3개로 나눠 담음']);
+  assert.deepEqual(out.dropped, ['세계관 항목 3개 (최대 300개)']);
 });
 
 test('parseCard: character_book 을 로어북 모양으로', () => {

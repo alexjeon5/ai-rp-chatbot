@@ -319,23 +319,30 @@ data/
 ### 캐릭터 카드 — `src/character-card.js`, `src/png-card.js`, `src/charx-card.js`, `src/zip.js`
 
 - `pngCard.cardFromPng(buf)` — PNG 조각을 훑어 tEXt/iTXt 의 `ccv3` → `chara` 순으로 base64 JSON 을 꺼냅니다. 압축 조각은 건너뜁니다. 그림은 쓰지 않고 CRC 도 검사하지 않습니다. 사용자에게 보여도 되는 오류는 `CardError` 입니다(라우트가 400 으로 돌려줌).
-- `parseCard(raw)` — V1(납작한 JSON)·V2·V3(`spec`+`data`)을 읽어 `{ character, book, dropped }`. 카드의 긴 `description` 은
+- `parseCard(raw)` — V1(납작한 JSON)·V2·V3(`spec`+`data`)을 읽어 `{ character, book, dropped, notices }`. `notices` 는 항상 배열이며, 옮긴 정보에 대한 안내를 담습니다. 카드의 긴 `description` 은
   `personality` 칸으로, `system_prompt`·`post_history_instructions` 는 `notes` 로 옮기고 `<USER>`/`<BOT>`/`<START>` 를 다듬습니다.
   `extensions.rpchat.character` 가 있으면(이 앱에서 낸 카드) 그 칸을 그대로 써서 손실 없이 되살립니다.
 - `buildCard(character, books)` — V2 카드. 이 앱의 칸은 표준 칸에 풀어 담고(`description` 에 성격·말투·외형·추가 설정을 이어 붙이고 한 줄 소개는 `creator_notes`),
   원래 칸은 `extensions.rpchat` 에 둡니다. `bookToCard`/`bookFromCard` 가 로어북 항목과 `character_book` 을 오갑니다(우선순위는 `priority`).
+  `bookFromCard(book, fallbackName, { dropped, notices } = {})` 는 빈 항목을 제외하고, 긴 내용은 `splitContent(text, max = LORE_LIMITS.contentChars)` 로 나눕니다.
+  조각은 최대 4,000자이며 빈 줄 → 줄바꿈 → 공백 → 길이 순으로 끊고 trim 합니다. 공백 외의 내용과 발동 조건은 보존하고 제목에 `(i/n)` 을 붙입니다(80자 안에 꼬리를 남김).
+  긴 원래 항목 수와 조각 수, 키워드도 없고 `constant` 도 아닌 원래 항목 수를 `notices` 로 안내합니다. 나눈 뒤 300개를 넘으면 초과 수를 `dropped` 로 안내하고 300개만 남깁니다.
 - `buildCardV3(character, books)` — 같은 칸을 V3 카드(`spec: 'chara_card_v3'`, `spec_version: '3.0'`)에 담고 `group_only_greetings: []`, `assets: []` 를 더합니다.
 - CHARX 는 루트의 `card.json` 과 그림을 묶은 ZIP 입니다. `openZip(buf)` 는 중앙 디렉터리를 읽어 `entries`, `has(name)`, `read(name, { maxBytes })` 를 돌려줍니다.
   `read` 는 stored·deflate 를 풀며 크기 한도(기본 8MB)와 CRC 를 검사합니다. ZIP64·암호화·다른 압축 방식은 `ZipError` 입니다.
   `writeZip(files)` 는 `{ name, data, compress? }` 배열을 ZIP 으로 만듭니다. 기본은 deflate(작아질 때만), `compress: false` 면 stored 입니다. 외부 의존성은 없습니다.
-- `cardFromCharx(buf)` — `{ card, icon, expressions, dropped }` 를 돌려줍니다. `data.assets` 의 `embeded://`·`embedded://` 경로나 base64 data URI 에서
-  프로필(`icon`)·표정(`emotion`)을 꺼내고 `ccdefault:` 는 그림 없음으로 봅니다. 외부 주소 그림·배경·소리·RisuAI 모듈(`module.risum`)·스크립트는 가져오지 않습니다.
-  ZIP·JSON 오류는 `CardError` 로 바꿉니다. `buildCharx(card, { icon, expressions })` 는 그림 경로를 `data.assets` 에 채워 V3 CHARX 를 만듭니다(입력 카드는 바꾸지 않음).
+- `cardFromCharx(buf)` — `{ card, icon, expressions, assets, dropped }` 를 돌려줍니다. `data.assets` 의 `embeded://`·`embedded://` 경로나 base64 data URI 에서
+  프로필(`icon`)·표정(`emotion`)을 꺼내고 `ccdefault:` 는 그림 없음으로 봅니다. `main`(없으면 첫 icon)만 읽고 추가 아이콘은 개수만 안내합니다.
+  표정은 `assets: [{ name, data: Buffer }]` 에도 넣습니다. 다른 type 은 `ext` 또는 URI 경로 확장자가 PNG·JPEG·WebP·GIF·AVIF 인 그림만 카드 순서대로 꺼냅니다.
+  이름이 비면 URI 파일 이름에서 확장자를 뺍니다. 개수 제한은 서비스에서 적용하며, 그림 합계 64MB 를 넘길 그림부터 읽지 않습니다.
+  `dropped` 순서는 외부 주소 그림 → 읽지 못한 그림 → 추가 아이콘 → 소리·영상 등 비그림 에셋 → 용량 한도 → RisuAI 모듈(`module.risum`)입니다. 스크립트·모듈은 실행하지 않습니다.
+  ZIP·JSON 오류는 `CardError` 로 바꿉니다. `buildCharx(card, { icon, expressions, assets = [] })` 는 그림 경로를 `data.assets` 에 채워 V3 CHARX 를 만듭니다(입력 카드는 바꾸지 않음).
+  `assets: [{ name, data: Buffer, ext }]` 는 표정 다음에 `type: 'x-risu-asset'`, `assets/other/image/<i+1>.<ext>` 경로로 담고 그림은 stored(`compress: false`)로 저장합니다.
 - `CharacterCards`(서비스)가 저장소와 잇습니다. 가져올 때 세계관이 있으면 `characterIds: [새 캐릭터]` 로 묶인 로어북을 만들고,
   내보낼 때는 `characterIds` 에 그 캐릭터가 든 로어북을 모읍니다. `export(actor, id)` 는 V2 JSON,
-  `exportCharx(actor, id)` 는 V3 카드와 저장된 프로필·표정 그림을 묶은 `{ filename, data: Buffer }` 를 돌려줍니다. PNG 로 내보내기는 없습니다.
+  `exportCharx(actor, id)` 는 V3 카드와 저장된 프로필·표정·에셋 그림을 묶은 `{ filename, data: Buffer }` 를 돌려줍니다. PNG 로 내보내기는 없습니다.
   PNG 를 가져올 때는 `CharacterCards` 가 그림을 프로필로 저장합니다(`CharacterArt.setPortrait`). CHARX 는 프로필과 표정(최대 `ART_LIMITS.expressions`, 16개)을 저장하며,
-  그림 저장 실패는 `dropped` 로 알립니다. 그림 파일 저장·삭제는 `src/services/image-files.js` 를 공유합니다.
+  에셋 그림은 `CharacterArt.addAssets` 로 저장합니다. 그림 저장 실패는 `dropped` 로 알리고, 파서의 `notices` 를 가져오기 응답에 함께 돌려줍니다. 그림 파일 저장·삭제는 `src/services/image-files.js` 를 공유합니다.
   프런트는 CHARX 파일을 28MB 까지 base64 로 보내고, 서버는 이 가져오기 경로의 JSON 본문을 40MB 까지 받습니다
 
 프런트는 `features/lorebooks.js`(설정집 창) · `lore-entry.js`(항목 편집기) · `chat-lore.js`(대화에 붙이기 창)로 나뉩니다.
@@ -472,7 +479,10 @@ data: {"done": true, "message": {...}}   완료
 
 ### 프로필·표정·배경 — `src/services/character-art.js`, `src/services/backgrounds.js`
 
-- `CharacterArt` 가 `data/portraits/<characterId>/` 를 맡습니다. 프로필 1장, 표정은 이름(`cleanLabel`)별로(최대 `ART_LIMITS`). 캐릭터 JSON 에는 파일 이름만 남기고(`portrait`, `expressions: [{label,file}]`) 프런트가 `/api/character-art/:id/:file` 로 부릅니다
+- `CharacterArt` 가 `data/portraits/<characterId>/` 를 맡습니다. 프로필 1장, 표정은 이름(`cleanLabel`)별로(최대 `ART_LIMITS`). 캐릭터 JSON 에는 파일 이름만 남기고(`portrait`, `expressions: [{label,file}]`, `assets: [{name,file}]`) 프런트가 `/api/character-art/:id/:file` 로 부릅니다. `character.assets` 가 없으면 빈 목록으로 취급합니다
+- `ASSET_LIMITS = { count: 200, nameChars: 80, totalBytes: 64 * 1024 * 1024 }` 입니다. `cleanAssetName` 은 제어문자·`<>"'` 를 제거하고 공백을 정리해 80자로 제한합니다.
+  `addAssets(actor, id, [{ name, data }])` 는 `{ character, failed: [{ name, message }], skipped }` 를 돌려줍니다. `removeAsset(actor, id, name)` 은 파일과 기록을 지우고 바뀐 캐릭터를 돌려줍니다.
+  이름 비교는 trim 후 대소문자를 무시하고, 정확한 이름이 없으면 양쪽의 마지막 확장자(`.xxx`, 영숫자 1–5자)를 뺀 이름끼리 비교합니다
 - `Backgrounds` 는 앱 전체 배경 목록입니다(`/api/background-art/:id/:file`). 이름은 무대 표식의 장소 이름이 됩니다
 - 파일 삭제는 `ImageFiles.remove()` 가 프라미스를 돌려주므로 서비스는 await 합니다(시험에서 지워졌는지 곧바로 볼 수 있음)
 - 그림 본문은 `sniffImage` 로 PNG·JPEG·WebP 만 받고 파일명은 서버가 정합니다
@@ -615,11 +625,12 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 | GET | `/api/models?provider=` | 모델 목록 (엔진별 필터·페이지네이션 적용됨) |
 | GET/POST/PUT/DELETE | `/api/characters[/:id]` | 캐릭터 CRUD (`crud()` 헬퍼로 생성) |
 | POST | `/api/characters/seed` | 내장 캐릭터 중 없는 것만 추가 |
-| POST | `/api/characters/import` | `{ card }`(JSON), `{ png, portrait? }`(base64) 또는 `{ charx }`(base64) 캐릭터 카드를 새 캐릭터로. 응답 `{ character, lorebook, dropped }`. 이 경로만 본문 한도 40MB. 카드가 아니면 400 |
-| GET | `/api/characters/:id/export` | 캐릭터를 V2 카드 JSON 으로 내려받기. 묶인 로어북은 `character_book`. `?format=charx` 는 V3 카드·프로필·표정 그림을 묶은 `.charx`(`application/zip`). 없거나 다른 format 이면 JSON |
+| POST | `/api/characters/import` | `{ card }`(JSON), `{ png, portrait? }`(base64) 또는 `{ charx }`(base64) 캐릭터 카드를 새 캐릭터로. 응답 `{ character, lorebook, dropped, notices }`. 이 경로만 본문 한도 40MB. 카드가 아니면 400 |
+| GET | `/api/characters/:id/export` | 캐릭터를 V2 카드 JSON 으로 내려받기. 묶인 로어북은 `character_book`. `?format=charx` 는 V3 카드·프로필·표정·에셋 그림을 묶은 `.charx`(`application/zip`). 없거나 다른 format 이면 JSON |
 | PUT/DELETE | `/api/characters/:id/portrait` | 프로필 그림 올리기(본문이 PNG·JPEG·WebP 파일 그대로)/지우기 |
 | PUT/DELETE | `/api/characters/:id/expressions?label=` | 표정 그림 올리기/지우기 |
-| GET | `/api/character-art/:id/:file` | 프로필·표정 그림 파일 |
+| DELETE | `/api/characters/:id/assets?name=` | 에셋 그림의 파일·기록을 지우고 바뀐 캐릭터 JSON 반환 |
+| GET | `/api/character-art/:id/:file` | 프로필·표정·에셋 그림 파일 |
 | GET/POST | `/api/backgrounds` | 배경 목록/올리기(`?name=`, 본문은 그림 파일 그대로) |
 | PUT/DELETE | `/api/backgrounds/:id` | 배경 이름 바꾸기 `{ name }`/지우기 |
 | GET | `/api/background-art/:id/:file` | 배경 그림 파일 |
@@ -681,6 +692,8 @@ JSDoc과 과거 대화 로그에 테스트 케이스가 남아 있습니다.
 오프라인으로 쓰는 사용자가 많아서입니다 — CDN에 기대면 그때 마크다운이 통째로 날것으로 보입니다.
 
 렌더링 파이프라인(`formatText`):
+- `formatText(raw, { plain, bubbles, assets })` 의 `assets` 는 `(name) => 그림 URL | null` 함수입니다. 롤플레이에서는 `<img src="이름">`·`{{asset::이름}}`·`{{img::이름}}`·`{{image::이름}}`·`{{emotion::이름}}` 을 에셋·표정 그림으로 바꿉니다.
+  못 찾은 이름의 표식은 숨기고 이름·URL 은 이스케이프합니다. 외부 주소는 에셋으로 보지 않고 글자로 이스케이프합니다. `plain`(어시스턴트) 모드는 에셋을 치환하지 않습니다.
 - 롤플레이 모드: `*별표*`→행동, `(괄호)`→행동, 줄 맨 앞 `이름:`→화자 라벨, `"따옴표"`→대사 강조.
   모델이 `(이름: 묘사)`처럼 이름을 괄호 안에 넣는 경우를 위해, 줄이 `(이름:`로 시작하면
   이름을 괄호 밖으로 꺼내는 전처리(`line.replace(/^\(([^:\s()]{1,20}):\s*/, '$1: (')`)를

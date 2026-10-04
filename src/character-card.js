@@ -8,6 +8,7 @@
 import { CHARACTER_FIELDS } from './content/characters.js';
 import { CardError } from './png-card.js';
 import { isObj, str, characterFields } from './services/records.js';
+import { LORE_LIMITS } from './lorebook.js';
 
 export const CARD_SPEC = 'chara_card_v2';
 export const CARD_SPEC_V3 = 'chara_card_v3';
@@ -38,13 +39,63 @@ function entryFromCard(e) {
   };
 }
 
-/** 카드의 character_book → cleanLorebook 이 받는 모양. 항목이 없으면 null. */
-export function bookFromCard(book, fallbackName) {
+/** 긴 글을 빈 줄·줄바꿈·공백 순으로 나눕니다. 공백 외의 내용은 버리지 않습니다. */
+export function splitContent(value, max = LORE_LIMITS.contentChars) {
+  if (!Number.isSafeInteger(max) || max < 1) throw new RangeError('조각 크기는 양의 정수여야 합니다.');
+  let remaining = str(value).trim();
+  const parts = [];
+  while (remaining.length > max) {
+    const window = remaining.slice(0, max);
+    let at = window.lastIndexOf('\n\n');
+    if (at >= 0) at += 2;
+    else {
+      at = window.lastIndexOf('\n');
+      if (at >= 0) at++;
+      else {
+        at = window.lastIndexOf(' ');
+        at = at >= 0 ? at + 1 : max;
+      }
+    }
+    const part = remaining.slice(0, at).trim();
+    if (part) parts.push(part);
+    remaining = remaining.slice(at).trimStart();
+  }
+  if (remaining) parts.push(remaining.trim());
+  return parts;
+}
+
+/** 카드의 character_book → cleanLorebook 이 받는 모양. 항목이 없으면 null. 안내 배열은 선택적으로 받습니다. */
+export function bookFromCard(book, fallbackName, { dropped = [], notices = [] } = {}) {
   if (!isObj(book) || !Array.isArray(book.entries) || !book.entries.length) return null;
+  const entries = [];
+  let splitEntries = 0;
+  let splitParts = 0;
+  let inactive = 0;
+  for (const raw of book.entries) {
+    const entry = entryFromCard(raw);
+    if (!entry?.content) continue;
+    if (!entry.keys.length && !entry.constant) inactive++;
+    if (entry.content.length <= LORE_LIMITS.contentChars) {
+      entries.push(entry);
+      continue;
+    }
+    const parts = splitContent(entry.content);
+    splitEntries++;
+    splitParts += parts.length;
+    parts.forEach((content, i) => {
+      const suffix = ` (${i + 1}/${parts.length})`;
+      const title = (entry.title.trim() || '세계관').slice(0, LORE_LIMITS.titleChars - suffix.length) + suffix;
+      entries.push({ ...entry, title, content });
+    });
+  }
+  if (splitEntries) notices.push(`긴 세계관 항목 ${splitEntries}개를 ${splitParts}개로 나눠 담음`);
+  if (inactive) notices.push(`키워드도 없고 항상 켜기도 아닌 세계관 항목 ${inactive}개 (대화에 쓰이지 않음)`);
+  if (entries.length > LORE_LIMITS.entries) dropped.push(`세계관 항목 ${entries.length - LORE_LIMITS.entries}개 (최대 ${LORE_LIMITS.entries}개)`);
+  if (!entries.length) return null;
   return {
     name: str(book.name).trim() || fallbackName,
     description: str(book.description),
-    entries: book.entries.map(entryFromCard).filter(Boolean)
+    entries: entries.slice(0, LORE_LIMITS.entries)
   };
 }
 
@@ -98,7 +149,7 @@ function fieldsFromCard(data) {
 
 /**
  * 카드 JSON 을 해석합니다.
- * @returns {{character: object, book: object|null, dropped: string[]}} dropped 는 옮기지 못한 정보의 안내 글
+ * @returns {{character: object, book: object|null, dropped: string[], notices: string[]}} dropped 는 옮기지 못한 정보, notices 는 옮긴 정보의 안내 글
  */
 export function parseCard(raw) {
   if (!isObj(raw)) throw new CardError('캐릭터 카드 형식이 아닙니다.');
@@ -111,9 +162,11 @@ export function parseCard(raw) {
   if (!character.name.trim()) throw new CardError('이름이 없는 카드입니다.');
 
   const dropped = [];
+  const notices = [];
   if (list(data.alternate_greetings).length) dropped.push(`대체 첫 대사 ${list(data.alternate_greetings).length}개`);
   if (!isObj(own) && text(data.creator_notes)) dropped.push('제작자 메모');
-  return { character, book: bookFromCard(data.character_book, `${character.name} 세계관`), dropped };
+  const book = bookFromCard(data.character_book, `${character.name} 세계관`, { dropped, notices });
+  return { character, book, dropped, notices };
 }
 
 /**

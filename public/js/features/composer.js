@@ -168,7 +168,8 @@ export class Composer {
     const isOpen = () => state.chat === chat;
     // 표식([[표정: …]])은 저장할 때 서버가 떼지만, 쓰는 동안에는 여기서 가려야 화면에 비치지 않습니다.
     const tagged = () => chat.kind !== 'assistant' && (chat.vn || chat.dice);
-    const format = (t) => ui.formatText(tagged() ? stripForDisplay(t) : t, { plain: chat.kind === 'assistant', bubbles: state.isBubbles(chat) });
+    const assets = state.assetResolver(chat, { id: 'pending' });
+    const format = (t) => ui.formatText(tagged() ? stripForDisplay(t) : t, { plain: chat.kind === 'assistant', bubbles: state.isBubbles(chat), assets });
 
     const last = chat.messages[chat.messages.length - 1];
     // 마지막이 내 메시지면 재전송은 그냥 새로 받기(실패한 요청 다시 보내기)입니다.

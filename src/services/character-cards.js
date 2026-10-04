@@ -20,18 +20,18 @@ export class CharacterCards {
     this.access = access;
   }
 
-  /** 본문의 JSON 카드({ card }) 또는 base64 파일({ png }, { charx })에서 카드와 그림을 꺼냅니다. */
+  /** 본문의 JSON 카드({ card }) 또는 base64 파일({ png }, { charx })에서 카드와 프로필·표정·에셋 그림을 꺼냅니다. */
   unpack(payload) {
-    if (isObj(payload?.card)) return { card: payload.card, picture: null, expressions: [], dropped: [] };
+    if (isObj(payload?.card)) return { card: payload.card, picture: null, expressions: [], assets: [], dropped: [] };
     if (typeof payload?.png === 'string' && payload.png) {
       const png = Buffer.from(payload.png, 'base64');
       const picture = typeof payload.portrait === 'string' && payload.portrait
         ? Buffer.from(payload.portrait, 'base64') : stripCardText(png);
-      return { card: cardFromPng(png), picture, expressions: [], dropped: [] };
+      return { card: cardFromPng(png), picture, expressions: [], assets: [], dropped: [] };
     }
     if (typeof payload?.charx === 'string' && payload.charx) {
-      const { card, icon, expressions, dropped } = cardFromCharx(Buffer.from(payload.charx, 'base64'));
-      return { card, picture: icon, expressions, dropped };
+      const { card, icon, expressions, assets, dropped } = cardFromCharx(Buffer.from(payload.charx, 'base64'));
+      return { card, picture: icon, expressions, assets, dropped };
     }
     throw new CardError('가져올 카드 파일이 없습니다.');
   }
@@ -39,13 +39,13 @@ export class CharacterCards {
   /**
    * 카드를 새 캐릭터로 넣습니다. 카드에 세계관(character_book)이 있으면 그 캐릭터에 묶인 로어북으로 함께 만듭니다.
    * PNG 카드면 그림을 프로필 그림으로 씁니다. 브라우저가 줄여 보낸 그림(portrait)이 있으면 그걸, 없으면 원본에서 카드 글만 벗겨 씁니다.
-   * CHARX 카드의 프로필과 표정 그림도 함께 저장합니다. 표정 개수는 앱의 한도에 맞춥니다.
+   * CHARX 카드의 프로필·표정·에셋 그림도 함께 저장합니다. 그림 개수와 크기는 앱의 한도에 맞춥니다.
    * 그림을 못 쓰더라도 캐릭터는 만들고 dropped 에 적습니다.
-   * @returns {{character: object, lorebook: object|null, dropped: string[]}}
+   * @returns {{character: object, lorebook: object|null, dropped: string[], notices: string[]}}
    */
   async import(actor, payload) {
-    const { card, picture, expressions, dropped: extra } = this.unpack(payload);
-    const { character: added, book, dropped } = parseCard(card);
+    const { card, picture, expressions, assets, dropped: extra } = this.unpack(payload);
+    const { character: added, book, dropped, notices = [] } = parseCard(card);
     dropped.push(...extra);
     let character = this.store.characters.add(this.access.stamp(actor, added));
 
@@ -70,6 +70,18 @@ export class CharacterCards {
       dropped.push(`표정 그림 ${expressions.length - ART_LIMITS.expressions}개 (최대 ${ART_LIMITS.expressions}개)`);
     }
 
+    if (assets.length) {
+      const before = character.assets?.length || 0;
+      const result = await this.art.addAssets(actor, character.id, assets);
+      character = result.character;
+      for (const { name, message } of result.failed.slice(0, 5)) {
+        dropped.push(`에셋 그림 '${name}' (${message})`);
+      }
+      if (result.failed.length > 5) dropped.push(`에셋 그림 ${result.failed.length - 5}개 더 (읽지 못함)`);
+      if (result.skipped) dropped.push(`에셋 그림 ${result.skipped}개 (한도 초과)`);
+      notices.push(`에셋 그림 ${character.assets.length - before}개`);
+    }
+
     let lorebook = null;
     const clean = book && cleanLorebook(book);
     if (clean?.entries?.length) {
@@ -78,7 +90,7 @@ export class CharacterCards {
         lorebook = this.store.lorebooks.add(this.access.stamp(actor, { description: '', global: false, ...clean, characterIds: [character.id] }));
       }
     }
-    return { character, lorebook, dropped };
+    return { character, lorebook, dropped, notices };
   }
 
   /** 내보낼 캐릭터와 그 캐릭터에 묶인, actor 가 볼 수 있는 로어북을 모읍니다. */
@@ -106,7 +118,7 @@ export class CharacterCards {
     }
   }
 
-  /** 캐릭터를 세계관·프로필·표정 그림과 함께 V3 CHARX 파일로 내보냅니다. */
+  /** 캐릭터를 세계관·프로필·표정·에셋 그림과 함께 V3 CHARX 파일로 내보냅니다. */
   async exportCharx(actor, id) {
     const { character, books } = this.#exportSource(actor, id);
     const card = buildCardV3(character, books);
@@ -116,6 +128,11 @@ export class CharacterCards {
       const picture = await this.#readArt(character.id, file);
       if (picture) expressions.push({ label, ...picture });
     }
-    return { filename: `${safeName(character.name)}.charx`, data: buildCharx(card, { icon, expressions }) };
+    const assets = [];
+    for (const { name, file } of character.assets || []) {
+      const picture = await this.#readArt(character.id, file);
+      if (picture) assets.push({ name, ...picture });
+    }
+    return { filename: `${safeName(character.name)}.charx`, data: buildCharx(card, { icon, expressions, assets }) };
   }
 }

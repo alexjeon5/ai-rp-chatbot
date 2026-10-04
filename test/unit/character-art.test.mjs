@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { CharacterArt, ArtError, cleanLabel, ART_LIMITS } from '../../src/services/character-art.js';
+import express from 'express';
+import { CharacterArt, ArtError, cleanLabel, ART_LIMITS, cleanAssetName, ASSET_LIMITS } from '../../src/services/character-art.js';
+import { CharacterArtRoutes } from '../../src/http/routes/character-art.js';
 import { CharacterCards } from '../../src/services/character-cards.js';
 import { stripCardText, cardFromPng } from '../../src/png-card.js';
 
@@ -56,6 +58,12 @@ test('cleanLabel: 표식에 쓰는 글자와 제어 문자를 빼고 길이를 �
   assert.equal(cleanLabel(' 기쁨: [웃음]|\n '), '기쁨 웃음'.replace(' ', ' '));
   assert.equal(cleanLabel('가'.repeat(30)).length, ART_LIMITS.labelChars);
   assert.equal(cleanLabel(null), '');
+});
+
+test('cleanAssetName: 위험한 글자와 제어 문자를 빼고 공백·길이를 정리하며 확장자는 보존', () => {
+  assert.equal(cleanAssetName('  <Neutral>  "1"\'`\u0000\u007f.webp  '), 'Neutral 1.webp');
+  assert.equal(cleanAssetName('가'.repeat(100)).length, ASSET_LIMITS.nameChars);
+  assert.equal(cleanAssetName(null), '');
 });
 
 async function setup() {
@@ -117,6 +125,150 @@ test('CharacterArt.removeAll: 캐릭터의 그림 폴더를 통째로 지움', a
     await art.removeAll(ch.id);
     assert.ok(!existsSync(path.join(dir, ch.id)));
   } finally { await done(); }
+});
+
+test('CharacterArt.addAssets: 이름·순서를 보존하고 같은 목록의 중복은 첫 그림만 저장', async (t) => {
+  const { store, art, ch, done } = await setup();
+  t.after(done);
+  const first = pic();
+  const second = png(chunk('IDAT', Buffer.from('second')));
+  let updates = 0;
+  const update = store.characters.update;
+  store.characters.update = (id, patch) => { updates++; return update(id, patch); };
+  const out = await art.addAssets(ME, ch.id, [
+    { name: ' Neutral.1.webp ', data: first },
+    { name: 'NEUTRAL.1.WEBP', data: second },
+    { name: 'Neutral.1', data: second },
+    { name: '웃음', data: first }
+  ]);
+  assert.deepEqual(out.character.assets.map((asset) => asset.name), ['Neutral.1.webp', 'Neutral.1', '웃음']);
+  assert.deepEqual(await readFile(art.path(ch.id, out.character.assets[0].file)), first);
+  assert.deepEqual(out.failed, []);
+  assert.equal(out.skipped, 0);
+  assert.equal(updates, 1);
+  assert.deepEqual(await art.addAssets(ME, ch.id, []), { character: out.character, failed: [], skipped: 0 });
+  assert.equal(updates, 1);
+});
+
+test('CharacterArt.addAssets: 같은 이름을 대소문자 무시해 바꾸고 옛 파일을 지움', async (t) => {
+  const { art, ch, done } = await setup();
+  t.after(done);
+  const first = await art.addAssets(ME, ch.id, [{ name: 'Neutral.webp', data: pic() }]);
+  const oldFile = first.character.assets[0].file;
+  const replacement = png(chunk('IDAT', Buffer.from('replacement')));
+  const out = await art.addAssets(ME, ch.id, [{ name: ' neutral.WEBP ', data: replacement }]);
+  assert.equal(out.character.assets.length, 1);
+  assert.equal(out.character.assets[0].name, 'Neutral.webp');
+  assert.notEqual(out.character.assets[0].file, oldFile);
+  assert.equal(existsSync(art.path(ch.id, oldFile)), false);
+  assert.deepEqual(await readFile(art.path(ch.id, out.character.assets[0].file)), replacement);
+});
+
+test('CharacterArt.addAssets: 빈 이름·그림 아닌 파일·8MB 초과는 failed 에 담고 다음 그림은 저장', async (t) => {
+  const { art, ch, done } = await setup();
+  t.after(done);
+  const out = await art.addAssets(ME, ch.id, [
+    { name: '<>', data: pic() },
+    { name: '깨짐', data: Buffer.from('not an image') },
+    { name: '깨짐', data: pic() },
+    { name: '너무 큼', data: Buffer.alloc(ART_LIMITS.bytes + 1) },
+    { name: '빈 그림', data: null },
+    { name: '정상', data: pic() }
+  ]);
+  assert.deepEqual(out.character.assets.map((asset) => asset.name), ['정상']);
+  assert.deepEqual(out.failed.map((failure) => failure.name), ['<>', '깨짐', '너무 큼', '빈 그림']);
+  assert.equal(out.failed[0].message, '이름이 없습니다.');
+  assert.match(out.failed[1].message, /PNG·JPEG·WebP/);
+  assert.match(out.failed[2].message, /8MB/);
+  assert.match(out.failed[3].message, /비어 있습니다/);
+  assert.equal(out.skipped, 0);
+});
+
+test('CharacterArt.addAssets: 개수 한도에서는 새 이름을 건너뛰고 기존 이름은 교체', async (t) => {
+  const { store, art, ch, done } = await setup();
+  t.after(done);
+  const assets = Array.from({ length: ASSET_LIMITS.count }, (_, i) => ({ name: `image${i}`, file: `missing${i}.png` }));
+  store.characters.update(ch.id, { assets });
+  const out = await art.addAssets(ME, ch.id, [
+    { name: '추가', data: pic() },
+    { name: '추가', data: pic() },
+    { name: 'IMAGE0', data: pic() }
+  ]);
+  assert.equal(out.character.assets.length, ASSET_LIMITS.count);
+  assert.equal(out.character.assets[0].name, 'image0');
+  assert.ok(existsSync(art.path(ch.id, out.character.assets[0].file)));
+  assert.equal(out.skipped, 1);
+  assert.deepEqual(out.failed, []);
+});
+
+test('CharacterArt.addAssets: 이번 저장의 누적 바이트 한도를 넘으면 이후 그림도 건너뜀', async (t) => {
+  const { art, ch, done } = await setup();
+  t.after(done);
+  const large = Buffer.alloc(ART_LIMITS.bytes);
+  let saved = 0;
+  art.keep = async (_id, data) => {
+    if (!Buffer.isBuffer(data)) throw new ArtError('그림 파일이 비어 있습니다.');
+    return `saved${++saved}.png`;
+  };
+  const fitting = ASSET_LIMITS.totalBytes / large.length;
+  const out = await art.addAssets(ME, ch.id, [
+    { name: '실패', data: null },
+    ...Array.from({ length: fitting }, (_, i) => ({ name: `large${i}`, data: large })),
+    { name: '초과', data: pic() },
+    { name: '이후', data: pic() }
+  ]);
+  assert.equal(saved, fitting);
+  assert.equal(out.character.assets.length, fitting);
+  assert.equal(out.failed.length, 1);
+  assert.equal(out.skipped, 2);
+});
+
+test('CharacterArt.addAssets: 저장소의 예상하지 못한 오류는 그대로 던짐', async (t) => {
+  const { art, ch, done } = await setup();
+  t.after(done);
+  const error = new Error('storage unavailable');
+  art.keep = async () => { throw error; };
+  await assert.rejects(() => art.addAssets(ME, ch.id, [{ name: '그림', data: pic() }]), (err) => err === error);
+});
+
+test('CharacterArt.removeAsset: 정확한 이름만 삭제하고 파일도 지우며 없는 이름은 404', async (t) => {
+  const { art, ch, done } = await setup();
+  t.after(done);
+  const { character } = await art.addAssets(ME, ch.id, [{ name: 'Neutral.webp', data: pic() }]);
+  const file = character.assets[0].file;
+  await assert.rejects(() => art.removeAsset(ME, ch.id, 'Neutral'), (err) => err instanceof ArtError && err.status === 404);
+  const out = await art.removeAsset(ME, ch.id, ' neutral.WEBP ');
+  assert.deepEqual(out.assets, []);
+  assert.equal(existsSync(art.path(ch.id, file)), false);
+  await assert.rejects(() => art.removeAsset(ME, ch.id, '없음'), (err) => err instanceof ArtError && err.status === 404);
+  await assert.rejects(() => art.addAssets({ id: 'someone' }, ch.id, []), (err) => err.status === 404);
+  await assert.rejects(() => art.removeAsset({ id: 'someone' }, ch.id, '없음'), (err) => err.status === 404);
+});
+
+test('CharacterArt HTTP: 쿼리의 에셋 이름으로 파일을 삭제하고 없으면 404', async (t) => {
+  const { art, ch, done } = await setup();
+  t.after(done);
+  const { character } = await art.addAssets(ME, ch.id, [{ name: '웃음.webp', data: pic() }]);
+  const file = character.assets[0].file;
+  const app = express();
+  app.use((req, res, next) => { req.user = ME; next(); });
+  new CharacterArtRoutes({ art }).mount(app);
+  const server = await new Promise((resolve) => {
+    const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
+  });
+  t.after(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const image = await fetch(`${base}/api/character-art/${ch.id}/${file}`);
+  assert.equal(image.status, 200);
+  assert.deepEqual(Buffer.from(await image.arrayBuffer()), pic());
+  const url = `${base}/api/characters/${ch.id}/assets?name=${encodeURIComponent('웃음.webp')}`;
+  const removed = await fetch(url, { method: 'DELETE' });
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await removed.json()).assets, []);
+  assert.equal(existsSync(art.path(ch.id, file)), false);
+  const missing = await fetch(url, { method: 'DELETE' });
+  assert.equal(missing.status, 404);
+  assert.equal((await missing.json()).error, '없는 에셋 그림입니다.');
 });
 
 test('CharacterCards.import: PNG 카드의 그림이 카드 글 없이 프로필 그림이 됨', async () => {

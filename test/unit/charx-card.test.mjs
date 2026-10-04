@@ -27,7 +27,8 @@ test('CHARX: 두 embedded 철자·대소문자·URL 인코딩과 main 프로필�
   assert.deepEqual(back.card, raw);
   assert.deepEqual(back.icon, picture);
   assert.deepEqual(back.expressions, [{ label: '행복', data: emotion }, { label: '놀람', data: picture }]);
-  assert.deepEqual(back.dropped, []);
+  assert.deepEqual(back.assets, [{ name: '행복', data: emotion }, { name: '놀람', data: picture }]);
+  assert.deepEqual(back.dropped, ['추가 아이콘 1개']);
 });
 
 test('CHARX: main 이 없으면 첫 icon 을 사용합니다', () => {
@@ -36,6 +37,7 @@ test('CHARX: main 이 없으면 첫 icon 을 사용합니다', () => {
     asset('icon', `data:image/png;base64,${emotion.toString('base64')}`, 'second')
   ])));
   assert.deepEqual(back.icon, picture);
+  assert.deepEqual(back.dropped, ['추가 아이콘 1개']);
 });
 
 test('CHARX: ccdefault 는 그림·안내가 없고 잘못된 asset 은 무시합니다', () => {
@@ -47,19 +49,67 @@ test('CHARX: ccdefault 는 그림·안내가 없고 잘못된 asset 은 무시�
   assert.deepEqual(back.dropped, []);
 });
 
-test('CHARX: 외부·빠진 그림·기타 에셋·RisuAI 모듈을 정해진 순서로 안내합니다', () => {
+test('CHARX: 외부·빠진 그림·추가 아이콘·소리·RisuAI 모듈을 정해진 순서로 안내합니다', () => {
   const back = cardFromCharx(archive(card([
     asset('icon', 'https://example.invalid/main.png'),
+    asset('icon', 'embeded://missing-icon.png', 'extra'),
     asset('emotion', 'HTTP://example.invalid/happy.png', 'happy'),
     asset('emotion', 'embeded://missing.png', 'missing'),
     asset('emotion', '__asset:1', 'legacy'),
     asset('emotion', 'embeded://bad%ZZ.png', 'bad path'),
     asset('background', 'embeded://background.png'),
-    asset('x-risu-asset', 'embeded://audio.mp3')
+    { ...asset('x-risu-asset', 'embeded://audio.mp3'), ext: 'mp3' }
   ]), [{ name: 'module.risum', data: Buffer.from('binary') }]));
   assert.equal(back.icon, null);
   assert.deepEqual(back.expressions, []);
-  assert.deepEqual(back.dropped, ['외부 주소 그림 2개', '읽지 못한 그림 3개', '그 밖의 에셋 2개 (배경·소리 등)', 'RisuAI 모듈(module.risum)']);
+  assert.deepEqual(back.assets, []);
+  assert.deepEqual(back.dropped, ['외부 주소 그림 2개', '읽지 못한 그림 4개', '추가 아이콘 1개', '소리·영상 등 그림이 아닌 에셋 1개', 'RisuAI 모듈(module.risum)']);
+});
+
+test('CHARX: 모든 type 의 그림을 카드 순서대로 가져오고 이름·확장자를 보충합니다', () => {
+  const back = cardFromCharx(archive(card([
+    { type: 'x-risu-asset', uri: 'embeded://pictures/Neutral.1.WeBP', name: ' Neutral.1 ' },
+    { type: 'background', uri: 'embedded://pictures/%ED%95%98%EB%8A%98.JPEG', name: ' ' },
+    { type: 'user_icon', uri: `data:image/gif;base64,${emotion.toString('base64')}`, ext: 'GIF', name: '사용자' },
+    { type: 'other', uri: 'embeded://pictures/not-an-extension', ext: '.AVIF' },
+    { type: 'other', uri: 'embeded://pictures/image.webp', ext: 'unknown', name: '경로 확장자' },
+    { type: 'emotion', uri: 'embeded://pictures/표정.png', name: '' },
+    ...['mp3', 'ogg', 'wav', 'mp4', ''].map((ext) => ({ type: 'x-risu-asset', uri: `embeded://missing${ext ? '.' + ext : ''}`, ext }))
+  ]), [
+    { name: 'pictures/Neutral.1.WeBP', data: picture },
+    { name: 'pictures/하늘.JPEG', data: emotion },
+    { name: 'pictures/not-an-extension', data: picture },
+    { name: 'pictures/image.webp', data: picture },
+    { name: 'pictures/표정.png', data: emotion }
+  ]));
+  assert.deepEqual(back.assets, [
+    { name: 'Neutral.1', data: picture }, { name: '하늘', data: emotion }, { name: '사용자', data: emotion },
+    { name: 'not-an-extension', data: picture }, { name: '경로 확장자', data: picture }, { name: '표정', data: emotion }
+  ]);
+  assert.deepEqual(back.expressions, [{ label: '표정', data: emotion }]);
+  assert.equal(back.assets.at(-1).data, back.expressions[0].data);
+  assert.deepEqual(back.dropped, ['소리·영상 등 그림이 아닌 에셋 5개']);
+});
+
+test('CHARX: 그림 합계 64MB 까지 허용하고 이후 그림은 읽지 않습니다', () => {
+  const data = Buffer.alloc(8 * 1024 * 1024);
+  const back = cardFromCharx(archive(card([
+    ...Array.from({ length: 8 }, (_, i) => asset('x-risu-asset', 'embeded://large.png', `그림 ${i}`)),
+    asset('emotion', `data:image/png;base64,${picture.toString('base64')}`, '한도 초과'),
+    asset('x-risu-asset', 'embeded://missing.png', '읽으면 실패')
+  ]), [{ name: 'large.png', data }]));
+  assert.equal(back.assets.length, 8);
+  assert.equal(back.assets.reduce((sum, item) => sum + item.data.length, 0), 64 * 1024 * 1024);
+  assert.deepEqual(back.expressions, []);
+  assert.deepEqual(back.dropped, ['용량 한도를 넘은 그림 2개']);
+});
+
+test('CHARX: 그림 개수는 서비스에서 제한하므로 여기서는 200개를 넘겨도 유지합니다', () => {
+  const back = cardFromCharx(archive(card(Array.from({ length: 201 }, (_, i) => asset('other', 'embeded://small.png', `${i}`))), [
+    { name: 'small.png', data: picture }
+  ]));
+  assert.equal(back.assets.length, 201);
+  assert.deepEqual(back.dropped, []);
 });
 
 test('CHARX: icon 항목이 없는 옛 카드의 첫 프로필 그림을 찾습니다', () => {
@@ -129,12 +179,13 @@ test('CHARX: V3 → CHARX → parseCard 로 모든 캐릭터 칸·로어북·그
   const original = structuredClone(v3);
   const buf = buildCharx(v3, {
     icon: { data: picture, ext: '.PNG' },
-    expressions: [{ label: '행복', data: emotion, ext: 'WEBP' }, { label: '../슬픔', data: picture, ext: '!!' }]
+    expressions: [{ label: '행복', data: emotion, ext: 'WEBP' }, { label: '../슬픔', data: picture, ext: '!!' }],
+    assets: [{ name: 'Neutral.1', data: picture, ext: 'WeBP' }, { name: '../장면', data: emotion, ext: '.PNG' }]
   });
   assert.deepEqual(v3, original);
   const zip = openZip(buf);
-  assert.deepEqual(zip.entries.map((e) => e.name), ['card.json', 'assets/icon/image/main.png', 'assets/emotion/image/1.webp', 'assets/emotion/image/2.png']);
-  assert.deepEqual(zip.entries.slice(1).map((e) => e.method), [0, 0, 0]);
+  assert.deepEqual(zip.entries.map((e) => e.name), ['card.json', 'assets/icon/image/main.png', 'assets/emotion/image/1.webp', 'assets/emotion/image/2.png', 'assets/other/image/1.webp', 'assets/other/image/2.png']);
+  assert.deepEqual(zip.entries.slice(1).map((e) => e.method), [0, 0, 0, 0, 0]);
   const back = cardFromCharx(buf);
   const parsed = parseCard(back.card);
   assert.deepEqual(parsed.character, character);
@@ -144,6 +195,11 @@ test('CHARX: V3 → CHARX → parseCard 로 모든 캐릭터 칸·로어북·그
   assert.equal(parsed.book.entries[0].priority, 70);
   assert.deepEqual(back.icon, picture);
   assert.deepEqual(back.expressions, [{ label: '행복', data: emotion }, { label: '../슬픔', data: picture }]);
+  assert.deepEqual(back.assets, [{ name: '행복', data: emotion }, { name: '../슬픔', data: picture }, { name: 'Neutral.1', data: picture }, { name: '../장면', data: emotion }]);
+  assert.deepEqual(back.card.data.assets.slice(-2), [
+    { type: 'x-risu-asset', uri: 'embeded://assets/other/image/1.webp', name: 'Neutral.1', ext: 'webp' },
+    { type: 'x-risu-asset', uri: 'embeded://assets/other/image/2.png', name: '../장면', ext: 'png' }
+  ]);
   assert.deepEqual(back.dropped, []);
 });
 

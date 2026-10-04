@@ -59,6 +59,33 @@ export class AppState {
     return (ids || []).map((id) => this.characters.find((c) => c.id === id)).filter(Boolean);
   }
 
+  /** 대화에 나온 캐릭터의 에셋·표정 그림. 모든 정확한 이름을 먼저 찾고, 없으면 확장자를 빼고 찾습니다. */
+  assetResolver(chat, message) {
+    if (chat?.kind === 'assistant') return () => null;
+    const exact = new Map();
+    const withoutExt = new Map();
+    const normalize = (name) => String(name ?? '').trim().toLowerCase();
+    const stem = (name) => name.replace(/\.(?:png|jpe?g|webp|gif|avif)$/i, '');
+    for (const c of [this.characterOf(chat), ...this.castOf(chat, message)]) {
+      if (!c?.id) continue;
+      const pictures = [
+        ...(c.assets || []),
+        ...(c.expressions || []).map((e) => ({ name: e.label, file: e.file }))
+      ];
+      for (const { name, file } of pictures) {
+        const key = normalize(name);
+        if (!key || !file) continue;
+        const url = `/api/character-art/${encodeURIComponent(c.id)}/${encodeURIComponent(file)}`;
+        if (!exact.has(key)) exact.set(key, url);
+        if (!withoutExt.has(stem(key))) withoutExt.set(stem(key), url);
+      }
+    }
+    return (name) => {
+      const key = normalize(name);
+      return exact.get(key) ?? withoutExt.get(stem(key)) ?? null;
+    };
+  }
+
   /** 답변 위에 붙는 이름. 여럿이 함께 나오면 이름을 이어 붙입니다. */
   charLabel(chat, message) {
     return [this.characterOf(chat)?.name, ...this.castOf(chat, message).map((c) => c.name)].filter(Boolean).join(' · ') || '상대';

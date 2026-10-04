@@ -54,7 +54,7 @@ export class CardTransfer {
   async importFile(file) {
     const { state, app } = this;
     try {
-      const { character, lorebook, dropped } = await api.importCard(await this.payloadOf(file));
+      const { character, lorebook, dropped = [], notices = [] } = await api.importCard(await this.payloadOf(file));
       [state.characters, state.lorebooks] = await Promise.all([api.characters(), api.lorebooks()]);
       app.characters.rememberTab('mine');
       app.characters.paint();
@@ -62,6 +62,7 @@ export class CardTransfer {
         `「${character.name}」을(를) 가져왔습니다` +
         (character.expressions?.length ? ` · 표정 ${character.expressions.length}개` : '') +
         (lorebook ? ` · 세계관 ${lorebook.entries.length}항목` : '') +
+        (notices.length ? ` · ${notices.join(' · ')}` : '') +
         (dropped.length ? ` (옮기지 못함: ${dropped.join(', ')})` : '')
       );
     } catch (err) {

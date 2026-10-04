@@ -15,10 +15,25 @@ export function setMarkup(next) {
  * 줄 단위 마크다운(# 제목, *** 구분선, 목록, > 인용, 표, 코드 블록)도 같이 그립니다.
  * plain 모드(어시스턴트)에서는 롤플레이 표기 대신 마크다운으로 그립니다.
  */
-export function formatText(raw = '', { plain = false, bubbles = false } = {}) {
+export function formatText(raw = '', { plain = false, bubbles = false, assets = null } = {}) {
   if (plain) return renderMarkdown(raw);
-  if (bubbles) return renderBubbles(raw);
-  return renderRoleplay(raw);
+  const images = [];
+  const asset = (whole, name) => {
+    if (/[:/]/.test(name)) return whole;
+    const url = assets?.(name);
+    if (!url) return '';
+    const index = images.push(`<img class="rp-asset" src="${esc(url)}" alt="${esc(name)}" title="${esc(name)}" loading="lazy" draggable="false">`) - 1;
+    return `\uE000${index}\uE001`;
+  };
+  const text = String(raw)
+    // 코드 안의 표식은 예시 글자 그대로 둡니다. 닫히지 않은 펜스는 끝까지 코드입니다.
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
+    .map((part, index) => index % 2 ? part : part
+      .replace(/<img\b[^>]*?\bsrc\s*=\s*(["'])([^"'<>]{1,200})\1[^>]*>/gi, (whole, _quote, name) => asset(whole, name))
+      .replace(/\{\{(?:asset|img|image|emotion)::([^{}]{1,200})\}\}/gi, asset))
+    .join('');
+  const html = bubbles ? renderBubbles(text) : renderRoleplay(text);
+  return html.replace(/\uE000(\d+)\uE001/g, (whole, index) => images[Number(index)] ?? whole);
 }
 
 /**

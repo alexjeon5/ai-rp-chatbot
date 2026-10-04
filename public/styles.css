@@ -733,6 +733,15 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .turn.user { display: flex; flex-direction: column; align-items: flex-end; }
 
+.rp-asset {
+  display: block;
+  max-width: min(100%, 28rem);
+  max-height: 70vh;
+  height: auto;
+  margin: .5rem auto;
+  border-radius: 12px;
+}
+
 /* ---------- 메신저 모드 말풍선 ---------- */
 .turn-text.is-bubbles {
   display: flex;
@@ -762,6 +771,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   color: var(--text);
 }
 .bubble.is-meta { color: var(--muted); font-size: 13.5px; font-style: italic; }
+.bubble .rp-asset { max-width: 100%; }
 .bubble-time { align-self: center; font-size: 11.5px; color: var(--muted); }
 
 /* ---------- 답변 넘겨보기 ---------- */
@@ -2267,6 +2277,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .art-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .art-actions .field { flex: 1; min-width: 120px; }
 .art-exprs { display: grid; gap: 8px; }
+#c-asset-box { max-height: 20rem; overflow-y: auto; }
+#c-asset-box .art-expr { max-width: 100%; min-width: 0; }
+#c-asset-box .art-expr-name { min-width: 0; overflow-wrap: anywhere; }
+#c-asset-box .art-expr img, #c-asset-box .art-expr .tool { flex-shrink: 0; }
 .art-expr-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .art-expr {
   display: flex;

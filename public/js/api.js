@@ -74,6 +74,7 @@ export const api = {
   clearPortrait: (id) => req(`/api/characters/${id}/portrait`, { method: 'DELETE' }),
   setExpression: (id, label, blob) => sendImage(`/api/characters/${id}/expressions?label=${encodeURIComponent(label)}`, 'PUT', blob),
   removeExpression: (id, label) => req(`/api/characters/${id}/expressions?label=${encodeURIComponent(label)}`, { method: 'DELETE' }),
+  removeAsset: (id, name) => req(`/api/characters/${id}/assets?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   backgrounds: () => req('/api/backgrounds'),
   addBackground: (name, blob) => sendImage(`/api/backgrounds?name=${encodeURIComponent(name)}`, 'POST', blob),

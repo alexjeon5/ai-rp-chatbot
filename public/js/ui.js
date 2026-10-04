@@ -307,7 +307,7 @@ function swipeNav(message) {
   </div>`;
 }
 
-export function turnEl({ message, speaker, isUser, plain = false, bubbles = false, avatar = '' }) {
+export function turnEl({ message, speaker, isUser, plain = false, bubbles = false, avatar = '', assets = null }) {
   const li = document.createElement('article');
   li.className = `turn ${isUser ? 'user' : 'char'}`;
   li.dataset.mid = message.id;
@@ -315,7 +315,7 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
     <div class="turn-name">${avatar ? `<img class="turn-avatar" src="${esc(avatar)}" alt="" draggable="false">` : ''}${esc(speaker)}</div>
     ${message.thought ? `<details class="thought"><summary>생각 과정</summary><div class="thought-body">${esc(message.thought)}</div></details>` : ''}
     ${isUser ? attachmentsBlock(message) : ''}
-    <div class="turn-text${bubbles ? ' is-bubbles' : ''}${plain ? ' is-md' : ''}">${formatText(message.content, { plain, bubbles })}</div>
+    <div class="turn-text${bubbles ? ' is-bubbles' : ''}${plain ? ' is-md' : ''}">${formatText(message.content, { plain, bubbles, assets })}</div>
     ${message.sources?.length ? `<details class="sources"><summary>출처 ${message.sources.length}곳</summary><ol class="source-list">${message.sources
       .map((src) => `<li><a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title?.trim() || src.url)}</a></li>`)
       .join('')}</ol></details>` : ''}
@@ -337,8 +337,9 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
  * @param {boolean} [opts.bubbles] 메신저 모드 — 줄마다 말풍선
  * @param {(m: object) => string} [opts.labelOf] 답변 위에 붙는 이름. 여럿이 함께 나온 답변이면 이름을 이어 붙입니다
  * @param {(m: object) => string} [opts.avatarOf] 답변 이름 옆에 붙는 작은 프로필 그림 주소
+ * @param {(m: object) => ((name: string) => string | null) | null} [opts.assetsOf] 대화 속 에셋 그림 주소 찾기
  */
-export function renderThread(chat, character, persona, { bubbles = false, labelOf = () => '', avatarOf = () => '' } = {}) {
+export function renderThread(chat, character, persona, { bubbles = false, labelOf = () => '', avatarOf = () => '', assetsOf = () => null } = {}) {
   const box = document.getElementById('messages');
   const plain = chat.kind === 'assistant';
   box.innerHTML = '';
@@ -355,7 +356,8 @@ export function renderThread(chat, character, persona, { bubbles = false, labelO
         isUser: m.role === 'user',
         plain,
         bubbles,
-        avatar: m.role === 'user' ? '' : avatarOf(m)
+        avatar: m.role === 'user' ? '' : avatarOf(m),
+        assets: assetsOf(m)
       })
     );
   }

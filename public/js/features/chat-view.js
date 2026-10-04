@@ -297,7 +297,8 @@ export class ChatView {
     ui.renderThread(state.chat, state.characterOf(state.chat), state.personaOf(state.chat), {
       bubbles: state.isBubbles(state.chat),
       labelOf: (m) => state.charLabel(state.chat, m),
-      avatarOf: (m) => state.turnAvatar(state.chat, m)
+      avatarOf: (m) => state.turnAvatar(state.chat, m),
+      assetsOf: (m) => state.assetResolver(state.chat, m)
     });
   }
 
@@ -315,7 +316,8 @@ export class ChatView {
       isUser,
       plain: assistant,
       bubbles: state.isBubbles(chat),
-      avatar: isUser ? '' : state.turnAvatar(chat, message)
+      avatar: isUser ? '' : state.turnAvatar(chat, message),
+      assets: state.assetResolver(chat, message)
     });
   }
 
@@ -405,7 +407,7 @@ export class ChatView {
         await api.editMessage(state.chat.id, msg.id, msg.content);
         app.composer.refreshContext();
       }
-      next.innerHTML = ui.formatText(msg.content, { plain: state.chat.kind === 'assistant', bubbles: state.isBubbles(state.chat) });
+      next.innerHTML = ui.formatText(msg.content, { plain: state.chat.kind === 'assistant', bubbles: state.isBubbles(state.chat), assets: state.assetResolver(state.chat, msg) });
       ta.replaceWith(next);
     };
     ta.addEventListener('blur', () => commit(true));

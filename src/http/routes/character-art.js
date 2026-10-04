@@ -1,4 +1,4 @@
-/** 캐릭터의 프로필 그림과 표정 그림: 올리기, 빼기, 보기. 일은 CharacterArt 서비스가 합니다. */
+/** 캐릭터의 프로필·표정·에셋 그림: 올리기, 빼기, 보기. 일은 CharacterArt 서비스가 합니다. */
 import express from 'express';
 import { ART_LIMITS } from '../../services/character-art.js';
 import { wrap, sendImage } from '../helpers.js';
@@ -19,6 +19,7 @@ export class CharacterArtRoutes {
     // 표정 이름은 한글이라 경로 대신 쿼리로 받습니다.
     app.put('/api/characters/:id/expressions', body, wrap(async (req, res) => res.json(await art.setExpression(req.user, req.params.id, req.query.label, req.body))));
     app.delete('/api/characters/:id/expressions', wrap(async (req, res) => res.json(await art.removeExpression(req.user, req.params.id, req.query.label))));
+    app.delete('/api/characters/:id/assets', wrap(async (req, res) => res.json(await art.removeAsset(req.user, req.params.id, req.query.name))));
     app.get('/api/character-art/:id/:file', (req, res) => {
       const { id, file } = req.params;
       sendImage(res, art.canServe(req.user, id, file) && art.path(id, file));
