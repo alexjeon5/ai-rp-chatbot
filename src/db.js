@@ -118,8 +118,9 @@ export class Collection {
   async load() {
     await mkdir(this.dir, { recursive: true });
     const files = (await readdir(this.dir)).filter((f) => f.endsWith('.json') && !f.endsWith('.tmp'));
-    for (const file of files) {
-      const item = await readJson(path.join(this.dir, file));
+    // 한꺼번에 읽기 시작해 디스크를 기다리는 시간을 겹칩니다. 넣는 순서는 파일 순서 그대로입니다.
+    const items = await Promise.all(files.map((file) => readJson(path.join(this.dir, file))));
+    for (const item of items) {
       if (item?.id) this.items.set(item.id, item);
     }
     return this;
