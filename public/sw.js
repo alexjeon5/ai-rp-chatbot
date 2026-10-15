@@ -22,6 +22,21 @@ function isShellRequest(request) {
   return !url.pathname.startsWith('/api/') && url.pathname !== '/sw.js' && url.pathname !== '/login.html';
 }
 
+/**
+ * 화면 파일은 /v/<판>/... 주소로 옵니다 (src/http/static.js). 새 판을 받으면 옛 판 파일은 지워 저장 공간이 쌓이지 않게 합니다.
+ */
+const VERSIONED = /^\/v\/([^/]+)\//;
+const keptVersion = { id: '' };
+async function dropOldVersions(cache, url) {
+  const id = new URL(url).pathname.match(VERSIONED)?.[1];
+  if (!id || keptVersion.id === id) return;
+  keptVersion.id = id;
+  for (const key of await cache.keys()) {
+    const other = new URL(key.url).pathname.match(VERSIONED)?.[1];
+    if (other && other !== id) await cache.delete(key);
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (!isShellRequest(request)) return;
@@ -31,7 +46,7 @@ self.addEventListener('fetch', (event) => {
         // 로그인 페이지로 돌려보낸 응답(redirected)이나 오류는 저장하지 않습니다.
         if (res.ok && !res.redirected && res.type === 'basic') {
           const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {});
+          caches.open(CACHE).then((cache) => cache.put(request, copy).then(() => dropOldVersions(cache, request.url))).catch(() => {});
         }
         return res;
       })

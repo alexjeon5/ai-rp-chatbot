@@ -4,6 +4,7 @@ import compression from 'compression';
 import { rateLimit, sameOrigin } from '../security.js';
 import { loginResetAt } from '../auth.js';
 import { createServices } from '../services/index.js';
+import { staticFiles } from './static.js';
 import { SettingsRoutes } from './routes/settings.js';
 import { LibraryRoutes } from './routes/library.js';
 import { ChatRoutes } from './routes/chats.js';
@@ -75,7 +76,7 @@ export function createApp({ store, auth, publicDir, services = createServices({ 
   app.get('/api/content-filter', (req, res) => res.set('Cache-Control', 'private, no-store').json(auth.filterStatus(req)));
   app.post('/api/content-filter', auth.setFilterRelaxation);
   app.delete('/api/content-filter', auth.setFilterRelaxation);
-  app.use(express.static(publicDir));
+  app.use(staticFiles(publicDir));
 
   // 밖으로 요청을 내보내는 경로만 제한합니다 (services.limits). 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.
   const deps = { ...services, auth };
