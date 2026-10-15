@@ -688,6 +688,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .turn { margin-bottom: 26px; }
 
+/* 화면 밖 메시지는 레이아웃과 그리기를 건너뜁니다. 긴 대화에서 앞 메시지를 이어 붙이는 일이 수십 배 가벼워집니다.
+   앞 메시지의 크기가 정해지며 위쪽이 늘어나도 보던 자리를 지켜 주는 scroll anchoring 이 있는 브라우저에서만 켭니다
+   (Safari 에는 아직 없어 켜면 위로 올릴 때 화면이 튑니다). 그쪽은 ui.js 가 작은 묶음으로 나눠 그립니다. */
+@supports (overflow-anchor: auto) {
+  .thread > .turn { content-visibility: auto; contain-intrinsic-size: auto 300px; }
+}
+
 .turn-name {
   font-family: var(--serif);
   font-size: 13px;

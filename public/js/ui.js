@@ -337,7 +337,9 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
  * 대화를 열 때마다 화면이 멈춥니다. 앞쪽은 위로 올려 가까워지면 묶음으로 이어 그립니다 (loadOlder).
  */
 const FIRST_TURNS = 40;
-const MORE_TURNS = 40;
+// 화면 밖 메시지의 레이아웃을 건너뛰는 브라우저(styles.css 의 content-visibility)는 한 번에 많이 붙여도 가볍습니다.
+const SKIPS_OFFSCREEN = Boolean(globalThis.CSS?.supports?.('overflow-anchor: auto'));
+const MORE_TURNS = SKIPS_OFFSCREEN ? 100 : 40;
 // 아직 그리지 않은 앞 메시지를 그릴 때 쓸 것. 지금 화면의 thread 와 함께 들고 있습니다.
 let older = null;
 
@@ -370,6 +372,7 @@ export function renderThread(chat, character, persona, { bubbles = false, labelO
   for (const m of chat.messages.slice(start)) thread.appendChild(make(m));
   older = start > 0 ? { chat, thread, make } : null;
   box.appendChild(thread);
+  keepPinned(thread);
   scrollToEnd({ force: true });
   // 화면이 커서 최근 메시지만으로는 스크롤이 생기지 않으면 위로 올릴 수가 없으니 미리 채웁니다.
   while (older && box.scrollHeight <= box.clientHeight * 2 && loadOlder()) { /* 채우는 중 */ }
@@ -432,6 +435,19 @@ let pinned = true;
 let scroller = null;
 
 const messagesBox = () => (scroller ||= document.getElementById('messages'));
+
+/**
+ * 글꼴이 늦게 오거나 그림이 뜨면 대화 높이가 바뀌고, 입력창 위 막대가 생기면 메시지 창이 줄어듭니다.
+ * 아래에 붙어 있었으면 바뀐 뒤에도 붙어 있게 합니다.
+ */
+const resized = typeof ResizeObserver === 'function'
+  ? new ResizeObserver(() => { if (pinned) messagesBox().scrollTop = messagesBox().scrollHeight; })
+  : null;
+function keepPinned(thread) {
+  resized?.disconnect();
+  resized?.observe(messagesBox());
+  resized?.observe(thread);
+}
 
 /** 앱이 시작할 때 한 번 부릅니다. */
 export function watchScroll() {
