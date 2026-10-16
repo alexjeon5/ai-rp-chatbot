@@ -64,6 +64,9 @@ class App {
 
   async boot() {
     const { state } = this;
+    // 마지막으로 연 대화는 목록과 함께 미리 받아 둡니다. 목록이 온 뒤에 받으면 한 번 더 오가야 합니다.
+    const last = localStorage.getItem('lastChat');
+    const early = last ? api.chat(last).catch(() => null) : null;
     [state.settings, state.characters, state.personas, state.lorebooks, state.chats, state.backgrounds] = await Promise.all([
       api.settings(), api.characters(), api.personas(), api.lorebooks(), api.chats(), api.backgrounds()
     ]);
@@ -75,9 +78,8 @@ class App {
     this.list.paintAdultToggle();
     this.list.paint(null);
     this.toolbar.paintModelBadge();
-    const last = localStorage.getItem('lastChat');
     const candidates = state.visibleChats();
-    if (last && candidates.some((c) => c.id === last)) await this.view.open(last);
+    if (last && candidates.some((c) => c.id === last)) await this.view.open(last, { prefetched: early });
     else if (candidates.length) await this.view.open(candidates[0].id);
     else this.view.close();
   }

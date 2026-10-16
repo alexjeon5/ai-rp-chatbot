@@ -1,8 +1,10 @@
 /** Express 앱 조립: 공통 미들웨어, 로그인, 정적 파일, 기능별 라우트. */
 import express from 'express';
+import compression from 'compression';
 import { rateLimit, sameOrigin } from '../security.js';
 import { loginResetAt } from '../auth.js';
 import { createServices } from '../services/index.js';
+import { staticFiles } from './static.js';
 import { SettingsRoutes } from './routes/settings.js';
 import { LibraryRoutes } from './routes/library.js';
 import { ChatRoutes } from './routes/chats.js';
@@ -37,6 +39,10 @@ export function createApp({ store, auth, publicDir, services = createServices({ 
   const app = express();
   trustProxy(app);
 
+  // 글로 된 응답(화면 파일·JSON)을 압축해 보냅니다. 긴 대화 하나가 수 MB 라 그대로 보내면 여는 데 오래 걸립니다.
+  // 답변을 흘려보내는 SSE 는 Cache-Control: no-transform 이라 압축하지 않고 조각마다 바로 나갑니다.
+  app.use(compression());
+
   // 백업 불러오기는 대화가 쌓이면 수십 MB 가 되므로 그 경로만 한도를 넉넉히 둡니다.
   // 캐릭터 카드는 PNG 를 base64 로 받으므로 그 경로도 2MB 보다 넉넉히 둡니다.
   const jsonBody = express.json({ limit: '2mb' });
@@ -70,7 +76,7 @@ export function createApp({ store, auth, publicDir, services = createServices({ 
   app.get('/api/content-filter', (req, res) => res.set('Cache-Control', 'private, no-store').json(auth.filterStatus(req)));
   app.post('/api/content-filter', auth.setFilterRelaxation);
   app.delete('/api/content-filter', auth.setFilterRelaxation);
-  app.use(express.static(publicDir));
+  app.use(staticFiles(publicDir));
 
   // 밖으로 요청을 내보내는 경로만 제한합니다 (services.limits). 로그인한 뒤라 사용자 기준으로 셉니다 — 헤더를 속여 IP 를 바꿔도 못 피합니다.
   const deps = { ...services, auth };

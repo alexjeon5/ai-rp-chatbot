@@ -332,6 +332,17 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
   return li;
 }
 
+/*
+ * 긴 대화는 최근 메시지만 먼저 그립니다. 메시지 수천 개를 한꺼번에 넣으면 레이아웃 계산만 몇 초가 걸려
+ * 대화를 열 때마다 화면이 멈춥니다. 앞쪽은 위로 올려 가까워지면 묶음으로 이어 그립니다 (loadOlder).
+ */
+const FIRST_TURNS = 40;
+// 화면 밖 메시지의 레이아웃을 건너뛰는 브라우저(styles.css 의 content-visibility)는 한 번에 많이 붙여도 가볍습니다.
+const SKIPS_OFFSCREEN = Boolean(globalThis.CSS?.supports?.('overflow-anchor: auto'));
+const MORE_TURNS = SKIPS_OFFSCREEN ? 100 : 40;
+// 아직 그리지 않은 앞 메시지를 그릴 때 쓸 것. 지금 화면의 thread 와 함께 들고 있습니다.
+let older = null;
+
 /**
  * @param {object} [opts]
  * @param {boolean} [opts.bubbles] 메신저 모드 — 줄마다 말풍선
@@ -346,23 +357,70 @@ export function renderThread(chat, character, persona, { bubbles = false, labelO
   const thread = document.createElement('div');
   thread.className = 'thread';
   thread.id = 'thread';
-  for (const m of chat.messages) {
-    thread.appendChild(
-      turnEl({
-        message: m,
-        speaker: m.role === 'user'
-          ? (plain ? '나' : persona?.name || '나')
-          : (plain ? '어시스턴트' : labelOf(m) || character?.name || '상대'),
-        isUser: m.role === 'user',
-        plain,
-        bubbles,
-        avatar: m.role === 'user' ? '' : avatarOf(m),
-        assets: assetsOf(m)
-      })
-    );
-  }
+  const make = (m) => turnEl({
+    message: m,
+    speaker: m.role === 'user'
+      ? (plain ? '나' : persona?.name || '나')
+      : (plain ? '어시스턴트' : labelOf(m) || character?.name || '상대'),
+    isUser: m.role === 'user',
+    plain,
+    bubbles,
+    avatar: m.role === 'user' ? '' : avatarOf(m),
+    assets: assetsOf(m)
+  });
+  const start = Math.max(0, chat.messages.length - FIRST_TURNS);
+  for (const m of chat.messages.slice(start)) thread.appendChild(make(m));
+  older = start > 0 ? { chat, thread, make } : null;
   box.appendChild(thread);
+  keepPinned(thread);
   scrollToEnd({ force: true });
+  // 화면이 커서 최근 메시지만으로는 스크롤이 생기지 않으면 위로 올릴 수가 없으니 미리 채웁니다.
+  while (older && box.scrollHeight <= box.clientHeight * 2 && loadOlder()) { /* 채우는 중 */ }
+  if (older) scrollToEnd({ force: true });
+}
+
+/**
+ * 아직 그리지 않은 앞 메시지를 count 개 더 그립니다. 보던 자리가 밀리지 않게 스크롤을 맞춥니다.
+ * 메시지 배열은 지우기 등으로 통째로 바뀔 수 있어서, 지금 맨 앞에 그려진 메시지의 자리로 이어 그릴 곳을 찾습니다.
+ * @returns {boolean} 더 그렸으면 true
+ */
+function loadOlder(count = MORE_TURNS) {
+  const thread = document.getElementById('thread');
+  if (!older || older.thread !== thread) {
+    older = null;
+    return false;
+  }
+  const first = thread.querySelector('.turn[data-mid]');
+  const messages = older.chat.messages;
+  const end = first ? messages.findIndex((m) => m.id === first.dataset.mid) : messages.length;
+  if (end <= 0) {
+    older = null;
+    return false;
+  }
+  const start = Math.max(0, end - count);
+  const frag = document.createDocumentFragment();
+  for (const m of messages.slice(start, end)) frag.appendChild(older.make(m));
+  const box = messagesBox();
+  const before = first?.getBoundingClientRect().top;
+  thread.prepend(frag);
+  // 브라우저가 스스로 자리를 지켜 줬으면(scroll anchoring) 차이가 0 이라 그대로 둡니다.
+  if (first) box.scrollTop += first.getBoundingClientRect().top - before;
+  if (start === 0) older = null;
+  return true;
+}
+
+/** 그 메시지가 아직 그려지지 않았으면 거기까지 앞 메시지를 그립니다. 검색 결과로 옛 메시지에 갈 때 씁니다. */
+export function revealTurn(messageId) {
+  const find = () => document.querySelector(`#thread [data-mid="${CSS.escape(messageId)}"]`);
+  let turn = find();
+  if (!turn && older) {
+    const at = older.chat.messages.findIndex((m) => m.id === messageId);
+    const first = document.querySelector('#thread .turn[data-mid]');
+    const end = first ? older.chat.messages.findIndex((m) => m.id === first.dataset.mid) : -1;
+    if (at >= 0 && end > at) loadOlder(end - at);
+    turn = find();
+  }
+  return turn;
 }
 
 /* ----------------------------------------------------------------
@@ -378,12 +436,27 @@ let scroller = null;
 
 const messagesBox = () => (scroller ||= document.getElementById('messages'));
 
+/**
+ * 글꼴이 늦게 오거나 그림이 뜨면 대화 높이가 바뀌고, 입력창 위 막대가 생기면 메시지 창이 줄어듭니다.
+ * 아래에 붙어 있었으면 바뀐 뒤에도 붙어 있게 합니다.
+ */
+const resized = typeof ResizeObserver === 'function'
+  ? new ResizeObserver(() => { if (pinned) messagesBox().scrollTop = messagesBox().scrollHeight; })
+  : null;
+function keepPinned(thread) {
+  resized?.disconnect();
+  resized?.observe(messagesBox());
+  resized?.observe(thread);
+}
+
 /** 앱이 시작할 때 한 번 부릅니다. */
 export function watchScroll() {
   const box = messagesBox();
   box.addEventListener('scroll', () => {
     const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
     pinned = distance < 80;
+    // 위쪽 끝에 닿기 전에 앞 메시지를 미리 붙여 둡니다. 끝 가까이까지 와 있으면 한 번에 더 많이 붙입니다.
+    if (older && box.scrollTop < box.clientHeight * 1.5) loadOlder(box.scrollTop < box.clientHeight * 0.5 ? MORE_TURNS * 3 : MORE_TURNS);
   }, { passive: true });
 }
 

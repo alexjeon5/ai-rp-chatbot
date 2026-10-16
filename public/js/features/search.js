@@ -123,7 +123,7 @@ export class SearchPanel {
       return;
     }
     if (!messageId) return;
-    const turn = document.querySelector(`#thread [data-mid="${CSS.escape(messageId)}"]`);
+    const turn = ui.revealTurn(messageId);
     if (!turn) return;
     turn.scrollIntoView({ block: 'center' });
     turn.classList.add('search-flash');

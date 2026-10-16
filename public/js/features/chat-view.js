@@ -57,13 +57,14 @@ export class ChatView {
     on('sidebar-scrim', 'click', () => sidebar.classList.remove('open'));
   }
 
-  async open(id) {
+  /** @param {{ prefetched?: Promise<object | null> }} [o] 미리 받기 시작한 이 대화. 못 받았으면 null 이라 다시 받습니다 */
+  async open(id, { prefetched } = {}) {
     const { state, app } = this;
     // 다른 대화에서 생성 중이면 멈춥니다. 쓰던 내용은 그 대화에 저장됩니다.
     // 그대로 두면 끝난 답변이 새로 연 대화에 붙고, 새 대화의 전송도 잠깁니다.
     if (state.run && state.run.chatId !== id) await app.composer.stop();
     if (state.chat?.id !== id) app.attach.reset();
-    state.chat = await api.chat(id);
+    state.chat = (await prefetched) || await api.chat(id);
     localStorage.setItem('lastChat', id);
     // 연 대화가 들어 있는 쪽(대화 목록/보관함)을 보여 줍니다. 새로 만든 대화는 늘 대화 목록입니다.
     state.showArchived = Boolean(state.chat.archivedAt);
