@@ -131,7 +131,7 @@ export class Personas {
       // 이 페르소나를 쓰는 대화라면 다음 답변부터 바뀐 내용이 들어갑니다.
       if (state.chat && !state.run) app.view.paintThread();
       app.composer.refreshContext();
-      ui.toast(`'${name}' 을(를) 고쳤습니다 — 다음 답변부터 반영됩니다`);
+      ui.toast(`${name} — 다음 답변부터 반영됩니다`);
     }
   }
 

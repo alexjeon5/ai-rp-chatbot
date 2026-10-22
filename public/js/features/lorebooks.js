@@ -74,7 +74,7 @@ export class Lorebooks {
         <button type="button" class="ghost-btn danger" data-del>삭제</button>
       </li>`;
       }).join('')
-      : '<li class="rail-empty">아직 설정집이 없습니다. 아래에서 하나 만들어 보세요.</li>';
+      : '<li class="rail-empty">아직 설정집이 없습니다.</li>';
   }
 
   paintCharacters(chosen) {

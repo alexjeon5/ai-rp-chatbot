@@ -202,7 +202,7 @@ export class ChatView {
     this.paintSub();
     // 내 말풍선 위의 이름도 새 페르소나로 바뀌어야 합니다. 생성 중이면 화면을 건드리지 않습니다.
     if (!state.run) this.paintThread();
-    ui.toast(`이 대화의 페르소나를 바꿨습니다 — ${state.personaOf(chat)?.name}. 다음 답변부터 반영됩니다.`);
+    ui.toast(`${state.personaOf(chat)?.name} — 다음 답변부터 반영됩니다.`);
   }
 
   /** 분기한 대화의 원본(목록에 남아 있을 때만). */

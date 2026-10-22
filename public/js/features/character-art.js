@@ -52,7 +52,7 @@ export class CharacterArtEditor {
     $('c-portrait-clear').hidden = !url;
     $('c-expr-box').hidden = false;
     $('c-expr-note').textContent = saved
-      ? '표정 이름을 적고 그림을 고르면 추가됩니다. 같은 이름이면 그림이 바뀝니다.'
+      ? '같은 이름이면 그림이 바뀝니다.'
       : '표정 그림은 캐릭터를 먼저 저장한 뒤 추가할 수 있습니다.';
     for (const id of ['c-expr-label', 'c-expr-pick']) $(id).disabled = !saved;
     const list = ch?.expressions || [];

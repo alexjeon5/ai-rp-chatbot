@@ -163,9 +163,7 @@ export function renderChatList(chats, activeId, characters,
   if (!visible.length) {
     const empty = archiveView
       ? '보관한 대화가 없습니다.'
-      : mode === 'assistant'
-        ? '새 채팅을 눌러 시작해 보세요.'
-        : '캐릭터를 골라 대화를 시작하세요.';
+      : '새 채팅을 눌러 시작해 보세요.';
     ul.innerHTML = head + (hiddenCount
       ? `<li class="rail-empty">성인 대화 ${hiddenCount}개가 숨겨져 있습니다.</li>`
       : `<li class="rail-empty">${empty}</li>`) + foot;
@@ -213,7 +211,7 @@ export function renderCharacterList(characters, { tab = 'mine', missing = 0 } = 
   if (!shown.length && !(tab === 'builtin' && missing)) {
     rows.push(tab === 'builtin'
       ? '<li class="rail-empty">기본 캐릭터가 없습니다.</li>'
-      : '<li class="rail-empty">아직 만든 캐릭터가 없습니다. <b>새로 만들기</b> 로 시작하거나 <b>기본</b> 탭의 캐릭터를 복사해 고쳐 보세요.</li>');
+      : '<li class="rail-empty">아직 만든 캐릭터가 없습니다.</li>');
   }
   document.getElementById('character-list').innerHTML = rows.join('');
 }
@@ -272,8 +270,8 @@ function imageFigure(chatId, img) {
     <figcaption>
       <button type="button" class="tool" data-act="img-redraw" title="같은 장면을 다른 시드로">다시 그리기</button>
       ${img.backend === 'gemini' || img.backend === 'openai' || img.style === 'prose'
-        ? '<button type="button" class="tool" data-act="img-edit" title="장면 묘사를 직접 고쳐 다시 그립니다">묘사 고쳐 그리기</button>'
-        : '<button type="button" class="tool" data-act="img-edit" title="태그를 직접 고쳐 다시 그립니다">태그 고쳐 그리기</button>'}
+        ? '<button type="button" class="tool" data-act="img-edit">묘사 고쳐 그리기</button>'
+        : '<button type="button" class="tool" data-act="img-edit">태그 고쳐 그리기</button>'}
       <button type="button" class="tool" data-act="img-del">삭제</button>
     </figcaption>
   </figure>`;
@@ -327,7 +325,7 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
       <button class="tool" data-act="delete">삭제</button>
       <button class="tool" data-act="branch" title="이 메시지까지 복사해 새 대화로 갈라집니다. 원본은 그대로 남습니다">분기</button>
       ${message.check && !isUser && !plain ? `<button class="tool check-btn" data-act="roll-check" hidden title="주사위를 굴려 결과를 내 메시지로 보냅니다">🎲 ${esc(message.check.label)} 판정 (d${message.check.sides} · 난이도 ${message.check.dc})</button>` : ''}
-      ${!isUser && !plain && drawing.enabled ? '<button class="tool" data-act="draw" title="이 장면을 ComfyUI 로 그립니다">🎨 그리기</button>' : ''}
+      ${!isUser && !plain && drawing.enabled ? '<button class="tool" data-act="draw">🎨 그리기</button>' : ''}
     </div>`;
   return li;
 }
@@ -535,12 +533,11 @@ export function renderSeedChips(seeds, fields = []) {
 /** 대화를 하나도 열지 않았을 때 가운데에 뜨는 안내를 모드에 맞게 씁니다. */
 export function renderEmptyStage(mode) {
   const box = document.getElementById('messages');
-  const [line, help] = mode === 'assistant'
-    ? ['무엇이든 물어보세요.', '새 채팅을 누르면 시작합니다.']
-    : ['아직 시작한 대화가 없습니다.', '왼쪽에서 캐릭터를 고르면 대화가 시작됩니다.'];
+  const [line] = mode === 'assistant'
+    ? ['무엇이든 물어보세요.']
+    : ['아직 시작한 대화가 없습니다.'];
   box.innerHTML = `<div class="empty-stage">
     <p class="empty-line">${line}</p>
-    <p class="empty-help">${help}</p>
   </div>`;
 }
 

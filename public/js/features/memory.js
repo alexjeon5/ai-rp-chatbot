@@ -116,7 +116,7 @@ export class Memory {
         <button type="button" class="tool" data-pin aria-pressed="${f.pinned}" title="고정하면 AI 가 고치거나 지우지 않습니다">📌</button>
         <button type="button" class="tool" data-del title="삭제">✕</button>
       </li>`).join('')
-      : '<li class="rail-empty">아직 없습니다. 대화가 쌓이면 자동으로 채워집니다.</li>';
+      : '<li class="rail-empty">아직 없습니다.</li>';
   }
 
   paintFactStatus(chat) {

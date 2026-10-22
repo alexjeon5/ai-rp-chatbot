@@ -43,7 +43,7 @@ export class Toolbar {
     const btn = $('active-model');
     btn.textContent = cfg.model || '모델 미설정';
     btn.classList.toggle('is-empty', !cfg.model);
-    btn.title = cfg.model ? `${cfg.label} · ${cfg.model} — 누르면 설정이 열립니다` : '설정에서 모델을 선택해 주세요';
+    btn.title = cfg.model ? `${cfg.label} · ${cfg.model}` : '설정에서 모델을 선택해 주세요';
     this.paintQuickProvider();
   }
 

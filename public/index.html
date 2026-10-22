@@ -100,20 +100,20 @@
     <div class="head-actions">
       <select id="chat-preset" class="head-select" title="이 대화에 쓸 대화 모드" hidden></select>
       <select id="chat-persona" class="head-select" title="이 대화에서 쓸 내 페르소나" hidden></select>
-      <button id="btn-cast" class="ghost-btn" hidden title="이 대화에 함께 등장할 캐릭터를 고릅니다">등장인물</button>
+      <button id="btn-cast" class="ghost-btn" hidden>등장인물</button>
       <button id="btn-memory" class="ghost-btn" hidden title="오래된 대화의 요약과, 매 턴 붙는 진행 지시를 봅니다">기억·노트</button>
       <!-- 가끔 쓰는 대화 관리는 ⋯ 메뉴에 모아 둡니다 -->
       <div class="chat-menu">
         <button id="btn-chat-menu" class="ghost-btn chat-menu-btn" hidden aria-haspopup="menu" aria-expanded="false"
           aria-controls="chat-menu" title="대화 관리" aria-label="대화 관리">⋯</button>
         <div id="chat-menu" class="sel-list chat-menu-list" role="menu" hidden>
-          <button id="btn-open-origin" class="sel-item" role="menuitem" hidden title="이 대화가 갈라져 나온 원본 대화를 엽니다">원본 대화 열기</button>
+          <button id="btn-open-origin" class="sel-item" role="menuitem" hidden>원본 대화 열기</button>
           <button id="btn-save-character" class="sel-item" role="menuitem" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
-          <button id="btn-chat-lore" class="sel-item" role="menuitem" hidden title="이 대화에 적용할 세계관 설정집을 고릅니다">세계관 적용</button>
+          <button id="btn-chat-lore" class="sel-item" role="menuitem" hidden>세계관 적용</button>
           <button id="btn-toggle-vn" class="sel-item" role="menuitem" hidden title="캐릭터 그림과 배경을 대화 위에 깔고, 답변의 표정·장소에 맞춰 바꿉니다">비주얼 노벨 화면 켜기</button>
-          <button id="btn-backgrounds" class="sel-item" role="menuitem" hidden title="장소 이름을 붙인 배경 그림을 올리고 관리합니다">배경 그림 관리</button>
+          <button id="btn-backgrounds" class="sel-item" role="menuitem" hidden>배경 그림 관리</button>
           <button id="btn-toggle-dice" class="sel-item" role="menuitem" hidden title="AI 가 위험한 순간에 주사위 판정을 요청하고, 나온 눈에 따라 이야기를 이어 갑니다">주사위 판정 켜기</button>
-          <button id="btn-toggle-autochoices" class="sel-item" role="menuitem" hidden title="답변이 끝날 때마다 다음에 할 만한 행동을 자동으로 제안합니다">선택지 자동 제안 켜기</button>
+          <button id="btn-toggle-autochoices" class="sel-item" role="menuitem" hidden>선택지 자동 제안 켜기</button>
           <button id="btn-rename" class="sel-item" role="menuitem" hidden>이름 바꾸기</button>
           <button id="btn-archive-chat" class="sel-item" role="menuitem" hidden>보관</button>
           <button id="btn-delete-chat" class="sel-item danger" role="menuitem" hidden>대화 삭제</button>
@@ -134,7 +134,6 @@
   <div id="messages" class="messages">
     <div class="empty-stage">
       <p class="empty-line">아직 시작한 대화가 없습니다.</p>
-      <p class="empty-help">왼쪽에서 캐릭터를 고르면 대화가 시작됩니다.</p>
     </div>
   </div>
 
@@ -196,7 +195,7 @@
       <p id="c-builtin-note" class="field-hint builtin-note" hidden>앱에 들어 있는 기본 캐릭터입니다. 고치지 않고 두면 앱을 업데이트할 때 새 설정을 받고, 고치면 그 뒤로는 고친 내용을 그대로 지킵니다. 원본을 두고 내 버전을 따로 만들려면 <b>복사해서 내 캐릭터로</b> 를 누르세요.</p>
       <div class="seed-box">
         <div class="seed-head">
-          <span class="field-hint grow">어떤 캐릭터인지 줄글로 적으면 AI 가 아래 항목을 채웁니다. 이미 적어 둔 칸은 그대로 둡니다.</span>
+          <span class="field-hint grow"></span>
         </div>
         <textarea id="c-brief" rows="3" placeholder="밤에만 문을 여는 헌책방 주인. 30대 초반, 말수가 적고 손님을 귀찮아하는데 정작 책 얘기가 나오면 눈이 반짝인다."></textarea>
         <div class="seed-actions">
@@ -209,7 +208,7 @@
         <div class="art-portrait">
           <div id="c-portrait" class="art-thumb"></div>
           <div class="art-side">
-            <span class="field-hint">프로필 그림 — 목록·대화 화면의 아바타와 비주얼 노벨 화면의 기본 그림으로 쓰입니다. PNG 카드를 가져오면 카드의 그림이 여기에 들어갑니다.</span>
+            <span class="field-hint">프로필 그림</span>
             <div class="art-actions">
               <button id="c-portrait-pick" class="ghost-btn" type="button">그림 고르기</button>
               <button id="c-portrait-clear" class="ghost-btn" type="button" hidden>지우기</button>
@@ -218,7 +217,7 @@
           </div>
         </div>
         <div id="c-expr-box" class="art-exprs">
-          <span class="field-hint">표정 그림 — 비주얼 노벨 화면에서 답변의 표정 표식에 맞춰 바뀝니다. <span id="c-expr-note"></span></span>
+          <span class="field-hint">표정 그림 <span id="c-expr-note"></span></span>
           <ul id="c-expr-list" class="art-expr-list"></ul>
           <div class="art-actions">
             <label class="field grow"><input id="c-expr-label" list="c-expr-presets" maxlength="12" placeholder="표정 이름 (예: 기쁨)" autocomplete="off" aria-label="표정 이름"></label>
@@ -228,7 +227,8 @@
           </div>
         </div>
         <div id="c-asset-box" class="art-exprs" hidden>
-          <span class="field-hint">에셋 그림 — 카드에서 가져온 그림입니다. 대화 속 &lt;img src="이름"&gt; 이 이 그림으로 보입니다. <span id="c-asset-count"></span></span>
+          <span class="field-hint">에셋 그림 <span id="c-asset-count"></span></span>
+          <p class="field-hint">대화 속 &lt;img src=&quot;이름&quot;&gt; 이 이 그림으로 보입니다.</p>
           <ul id="c-asset-list" class="art-expr-list"></ul>
         </div>
       </div>
@@ -266,7 +266,7 @@
   <form method="dialog" class="sheet-inner">
     <h2 class="sheet-title">내 페르소나</h2>
     <div class="sheet-body">
-      <p class="field-hint">대화에서 {{user}}로 불릴 나 자신입니다. 여러 개를 두고 골라 쓸 수 있습니다.</p>
+      <p class="field-hint">대화에서 {{user}}로 불릴 나 자신입니다.</p>
       <ul id="persona-list" class="persona-list"></ul>
       <div class="divider"></div>
       <h3 id="p-form-title" class="sheet-sub">새 페르소나</h3>
@@ -288,7 +288,7 @@
       <label class="field"><span>소개</span>
         <textarea id="p-description" rows="3" placeholder="평범한 대학생. 호기심이 많다."></textarea>
       </label>
-      <div class="field"><span>특징 <small class="field-hint">— 한 항목씩 추가합니다. 대화에 목록으로 들어갑니다</small></span>
+      <div class="field"><span>특징</span>
         <ul id="p-traits" class="trait-list"></ul>
         <span class="model-row">
           <input id="p-trait-input" class="grow" placeholder="예: 커피 없이는 못 산다 · 왼손잡이 · 고양이 알레르기">
@@ -298,7 +298,7 @@
 
       <div class="seed-box">
         <div class="seed-head">
-          <span class="field-hint grow">태그를 굴려 뼈대를 잡고, 문장은 AI 가 씁니다. 칩을 누르면 그 항목만 다시 굴립니다.</span>
+          <span class="field-hint grow"></span>
           <button id="p-roll" class="ghost-btn" type="button">🎲 랜덤</button>
         </div>
         <label class="check-row">
@@ -385,7 +385,7 @@
     <h2 class="sheet-title">배경 그림</h2>
     <div class="sheet-body">
       <p class="field-hint">
-        장소 이름을 붙여 올려 두면, 비주얼 노벨 화면을 켠 대화에서 AI 가 장면에 맞는 이름을 골라 배경을 바꿉니다.
+        장소 이름을 붙여 올리면 비주얼 노벨 화면에서 AI 가 장면에 맞는 배경을 고릅니다.
         모든 대화가 함께 쓰며 최대 30장입니다. 같은 이름으로 다시 올리면 그림만 바뀝니다.
       </p>
       <div class="art-actions">
@@ -409,8 +409,7 @@
     <h2 class="sheet-title">등장인물</h2>
     <div class="sheet-body">
       <p class="field-hint">
-        고른 캐릭터들이 이 대화에 함께 나옵니다. AI 가 장면에 맞는 인물을 골라 서로 말을 주고받게 하고,
-        말하는 줄 앞에 이름을 붙입니다. 최대 8명까지 고를 수 있습니다.
+        최대 8명까지 고를 수 있습니다.
       </p>
       <ul id="cast-list" class="persona-list"></ul>
     </div>
@@ -428,8 +427,7 @@
     <h2 class="sheet-title">세계관 설정집</h2>
     <div class="sheet-body">
       <p class="field-hint">
-        키워드가 최근 대화에 나올 때만 프롬프트에 끼워 넣는 설정 조각 모음입니다. 나라·조직·마법 규칙처럼
-        늘 넣기엔 길고 필요할 때만 알려 주면 되는 내용에 씁니다. 대화에 붙이려면 대화 화면의 ⋯ 메뉴에서 「세계관 적용」을 누르세요.
+        키워드가 최근 대화에 나올 때만 프롬프트에 들어갑니다. 대화 화면 ⋯ 메뉴의 「세계관 적용」으로 붙입니다.
       </p>
       <ul id="lore-list" class="persona-list"></ul>
       <div class="grid-2">
@@ -439,7 +437,7 @@
       <div class="divider"></div>
       <h3 id="lb-form-title" class="sheet-sub">새 설정집</h3>
       <label class="field"><span>이름</span><input id="lb-name" maxlength="80" placeholder="예: 에테르니아 대륙"></label>
-      <label class="field"><span>설명 <small class="field-hint">— 선택</small></span><input id="lb-desc" maxlength="400" placeholder="이 설정집이 무엇인지 한 줄로"></label>
+      <label class="field"><span>설명</span><input id="lb-desc" maxlength="400" placeholder="이 설정집이 무엇인지 한 줄로"></label>
       <label class="check-row">
         <input id="lb-global" type="checkbox">
         <span>모든 롤플레이 대화에 자동으로 적용</span>
@@ -453,7 +451,7 @@
       <ul id="lb-entries" class="persona-list"></ul>
       <div class="seed-box">
         <h4 id="le-form-title" class="sheet-sub">새 항목</h4>
-        <label class="field"><span>제목 <small class="field-hint">— 프롬프트에 소제목으로 들어갑니다</small></span><input id="le-title" maxlength="80" placeholder="예: 왕도 카엘른"></label>
+        <label class="field"><span>제목</span><input id="le-title" maxlength="80" placeholder="예: 왕도 카엘른"></label>
         <label class="field"><span>키워드 <small class="field-hint">— 쉼표로 구분. 하나라도 나오면 발동</small></span><input id="le-keys" placeholder="예: 왕도, 카엘른, 수도"></label>
         <label class="field"><span>보조 키워드 <small class="field-hint">— 선택. 적으면 이 중에서도 하나가 함께 나와야 발동</small></span><input id="le-secondary" placeholder="예: 성벽, 축제"></label>
         <label class="field"><span>내용</span><textarea id="le-content" rows="5" maxlength="4000" placeholder="{{char}}와 {{user}} 이름을 쓸 수 있습니다."></textarea></label>
@@ -470,7 +468,7 @@
         </span>
       </div>
 
-      <div class="field"><span>발동 시험 <small class="field-hint">— 저장한 설정집에서 이 글에 어떤 항목이 발동하는지 봅니다</small></span>
+      <div class="field"><span>발동 시험</span>
         <span class="model-row">
           <input id="lb-test-text" class="grow" placeholder="예: 우리 왕도로 가는 길에 축제를 구경하자">
           <button id="lb-test" class="ghost-btn" type="button">시험</button>
@@ -687,7 +685,7 @@
               <button id="i-omodels" class="ghost-btn" type="button">불러오기</button>
             </span>
           </label>
-          <p id="i-ostatus" class="field-hint">불러오기를 누르면 이 키로 쓸 수 있는 이미지 모델이 나옵니다.</p>
+          <p id="i-ostatus" class="field-hint"></p>
           <div class="grid-2 even">
             <label class="field"><span>크기</span>
               <select id="i-osize">
@@ -723,7 +721,7 @@
               <button id="i-gmodels" class="ghost-btn" type="button">불러오기</button>
             </span>
           </label>
-          <p id="i-gstatus" class="field-hint">불러오기를 누르면 이 키로 쓸 수 있는 이미지 모델이 나옵니다.</p>
+          <p id="i-gstatus" class="field-hint"></p>
           <div class="grid-2 even">
             <label class="field"><span>비율</span>
               <select id="i-gratio">
@@ -771,7 +769,7 @@
         </label>
         <p id="i-pstyle-note" class="field-hint"></p>
 
-        <label class="field"><span>체크포인트 <small class="field-hint">— 기본 워크플로에서 씁니다</small></span>
+        <label class="field"><span>체크포인트</span>
           <input id="i-checkpoint" spellcheck="false" placeholder="연결 확인을 누르면 목록이 나옵니다">
         </label>
 
@@ -802,7 +800,7 @@
           <input id="i-workflow-file" type="file" accept=".json,application/json" hidden>
         </div>
         <p class="field-hint">
-          ComfyUI 에서 <b>Save (API Format)</b> 으로 내보낸 JSON 을 올리면 그대로 씁니다. 값 칸에 아래 자리표시자를 적어 두면 앱이 채웁니다.<br>
+          ComfyUI 에서 <b>Save (API Format)</b> 으로 내보낸 JSON 을 올리면 그대로 씁니다. 값 칸에 아래 자리표시자를 적어 두면 앱이 채웁니다. 체크포인트 선택은 <code>{{checkpoint}}</code> 자리에만 적용됩니다.<br>
           <code>{{prompt}}</code> <code>{{negative}}</code> <code>{{seed}}</code> <code>{{width}}</code> <code>{{height}}</code>
           <code>{{steps}}</code> <code>{{cfg}}</code> <code>{{sampler}}</code> <code>{{scheduler}}</code> <code>{{checkpoint}}</code>
         </p>
@@ -829,7 +827,7 @@
         <h3 class="sheet-sub">성인 대화 필터</h3>
         <p class="field-hint">성인 모드 대화에서 그릴 때만 적용됩니다. 쉼표로 구분하고, <code>*</code> 는 아무 글자나로 봅니다 (예: <code>*blood*</code>).</p>
         <label class="field"><span>항상 붙일 태그</span><input id="i-force" spellcheck="false" placeholder="adult"></label>
-        <label class="field"><span>지울 태그 <small class="field-hint">— 장면 태그에 섞여 나오면 빼고 그립니다</small></span>
+        <label class="field"><span>지울 태그</span>
           <textarea id="i-block" rows="2" spellcheck="false" placeholder="gore, *blood*, vomit"></textarea></label>
         <label class="field"><span>더할 네거티브</span><textarea id="i-extra-neg" rows="2" spellcheck="false"></textarea></label>
         </div>
@@ -847,7 +845,7 @@
       </div>
       <div class="sheet-body settings-pane" id="pane-display" data-pane="display" role="tabpanel" hidden>
         <h3 class="sheet-sub">메시지 표시 방식</h3>
-        <p class="field-hint">모델이 내놓은 글을 화면에서 어떻게 꾸밀지 정합니다. 저장된 원문은 바뀌지 않습니다.</p>
+        <p class="field-hint">저장된 원문은 바뀌지 않습니다.</p>
         <label class="check-row"><input id="d-mk-asterisk" type="checkbox"><span><code>*별표*</code> 를 묘사로 표시</span></label>
         <label class="check-row"><input id="d-mk-paren" type="checkbox"><span><code>(괄호)</code> 를 묘사로 표시</span></label>
         <label class="check-row"><input id="d-mk-speaker" type="checkbox"><span>줄 맨 앞의 <code>이름:</code> 을 화자 라벨로</span></label>
@@ -886,9 +884,8 @@
         </label>
         <div class="divider"></div>
         <h3 class="sheet-sub">진단</h3>
-        <p class="field-hint">이 대화에서 실제로 모델에 보내는 시스템 프롬프트 전문을 봅니다. 캐릭터 설정이 제대로 들어갔는지, 비어 있는 항목이 어떻게 빠졌는지 확인할 수 있습니다.</p>
         <button id="d-show-system" class="ghost-btn" type="button">시스템 프롬프트 열기</button>
-        <p class="field-hint">엔진과 주고받은 통신 기록입니다. 응답이 실패했을 때 어떤 요청이 어떤 상태 코드로 거부됐는지 여기서 확인할 수 있습니다. 대화 내용(시스템 프롬프트·메시지)은 담지 않습니다.</p>
+        <p class="field-hint">대화 내용(시스템 프롬프트·메시지)은 담지 않습니다.</p>
         <button id="d-show-logs" class="ghost-btn" type="button">통신 로그 열기</button>
       </div>
       <div class="sheet-body settings-pane" id="pane-usage" data-pane="usage" role="tabpanel" hidden>
@@ -970,7 +967,6 @@
       </nav>
       <p id="nc-audience-note" class="field-hint nc-note" hidden></p>
       <ul id="nc-list" class="mode-list"></ul>
-      <p class="field-hint">대화를 시작한 뒤에도 상단 선택기에서 바꿀 수 있습니다.</p>
     </div>
     <div class="sheet-foot">
       <label class="check-row">
@@ -1063,11 +1059,11 @@
         <textarea id="tg-text" rows="6" spellcheck="false"></textarea>
       </label>
       <p id="tg-removed" class="field-hint is-warn" hidden></p>
-      <label id="tg-negative-field" class="field"><span>부정 태그 <small class="field-hint">— 그림에 나오면 안 되는 것</small></span>
+      <label id="tg-negative-field" class="field"><span>부정 태그</span>
         <textarea id="tg-negative" rows="4" spellcheck="false"></textarea>
       </label>
       <div id="tg-model-row" hidden>
-        <label class="field"><span>모델 <small class="field-hint">— 이번 그림에 쓸 체크포인트</small></span>
+        <label class="field"><span>모델</span>
           <select id="tg-checkpoint"></select>
         </label>
         <p id="tg-model-note" class="field-hint"></p>
