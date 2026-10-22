@@ -28,7 +28,7 @@ export class LoreEntryEditor {
     $('lb-entry-count').textContent = `— ${this.entries.length}개`;
     $('lb-entries').innerHTML = this.entries.length
       ? this.entries.map((e) => this.row(e)).join('')
-      : '<li class="rail-empty">아직 항목이 없습니다. 아래 칸에서 추가해 주세요.</li>';
+      : '<li class="rail-empty">아직 항목이 없습니다.</li>';
   }
 
   row(e) {

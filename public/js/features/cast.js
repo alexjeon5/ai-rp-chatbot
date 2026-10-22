@@ -32,7 +32,7 @@ export class CastDialog {
           <span class="p-desc">${esc(c.description || c.tags || '')}</span></span>
         </label>
       </li>`).join('')
-      : '<li class="rail-empty">함께 부를 다른 캐릭터가 없습니다. 먼저 캐릭터를 만들어 주세요.</li>';
+      : '<li class="rail-empty">함께 부를 다른 캐릭터가 없습니다.</li>';
     this.dialog.showModal();
   }
 

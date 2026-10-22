@@ -125,7 +125,7 @@ export class DevSettings {
     for (const id of ['d-p-label', 'd-p-baseurl', 'd-p-apikey']) $(id).value = '';
     this.paintProviders();
     this.settings.paintProviderOptions();
-    ui.toast('추가했습니다 — 위의 사용할 엔진에서 고를 수 있고, 저장을 눌러야 반영됩니다');
+    ui.toast('저장을 눌러야 반영됩니다');
   }
 
   removeProvider(e) {
@@ -232,7 +232,7 @@ export class DevSettings {
       ${l.detail ? `<div class="log-detail">${esc(l.detail)}</div>` : ''}
       ${l.error ? `<pre class="log-error">${esc(l.error)}</pre>` : ''}
     </li>`;
-    }).join('') : '<li class="rail-empty">아직 통신 기록이 없습니다. 대화를 한 번 보내 보세요.</li>';
+    }).join('') : '<li class="rail-empty">아직 통신 기록이 없습니다.</li>';
   }
 
   async loadLogs() {

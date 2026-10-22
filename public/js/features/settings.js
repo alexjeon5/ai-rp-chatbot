@@ -373,11 +373,8 @@ export class Settings {
     }
     this.stashProvider();
     this.stashPreset();
-    const wasImageOn = Boolean(state.settings.image?.enabled);
-    let imageOn;
     try {
       const body = this.read();
-      imageOn = body.image.enabled;
       state.settings = await api.saveSettings(body);
     } catch (e) {
       // 저장이 거부되면 입력한 그대로 창을 다시 열어 고칠 수 있게 합니다.
@@ -397,7 +394,7 @@ export class Settings {
     app.composer.refreshContext();
     // 🎨 버튼과 표기법이 바뀌었을 수 있어 다시 그립니다.
     if (!state.run) app.view.paintThread();
-    ui.toast(imageOn && !wasImageOn ? '설정을 저장했습니다 — 답변 아래 🎨 그리기로 장면을 그려 보세요' : '설정을 저장했습니다');
+    ui.toast('설정을 저장했습니다');
   }
 
   /* ---------------- 백업 불러오기 ---------------- */

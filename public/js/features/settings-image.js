@@ -64,7 +64,7 @@ export class ImageSettings {
     fillChoice('i-sampler', lists.samplers || [], sampler);
     fillChoice('i-scheduler', lists.schedulers || [], scheduler);
     $('i-lists-note').textContent = this.comfyLists
-      ? `ComfyUI 에서 받은 목록입니다 — 샘플러 ${lists.samplers.length}개, 스케줄러 ${lists.schedulers.length}개.`
+      ? `샘플러 ${lists.samplers.length}개 · 스케줄러 ${lists.schedulers.length}개`
       : '샘플러·스케줄러는 흔히 쓰는 목록입니다. 연결 확인을 누르면 ComfyUI 가 실제로 지원하는 목록으로 바뀝니다.';
   }
 
@@ -72,7 +72,7 @@ export class ImageSettings {
     const wf = this.draftWorkflow === undefined ? this.state.settings.image?.workflow : this.draftWorkflow;
     $('i-workflow-status').textContent = wf
       ? `올린 워크플로 사용 중 — 노드 ${Object.keys(wf).length}개${this.draftWorkflow ? ' (저장 전)' : ''}`
-      : '기본 SDXL 워크플로 사용 중 — 체크포인트만 고르면 됩니다';
+      : '기본 SDXL 워크플로 사용 중';
   }
 
   /** 장면 그리기를 켰을 때만 ComfyUI 설정을 보여 줍니다. 숨겨도 입력값은 남아 저장 때 함께 갑니다. */
@@ -96,10 +96,10 @@ export class ImageSettings {
     const prose = $('i-pstyle').value === 'prose';
     $('i-adult-filter').hidden = $('i-backend').value !== 'comfyui' || prose;
     $('i-prefix-label').innerHTML = prose
-      ? '앞에 붙일 글 <small class="field-hint">— 그림 스타일. 장면 묘사 앞에 붙습니다</small>'
-      : '앞에 붙일 태그 <small class="field-hint">— 품질 태그. Pony 계열이면 score_9, score_8_up, …</small>';
+      ? '앞에 붙일 글'
+      : '앞에 붙일 태그 <small class="field-hint">— Pony 계열이면 score_9, score_8_up, …</small>';
     $('i-pstyle-note').textContent = prose
-      ? 'AI 가 장면을 영어 문장으로 묘사해 보냅니다. Z-Image·Flux 는 모델·텍스트 인코더·VAE 파일이 나뉘어 있어 기본 워크플로로는 그릴 수 없습니다. ' +
+      ? 'Z-Image·Flux 는 모델·텍스트 인코더·VAE 파일이 나뉘어 있어 기본 워크플로로는 그릴 수 없습니다. ' +
         'ComfyUI 에서 그 모델의 워크플로를 Save (API Format) 으로 내보내, 프롬프트 칸에 {{prompt}} 를 적어 올려 주세요.'
       : 'AI 가 장면을 Danbooru 태그로 옮기고, 캐릭터의 외형 태그와 앞에 붙일 태그를 합쳐 보냅니다.';
   }
@@ -112,7 +112,7 @@ export class ImageSettings {
       this.apiModels[backend] = models;
       if (!$(`i-${p}model`).value && models.length) $(`i-${p}model`).value = models[0];
       $(`i-${p}status`).textContent = models.length
-        ? `이미지 모델 ${models.length}개를 받았습니다. 입력칸을 누르면 목록이 나옵니다.`
+        ? `이미지 모델 ${models.length}개`
         : '이 키로 쓸 수 있는 이미지 모델이 없습니다.';
     } catch (e) {
       $(`i-${p}status`).textContent = `받지 못했습니다 — ${e.message}`;
