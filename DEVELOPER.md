@@ -393,7 +393,7 @@ OpenAI 호환 서버(Ollama, Vercel, vLLM, llama.cpp)는 `OpenAiEngine` 을 이�
 | OpenAI | o3·gpt-5 등 추론 모델은 `temperature`/`top_p` 거부 | `looksLikeReasoningModel()`로 1차 판단, 400 응답 문구를 읽고 `quirksFromError()`로 재시도 |
 | OpenAI | 웹 검색은 `gpt-5-search-api` 같은 **전용 검색 모델만** 지원 | `supportsWebSearch()`가 모델명에 `search` 포함 여부까지 확인 |
 | OpenAI | 모델 목록에 임베딩·tts·dall-e 등이 섞여 옴 | `notChat` 정규식으로 필터링 |
-| Anthropic | `temperature` 상한이 **0~1** (다른 엔진은 2) | `clamp(params.temperature, 0, 1)` |
+| Anthropic | API 버전 2026-10-21 부터 `temperature`·`top_p`·`top_k` 를 보내면 400 | 아예 보내지 않음 (설정의 샘플링 값은 Anthropic 에는 적용 안 됨) |
 | Anthropic | 확장 사고는 세대별로 `{type:'enabled'}` 또는 `{type:'adaptive', display:'summarized'}` | `THINKING_MODES` 사다리, 400 시 다음 방식으로 재시도 |
 | Anthropic | 사고 예산(`budget_tokens`)이 `max_tokens`를 잡아먹어 답변이 잘릴 수 있음 | 사고 켜면 `max_tokens`를 예산+2048 이상으로 올림 |
 | Anthropic | 모델 목록 페이지네이션 (`has_more`/`last_id`) | 최대 5쪽까지 따라가며 수집 |

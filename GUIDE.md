@@ -1187,8 +1187,8 @@ Gemini 는 목록을 두 가지로 거릅니다. 임베딩·이미지 생성 전
 
 | 항목 | 규칙 |
 |---|---|
-| top_k | LM Studio · Anthropic · Gemini 만 받습니다. OpenAI 는 400 을 내므로 빼고 보냅니다 |
-| 온도 상한 | Anthropic 은 1, 나머지는 2. 1 을 넘겨 두면 Anthropic 에만 1 로 잘라 보냅니다 |
+| top_k | LM Studio · Gemini 만 받습니다. OpenAI 는 400 을 내므로 빼고 보냅니다 |
+| 온도 상한 | Anthropic 은 API 2026-10-21 부터 `temperature`·`top_p`·`top_k` 를 거부하므로 보내지 않으며, 해당 슬라이더는 적용되지 않습니다. 나머지 엔진의 온도 상한은 2 입니다 |
 | 응답 최대 길이 | OpenAI 는 `max_tokens` 가 폐기돼 `max_completion_tokens` 로 보냅니다. 로컬 서버는 아직 `max_tokens` 를 씁니다 |
 | 추론 모델 | o3·gpt-5 계열은 온도와 top_p 를 거부합니다. 거부당하면 그 값을 빼고 한 번 더 보냅니다 |
 

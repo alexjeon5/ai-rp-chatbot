@@ -102,6 +102,9 @@ export function startMockServices(port) {
       /* ----- Anthropic ----- */
       if (path === '/anth/v1/models') return json(200, { data: [{ id: 'claude-x' }, { id: 'claude-y' }], has_more: false });
       if (path === '/anth/v1/messages') {
+        if (req.headers['anthropic-version'] === '2026-10-21' && ['temperature', 'top_p', 'top_k'].some((key) => key in body)) {
+          return json(400, { error: { message: 'sampling parameters are not supported' } });
+        }
         if (body.thinking?.type === 'enabled' && body.model === 'claude-adaptive') {
           return json(400, { error: { message: 'thinking.type enabled is not supported for this model' } });
         }

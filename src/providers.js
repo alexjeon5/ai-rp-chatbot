@@ -390,12 +390,12 @@ const THINKING_MODES = [
 
 class AnthropicEngine extends Engine {
   headers() {
-    return { 'x-api-key': this.config.apiKey, 'anthropic-version': '2023-06-01' };
+    return { 'x-api-key': this.config.apiKey, 'anthropic-version': '2026-10-21' };
   }
 
   async *chat({ system, messages, params, signal, webSearch, sources, thinking, onThought, onUsage }) {
     /*
-     * 사고를 켜면 temperature 와 top_k 를 함께 보낼 수 없습니다.
+     * API 2026-10-21 은 temperature·top_p·top_k 를 보내면 400 을 반환하므로 항상 생략합니다.
      * budget_tokens 는 max_tokens 보다 작아야 하고, 사고 토큰도 max_tokens 에서 함께 빠집니다.
      * 예산을 한도에 가깝게 잡으면 답변 쓸 자리가 남지 않으므로 여유를 둡니다.
      */
@@ -413,14 +413,7 @@ class AnthropicEngine extends Engine {
         ...(webSearch ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] } : {}),
         messages: anthropicTurns(messages)
       };
-      if (mode) {
-        out.thinking = mode;
-      } else {
-        // Anthropic 의 temperature 는 0~1 입니다. 1 을 넘겨 보내면 400 이 납니다.
-        out.temperature = clamp(params.temperature, 0, 1);
-        out.top_p = clamp(params.topP, 0, 1);
-        out.top_k = params.topK;
-      }
+      if (mode) out.thinking = mode;
       return out;
     };
 
