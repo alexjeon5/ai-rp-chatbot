@@ -29,8 +29,7 @@ export class Chats {
       const assistant = rest.kind === 'assistant';
       const owner = this.access.ownerOf(rest);
       if (!settings.has(owner.id)) settings.set(owner.id, this.settings.view(owner));
-      const s = settings.get(owner.id);
-      const preset = s.presets.find((p) => p.id === rest.presetId) || s.presets.find((p) => p.id === s.activePresetId) || s.presets[0];
+      const preset = this.context.presetOf(rest, settings.get(owner.id));
       const character = assistant ? null : this.context.characterOf(rest);
       return {
         ...rest,

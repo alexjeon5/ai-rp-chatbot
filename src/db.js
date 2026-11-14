@@ -167,7 +167,7 @@ export class Collection {
     return item;
   }
 
-  /** 항목을 직접 고친 뒤 이걸 불러 저장합니다. */
+  /** 항목을 직접 고친 뒤 이걸 불러 저장합니다. 정렬 기준이 되는 값을 고쳤다면 꼭 불러야 목록 순서가 맞습니다. */
   save(id) {
     this.sorted = null;
     const item = this.get(id);

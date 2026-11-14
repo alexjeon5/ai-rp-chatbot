@@ -32,8 +32,7 @@ export class ChatContext {
   }
 
   /** 이 대화의 모드 틀. 대화가 고른 틀이 지워졌으면 주인이 고른 틀, 그것도 없으면 첫 틀입니다. */
-  presetOf(chat) {
-    const s = this.settingsOf(chat);
+  presetOf(chat, s = this.settingsOf(chat)) {
     return s.presets.find((p) => p.id === chat.presetId) || s.presets.find((p) => p.id === s.activePresetId) || s.presets[0];
   }
 
