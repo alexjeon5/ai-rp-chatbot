@@ -68,3 +68,17 @@ $B/golden-ui.sh .         # 화면 동작 기록 비교
 node $B/bench/bench-server.mjs . /tmp/rp-bench-seed new   # 가짜 엔진: node $B/bench/mock-engine.mjs 5192 300 0
 node $B/bench/bench-ui.mjs . /tmp/rp-bench-seed new       # 가짜 엔진: node $B/bench/mock-engine.mjs 5192 1200 4
 ```
+
+## 화면 다듬기 (unslop, polish 모드)
+
+리팩토링 뒤에 따로 한 작업입니다. 색·서체·레이아웃·문구는 그대로 두고 다섯 가지만 고쳤습니다.
+
+| 항목 | 내용 |
+|---|---|
+| 아이콘 | 이모지·글리프 아이콘을 lucide 선 아이콘으로 (`public/js/core/icons.js`). 아바타 이모지, 주사위 결과 문구, 모드 목록의 `🔒` 는 유지 |
+| 강조색 | 놋쇠색은 보내기·저장, 선택 표시(왼쪽 선), 브랜드, 캐릭터 이름 등에만. 선택된 탭은 면 단계 + 왼쪽 선 |
+| 간격 | padding·margin·gap 을 4px 격자로 |
+| 버튼 위계 | 사이드바 보조 버튼(성인 숨김, 가져오기, 아래 줄)은 테두리 없는 조용한 버튼 |
+| 반경 | 6 / 8 / 12 / 16 체계, 알약 모양은 칩과 아바타만 |
+
+단위 테스트 221개와 API 동작 기록은 그대로 통과합니다. 화면 동작 기록은 아이콘 마크업 자리만 달라졌고 요청·토스트·저장소·입력값은 같습니다.

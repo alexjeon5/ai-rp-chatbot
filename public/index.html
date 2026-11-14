@@ -27,7 +27,7 @@
       <span class="brand-line">AI 롤플레이</span>
       <span class="brand-line brand-sub">&amp; 어시스턴트</span>
     </span>
-    <button id="btn-close-sidebar" class="icon-btn only-narrow" aria-label="사이드바 닫기">✕</button>
+    <button id="btn-close-sidebar" class="icon-btn only-narrow" aria-label="사이드바 닫기"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
 
   <nav class="mode-tabs">
@@ -84,7 +84,7 @@
     <button id="btn-lore" class="foot-btn">세계관</button>
     <button id="btn-settings" class="foot-btn">설정</button>
     <button id="btn-logout" class="foot-btn foot-btn-icon" title="로그아웃" aria-label="로그아웃">
-      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
     </button>
   </footer>
 </aside>
@@ -92,7 +92,7 @@
 
 <main class="stage">
   <header class="stage-head">
-    <button id="btn-open-sidebar" class="icon-btn only-narrow" aria-label="목록 열기">☰</button>
+    <button id="btn-open-sidebar" class="icon-btn only-narrow" aria-label="목록 열기"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M4 6h16M4 18h16"/></svg></button>
     <div class="stage-title">
       <h1 id="chat-title">대화를 선택해 주세요</h1>
       <p id="chat-sub" class="stage-sub"></p>
@@ -105,7 +105,7 @@
       <!-- 가끔 쓰는 대화 관리는 ⋯ 메뉴에 모아 둡니다 -->
       <div class="chat-menu">
         <button id="btn-chat-menu" class="ghost-btn chat-menu-btn" hidden aria-haspopup="menu" aria-expanded="false"
-          aria-controls="chat-menu" title="대화 관리" aria-label="대화 관리">⋯</button>
+          aria-controls="chat-menu" title="대화 관리" aria-label="대화 관리"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
         <div id="chat-menu" class="sel-list chat-menu-list" role="menu" hidden>
           <button id="btn-open-origin" class="sel-item" role="menuitem" hidden>원본 대화 열기</button>
           <button id="btn-save-character" class="sel-item" role="menuitem" hidden title="이 1회성 캐릭터를 목록에 넣습니다">캐릭터 저장</button>
@@ -149,8 +149,8 @@
       <textarea id="input" rows="1" placeholder="무엇을 하거나 말할지 적어보세요. 행동은 *별표* 로 감쌉니다."></textarea>
       <div class="composer-side">
         <button id="btn-send" class="send-btn">보내기</button>
-        <button id="btn-regen" class="ghost-btn" title="마지막 답변의 다른 버전을 씁니다. 이전 답변은 ‹ › 로 넘겨볼 수 있습니다">재전송</button>
-        <button id="btn-continue" class="ghost-btn" title="마지막 답변이 잘렸을 때 끝에 이어서 씁니다">이어쓰기</button>
+        <button id="btn-regen" class="ghost-btn" title="마지막 답변의 다른 버전을 씁니다. 이전 답변은 ‹ › 로 넘겨볼 수 있습니다" aria-label="재전송"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7v5h-5"/><path d="M3 12a9 9 0 0 1 15.5-6.4L21 8M21 12a9 9 0 0 1-15.5 6.4"/></svg>재전송</button>
+        <button id="btn-continue" class="ghost-btn" title="마지막 답변이 잘렸을 때 끝에 이어서 씁니다" aria-label="이어쓰기"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5m7 10 5-5-5-5"/></svg>이어쓰기</button>
       </div>
     </div>
     <p class="composer-hint">
@@ -163,12 +163,12 @@
         <button id="btn-attach" class="quick-toggle" type="button" aria-pressed="false"
                 title="그림을 붙여 보냅니다 (붙여넣기·끌어놓기도 됩니다). 그림을 볼 수 있는 모델(GPT-4o, Claude, Gemini, LLaVA 등)에서만 읽힙니다">그림</button>
         <button id="btn-impersonate" class="quick-toggle" type="button" hidden
-                title="내 다음 차례를 AI 가 초안으로 씁니다. 입력창에 적어 둔 글이 있으면 그 방향으로 씁니다. 보내기 전에 고칠 수 있습니다">✍ 대신 쓰기</button>
+                title="내 다음 차례를 AI 가 초안으로 씁니다. 입력창에 적어 둔 글이 있으면 그 방향으로 씁니다. 보내기 전에 고칠 수 있습니다"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z"/></svg> 대신 쓰기</button>
         <button id="btn-choices" class="quick-toggle" type="button" hidden
-                title="내 다음 차례로 할 만한 말이나 행동을 AI 가 몇 가지 제안합니다. 누르면 입력창에 들어갑니다">✦ 선택지</button>
+                title="내 다음 차례로 할 만한 말이나 행동을 AI 가 몇 가지 제안합니다. 누르면 입력창에 들어갑니다"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg> 선택지</button>
         <span class="dice-wrap">
           <button id="btn-dice" class="quick-toggle" type="button" hidden aria-expanded="false" aria-controls="dice-pop"
-                  aria-label="주사위" title="주사위를 굴려 결과를 입력창에 넣습니다">🎲</button>
+                  aria-label="주사위" title="주사위를 굴려 결과를 입력창에 넣습니다"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3L16.5 2.58a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 14h.01M10 18h.01M15 6h.01M18 9h.01"/></svg></button>
           <span id="dice-pop" class="dice-pop" role="dialog" aria-label="주사위" hidden>
             <span id="dice-sides" class="dice-sides"></span>
             <span class="dice-fields">
@@ -299,7 +299,7 @@
       <div class="seed-box">
         <div class="seed-head">
           <span class="field-hint grow"></span>
-          <button id="p-roll" class="ghost-btn" type="button">🎲 랜덤</button>
+          <button id="p-roll" class="ghost-btn" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3L16.5 2.58a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 14h.01M10 18h.01M15 6h.01M18 9h.01"/></svg> 랜덤</button>
         </div>
         <label class="check-row">
           <input id="p-adult" type="checkbox">
@@ -340,7 +340,7 @@
         <button id="f-extract" class="ghost-btn" type="button">지금 확인하기</button>
       </div>
       <p class="field-hint">
-        약속·호칭·취향처럼 어긋나면 티 나는 사실을 한 줄씩 모읍니다. 📌 고정하거나 직접 고친 항목은 AI 가 바꾸지 않습니다.
+        약속·호칭·취향처럼 어긋나면 티 나는 사실을 한 줄씩 모읍니다. 고정하거나 직접 고친 항목은 AI 가 바꾸지 않습니다.
         근거가 된 메시지를 지우거나 다른 답변으로 넘기면 그 메시지에서 나온 항목도 치웁니다.
       </p>
       <label class="check-row">
@@ -660,7 +660,7 @@
         <div class="divider"></div>
         <label class="check-row">
           <input id="i-enabled" type="checkbox">
-          <span>장면 그리기 켜기 — 답변 아래에 <b>🎨 그리기</b> 버튼이 생깁니다</span>
+          <span>장면 그리기 켜기 — 답변 아래에 <b>그리기</b> 버튼이 생깁니다</span>
         </label>
 
         <!-- 장면 그리기를 켰을 때만 보이는 설정. 꺼 두어도 값은 그대로 저장됩니다 -->
@@ -813,7 +813,7 @@
 
         <label class="check-row">
           <input id="i-review" type="checkbox">
-          <span>그리기 전에 검토하기 — 🎨 그리기를 누르면 AI 가 만든 태그(문장 묘사 방식과 회사 API 는 장면 묘사)를 먼저 보여 주고, 확인·수정한 뒤에 그립니다</span>
+          <span>그리기 전에 검토하기 — 그리기를 누르면 AI 가 만든 태그(문장 묘사 방식과 회사 API 는 장면 묘사)를 먼저 보여 주고, 확인·수정한 뒤에 그립니다</span>
         </label>
 
         <label class="check-row">
@@ -1084,9 +1084,9 @@
 
 <!-- 그림 크게 보기 -->
 <dialog id="dlg-lightbox" class="lightbox" aria-label="그림 크게 보기">
-  <button id="lb-close" class="lb-btn lb-close" type="button" aria-label="닫기">✕</button>
-  <button id="lb-prev" class="lb-btn lb-nav lb-prev" type="button" aria-label="이전 그림">‹</button>
-  <button id="lb-next" class="lb-btn lb-nav lb-next" type="button" aria-label="다음 그림">›</button>
+  <button id="lb-close" class="lb-btn lb-close" type="button" aria-label="닫기"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  <button id="lb-prev" class="lb-btn lb-nav lb-prev" type="button" aria-label="이전 그림"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+  <button id="lb-next" class="lb-btn lb-nav lb-next" type="button" aria-label="다음 그림"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
   <figure class="lb-figure">
     <img id="lb-img" alt="장면 그림">
     <figcaption class="lb-caption">
