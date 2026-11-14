@@ -10,8 +10,8 @@ import { CardError } from './png-card.js';
 import { isObj, str, characterFields } from './services/records.js';
 import { LORE_LIMITS } from './lorebook.js';
 
-export const CARD_SPEC = 'chara_card_v2';
-export const CARD_SPEC_V3 = 'chara_card_v3';
+const CARD_SPEC = 'chara_card_v2';
+const CARD_SPEC_V3 = 'chara_card_v3';
 const KNOWN_SPECS = new Set(['chara_card_v2', 'chara_card_v3']);
 
 /** 예전 카드의 <USER>/<BOT>, 줄바꿈 형식을 이 앱의 자리표시자에 맞춥니다. */
@@ -100,7 +100,7 @@ export function bookFromCard(book, fallbackName, { dropped = [], notices = [] } 
 }
 
 /** 이 앱의 로어북들 → 카드의 character_book 하나. 항목은 순서대로 이어 붙입니다. */
-export function bookToCard(books, fallbackName) {
+function bookToCard(books, fallbackName) {
   const entries = books.flatMap((b) => b.entries || []);
   if (!entries.length) return null;
   return {

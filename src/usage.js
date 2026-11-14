@@ -47,7 +47,7 @@ function add(into, row) {
   into.estimated += row.estimated || 0;
 }
 
-export const PERIODS = [
+const PERIODS = [
   { key: 'today', label: '오늘', days: 1 },
   { key: 'week', label: '최근 7일', days: 7 },
   { key: 'month', label: '최근 30일', days: 30 }

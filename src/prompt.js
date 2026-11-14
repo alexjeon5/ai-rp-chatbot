@@ -24,7 +24,7 @@ function buildCastBlock(cast = []) {
  * 페르소나를 {{persona}} 자리에 들어갈 글로 만듭니다. 소개 문단 뒤에 성별·나이·특징 목록을 붙입니다.
  * 비어 있는 항목은 줄째로 빠지고, 전부 비어 있으면 빈 문자열입니다.
  */
-export function personaBlock(persona) {
+function personaBlock(persona) {
   if (!persona) return '';
   const lines = [];
   if (persona.description?.trim()) lines.push(persona.description.trim());

@@ -228,6 +228,22 @@ class Engine {
     await assertOk(res, '모델 목록');
     return res.json();
   }
+
+  /** 한 쪽 최대 1000개, 다섯 쪽까지만 읽습니다. 다음 쪽부터는 재시도로 표시합니다. */
+  async modelPages(sizeKey, cursorKey, entries, nextCursor) {
+    const ids = [];
+    let cursor = '';
+    for (let page = 0; page < 5; page++) {
+      const url = new URL(`${this.base}/models`);
+      url.searchParams.set(sizeKey, '1000');
+      if (cursor) url.searchParams.set(cursorKey, cursor);
+      const json = await this.getJson({ retry: page > 0 }, url, this.headers());
+      ids.push(...entries(json));
+      cursor = nextCursor(json);
+      if (!cursor) break;
+    }
+    return this.keep(ids.filter(Boolean));
+  }
 }
 
 /* ---------------- OpenAI 호환 (OpenAI, LM Studio, 그 외 /v1 호환 서버) ---------------- */
@@ -451,18 +467,9 @@ class AnthropicEngine extends Engine {
 
   /** 한 쪽에 최대 1000개. has_more / last_id 로 다음 쪽을 따라갑니다. */
   async models() {
-    const ids = [];
-    let afterId = '';
-    for (let page = 0; page < 5; page++) {
-      const url = new URL(`${this.base}/models`);
-      url.searchParams.set('limit', '1000');
-      if (afterId) url.searchParams.set('after_id', afterId);
-      const json = await this.getJson({ retry: page > 0 }, url, this.headers());
-      for (const m of json.data || []) if (m.id) ids.push(m.id);
-      if (!json.has_more || !json.last_id) break;
-      afterId = json.last_id;
-    }
-    return this.keep(ids);
+    return this.modelPages('limit', 'after_id',
+      (json) => (json.data || []).map((m) => m.id),
+      (json) => json.has_more && json.last_id);
   }
 }
 
@@ -563,18 +570,10 @@ class GeminiEngine extends Engine {
       const methods = m.supportedGenerationMethods || m.supportedActions || [];
       return methods.length === 0 || methods.includes('generateContent');
     };
-    const names = [];
-    let pageToken = '';
-    for (let page = 0; page < 5; page++) {
-      const url = new URL(`${this.base}/models`);
-      url.searchParams.set('pageSize', '1000');
-      if (pageToken) url.searchParams.set('pageToken', pageToken);
-      const json = await this.getJson({ retry: page > 0 }, url, this.headers());
-      for (const m of json.models || []) if (supportsChat(m)) names.push((m.name || '').replace(/^models\//, ''));
-      pageToken = json.nextPageToken || '';
-      if (!pageToken) break;
-    }
-    return this.keep(names.filter(Boolean)).sort();
+    const names = await this.modelPages('pageSize', 'pageToken',
+      (json) => (json.models || []).filter(supportsChat).map((m) => (m.name || '').replace(/^models\//, '')),
+      (json) => json.nextPageToken || '');
+    return names.sort();
   }
 }
 

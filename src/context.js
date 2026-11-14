@@ -10,7 +10,7 @@
  */
 
 /** 엔진에 따로 적어 두지 않았을 때의 기본 한도. */
-export const DEFAULT_CONTEXT = { local: 16384, remote: 128000 };
+const DEFAULT_CONTEXT = { local: 16384, remote: 128000 };
 /** 메시지 하나에 붙는 역할 표시 등 틀 값. */
 const MESSAGE_OVERHEAD = 6;
 /** 그림 한 장이 차지하는 토큰 어림. 회사마다 크기별로 달라 넉넉한 평균을 씁니다. */
@@ -39,9 +39,6 @@ export function estimateTokens(text = '') {
   return Math.ceil(hangul * 0.9 + ascii * 0.3 + other * 0.8 + space * 0.05);
 }
 
-/** 보정값을 곱한 어림. */
-export const tokensOf = (text, ratio = 1) => Math.ceil(estimateTokens(text) * ratio);
-
 /** 엔진 설정에서 한도를 읽습니다. 말이 안 되는 값이면 기본값을 씁니다. */
 export function contextLimitOf(config = {}, local = false) {
   const n = Number(config.contextTokens);
@@ -62,20 +59,26 @@ export function contextLimitOf(config = {}, local = false) {
  * @param {number} [o.ratio]     보정값
  */
 export function planContext(messages, { system = '', limit, reserve = 0, maxMessages = 40, extra = '', ratio = 1 }) {
+  const estimates = new Map();
+  const estimate = (text) => {
+    if (!estimates.has(text)) estimates.set(text, estimateTokens(text));
+    return estimates.get(text);
+  };
   const visible = messages.filter((m) => !m.hidden && (m.content?.trim() || m.attachments?.length));
-  const systemTokens = tokensOf(system, ratio);
-  const extraTokens = extra ? tokensOf(extra, ratio) : 0;
+  const systemTokens = Math.ceil(estimate(system) * ratio);
+  const extraTokens = extra ? Math.ceil(estimate(extra) * ratio) : 0;
   const budget = Math.max(0, limit - systemTokens - extraTokens - reserve - SAFETY);
 
   const kept = [];
   let used = 0;
   for (let i = visible.length - 1; i >= 0 && kept.length < maxMessages; i--) {
-    const cost = Math.ceil((estimateTokens(visible[i].content) + MESSAGE_OVERHEAD + IMAGE_TOKENS * (visible[i].attachments?.length || 0)) * ratio);
+    const cost = Math.ceil((estimate(visible[i].content) + MESSAGE_OVERHEAD + IMAGE_TOKENS * (visible[i].attachments?.length || 0)) * ratio);
     // 마지막 한 개는 넘치더라도 보냅니다. 아무것도 안 보내면 대답할 거리가 없습니다.
     if (kept.length && used + cost > budget) break;
-    kept.unshift(visible[i]);
+    kept.push(visible[i]);
     used += cost;
   }
+  kept.reverse();
 
   // 그림은 가장 최근 몇 장만 보냅니다. 더 오래된 메시지는 글만 갑니다.
   let images = MAX_SENT_IMAGES;

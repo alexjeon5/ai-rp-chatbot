@@ -153,7 +153,7 @@ const CORE_RE = new RegExp(
   `(^|[^a-z])(${CORE_BLOCK_TERMS.map(escapeRe).join('|')})(?=$|[^a-z])`, 'i');
 
 /** 미성년으로 읽히는 태그들을 돌려줍니다. 비어 있으면 통과입니다. */
-export function coreViolations(tags) {
+function coreViolations(tags) {
   return tags.filter((t) => CORE_RE.test(t.toLowerCase()) || CORE_AGE.test(t));
 }
 
@@ -402,6 +402,36 @@ function geminiParts(prompt, reference) {
   ];
 }
 
+/** 이미지 요청의 연결 오류를 같은 방식으로 기록하고, 엔진별 안내로 바꿉니다. */
+async function imageFetch(url, options, meta, start, networkError) {
+  try {
+    return await fetch(url, typeof options === 'function' ? options() : options);
+  } catch (e) {
+    logHttp({ ...meta, durationMs: Date.now() - start, error: trimBody(e.message, 300) });
+    throw networkError(e);
+  }
+}
+
+/** 원격 이미지 응답의 상태·본문을 기록하고 JSON 으로 읽습니다. */
+async function imageJson(url, options, { provider, host, path, model, start, signal, timeoutMs, name, minutes, httpError }) {
+  const meta = { provider, host, path, kind: 'image' };
+  const res = await imageFetch(url, () => ({
+    ...options(), signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)].filter(Boolean))
+  }), meta, start, (e) => {
+    if (e.name === 'TimeoutError') return new Error(`${name} 가 ${minutes}분 안에 그림을 돌려주지 않아 멈췄습니다.`);
+    if (e.name === 'AbortError') return e;
+    return new Error(`${name} 에 연결하지 못했습니다 — ${e.message}`);
+  });
+  const text = await res.text();
+  const result = { ...meta, status: res.status, durationMs: Date.now() - start };
+  if (!res.ok) {
+    logHttp({ ...result, error: trimBody(text, 600) });
+    throw new Error(httpError(res.status, text, model));
+  }
+  logHttp({ ...result, detail: model });
+  try { return JSON.parse(text); } catch { throw new Error(`${name} 응답을 읽지 못했습니다.`); }
+}
+
 /**
  * Gemini 이미지 모델로 한 장 그립니다.
  * @param {{ baseUrl: string, apiKey: string }} config  설정 → 엔진의 Google Gemini (키 채운 사본)
@@ -419,29 +449,12 @@ export async function renderGemini({ config, model, prompt, aspectRatio, imageSi
       imageConfig: { aspectRatio, ...(imageSize ? { imageSize } : {}) }
     }
   };
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      // 키는 쿼리스트링 대신 헤더로 보냅니다. URL 은 로그·프록시에 그대로 남습니다.
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
-      body: JSON.stringify(body),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)].filter(Boolean))
-    });
-  } catch (e) {
-    logHttp({ provider: 'gemini', host, path, kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
-    if (e.name === 'TimeoutError') throw new Error('Gemini 가 2분 안에 그림을 돌려주지 않아 멈췄습니다.');
-    if (e.name === 'AbortError') throw e;
-    throw new Error(`Gemini 에 연결하지 못했습니다 — ${e.message}`);
-  }
-  const text = await res.text();
-  if (!res.ok) {
-    logHttp({ provider: 'gemini', host, path, kind: 'image', status: res.status, durationMs: Date.now() - start, error: trimBody(text, 600) });
-    throw new Error(geminiHttpError(res.status, text, model));
-  }
-  logHttp({ provider: 'gemini', host, path, kind: 'image', status: res.status, durationMs: Date.now() - start, detail: model });
-  let json;
-  try { json = JSON.parse(text); } catch { throw new Error('Gemini 응답을 읽지 못했습니다.'); }
+  const json = await imageJson(url, () => ({
+    method: 'POST',
+    // 키는 쿼리스트링 대신 헤더로 보냅니다. URL 은 로그·프록시에 그대로 남습니다.
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
+    body: JSON.stringify(body)
+  }), { provider: 'gemini', host, path, model, start, signal, timeoutMs, name: 'Gemini', minutes: 2, httpError: geminiHttpError });
   const parts = json?.candidates?.[0]?.content?.parts || [];
   // REST 는 inlineData 로 오지만, 일부 예제·프록시는 inline_data 로 적습니다.
   const img = parts.map((p) => p.inlineData || p.inline_data).find((d) => d?.data);
@@ -497,29 +510,9 @@ export async function renderOpenAi({ config, model, prompt, size, quality, refer
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(fields);
   }
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)].filter(Boolean))
-    });
-  } catch (e) {
-    logHttp({ provider: 'openai', host, path: route, kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
-    if (e.name === 'TimeoutError') throw new Error('OpenAI 가 3분 안에 그림을 돌려주지 않아 멈췄습니다.');
-    if (e.name === 'AbortError') throw e;
-    throw new Error(`OpenAI 에 연결하지 못했습니다 — ${e.message}`);
-  }
-  const text = await res.text();
-  const meta = { provider: 'openai', host, path: route, kind: 'image', status: res.status, durationMs: Date.now() - start };
-  if (!res.ok) {
-    logHttp({ ...meta, error: trimBody(text, 600) });
-    throw new Error(openAiHttpError(res.status, text, model));
-  }
-  logHttp({ ...meta, detail: model });
-  let json;
-  try { json = JSON.parse(text); } catch { throw new Error('OpenAI 응답을 읽지 못했습니다.'); }
+  const json = await imageJson(url, () => ({ method: 'POST', headers, body }), {
+    provider: 'openai', host, path: route, model, start, signal, timeoutMs, name: 'OpenAI', minutes: 3, httpError: openAiHttpError
+  });
   const item = json?.data?.[0];
   if (!item?.b64_json) throw new Error('OpenAI 가 그림을 돌려주지 않았습니다.');
   const ext = MIME_EXT[`image/${json.output_format || 'png'}`] || 'png';
@@ -542,15 +535,11 @@ async function comfyFetch(baseUrl, path, options = {}) {
   const url = `${trimSlash(baseUrl)}${path}`;
   const start = Date.now();
   const host = (() => { try { return new URL(url).host; } catch { return baseUrl; } })();
-  let res;
-  try {
-    res = await fetch(url, options);
-  } catch (e) {
-    logHttp({ provider: 'comfyui', host, path, kind: 'image', durationMs: Date.now() - start, error: trimBody(e.message, 300) });
+  const res = await imageFetch(url, options, { provider: 'comfyui', host, path, kind: 'image' }, start, (e) => {
     const err = new Error(`ComfyUI 에 연결하지 못했습니다 (${baseUrl}). ComfyUI 가 켜져 있는지, 주소가 맞는지 확인해 주세요.`);
     err.cause = e;
-    throw err;
-  }
+    return err;
+  });
   if (!res.ok) {
     const body = await res.clone().text().catch(() => '');
     logHttp({ provider: 'comfyui', host, path, kind: 'image', status: res.status, durationMs: Date.now() - start, error: trimBody(body, 600) || res.statusText });

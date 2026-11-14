@@ -7,7 +7,7 @@
 
 import { seedsToLines } from './persona-seeds.js';
 
-export const GEN_SYSTEM =
+const GEN_SYSTEM =
   '당신은 한국어 창작 보조입니다. 주어진 태그를 재료 삼아 인물 소개 한 문단을 씁니다.\n' +
   '규칙:\n' +
   '- 3~5문장, 한 문단. 줄바꿈 없이.\n' +

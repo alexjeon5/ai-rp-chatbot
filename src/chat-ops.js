@@ -10,7 +10,7 @@
 /* ---------------- 답변 넘겨보기 ---------------- */
 
 /** 한 메시지에 쌓아 둘 수 있는 답변 수. 오래된 것부터 버립니다. */
-export const SWIPE_LIMIT = 20;
+const SWIPE_LIMIT = 20;
 
 // 답변 한 장이 따로 들고 있는 값. 본문(content) 외에 사고·출처·엔진 정보가 장마다 다릅니다.
 // scene(표정·장소)과 check(주사위 판정 요청)는 답변 본문에서 떼어 낸 화면 표식입니다.
@@ -100,7 +100,7 @@ export function withAuthorNote(history, note) {
 /** 자동 요약을 돌리는 기준. 밀려난 메시지가 이만큼 쌓여야 한 번 돕니다. */
 export const SUMMARY_MIN = 10;
 /** 한 번에 요약할 대화 분량(글자). 로컬 모델 컨텍스트를 넘지 않게 잡습니다. */
-export const SUMMARY_CHUNK_CHARS = 8000;
+const SUMMARY_CHUNK_CHARS = 8000;
 /** 요약 결과의 상한. 시스템 프롬프트에 늘 들어가므로 길면 맥락을 잡아먹습니다. */
 export const MEMORY_MAX_CHARS = 2400;
 
@@ -181,10 +181,10 @@ export function cleanSummary(text = '') {
 /** 이만큼 답변이 쌓이면 한 번 확인합니다. */
 export const FACT_EVERY = 4;
 /** 목록 상한. 시스템 프롬프트에 매번 들어가므로 길면 맥락을 잡아먹습니다. */
-export const FACT_LIMIT = 30;
+const FACT_LIMIT = 30;
 /** 한 번에 읽힐 최근 메시지 수와 분량. */
-export const FACT_WINDOW = 12;
-export const FACT_WINDOW_CHARS = 6000;
+const FACT_WINDOW = 12;
+const FACT_WINDOW_CHARS = 6000;
 const FACT_TEXT_MAX = 120;
 
 const factId = () => Math.random().toString(36).slice(2, 8);
