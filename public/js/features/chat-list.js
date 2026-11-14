@@ -241,7 +241,7 @@ export class ChatList {
     <button type="button" class="sel-item danger" role="menuitem" data-act="delete">대화 삭제</button>`;
     menu.hidden = false;
     // 메뉴 키·Shift+F10 으로 열면 좌표가 0 이라, 그때는 항목 바로 아래에 띄웁니다.
-    const box = btn.getBoundingClientRect();
+    const box = (!e.clientX || !e.clientY) ? btn.getBoundingClientRect() : null;
     const x = e.clientX || box.left + 12;
     const y = e.clientY || box.bottom;
     const { offsetWidth: w, offsetHeight: h } = menu;

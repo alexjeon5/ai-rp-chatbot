@@ -11,12 +11,7 @@ function toLogin(res) {
 /** 그림 파일을 그대로 본문에 실어 보냅니다. 종류는 Content-Type 으로 알립니다. */
 async function sendImage(url, method, blob) {
   const res = await fetch(url, { method, headers: { 'Content-Type': blob.type }, body: blob });
-  if (toLogin(res)) throw new Error('로그인이 필요합니다.');
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `올리지 못했습니다 (${res.status})`);
-  }
-  return res.json();
+  return readJson(res, '올리지 못했습니다');
 }
 
 async function req(url, options = {}) {
@@ -25,12 +20,16 @@ async function req(url, options = {}) {
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
+  return readJson(res, '요청 실패', true);
+}
+
+async function readJson(res, failure, allowEmpty = false) {
   if (toLogin(res)) throw new Error('로그인이 필요합니다.');
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `요청 실패 (${res.status})`);
+    throw new Error(data.error || `${failure} (${res.status})`);
   }
-  return res.status === 204 ? null : res.json();
+  return allowEmpty && res.status === 204 ? null : res.json();
 }
 
 export const api = {

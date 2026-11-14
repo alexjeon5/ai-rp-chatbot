@@ -7,7 +7,7 @@ const DELAY_MS = 250;
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** 검색어가 걸린 곳을 <mark> 로 감쌉니다. 글은 조각마다 따로 이스케이프합니다. */
-export function highlight(text, terms) {
+function highlight(text, terms) {
   if (!terms.length) return esc(text);
   const parts = String(text).split(new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi'));
   return parts.map((p, i) => (i % 2 ? `<mark>${esc(p)}</mark>` : esc(p))).join('');

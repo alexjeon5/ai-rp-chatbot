@@ -1,4 +1,5 @@
 /** 앱 상태. 서버에서 받은 데이터의 사본과, 그걸로 계산하는 값들. */
+import { portraitUrl } from './dom.js';
 
 // 줄마다 말풍선으로 보여 줄 모드. 직접 만든 모드는 해당하지 않습니다.
 const MESSENGER_PRESETS = new Set(['messenger', 'adult-messenger']);
@@ -6,8 +7,6 @@ const MESSENGER_PRESETS = new Set(['messenger', 'adult-messenger']);
 /** 로컬 주소인지. 성인 틀 대화에서 고를 수 있는 엔진을 가립니다. (서버 판정과 같은 규칙) */
 export const isLocalUrl = (url = '') =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url);
-
-const portraitUrl = (c) => (c?.id && c.portrait ? `/api/character-art/${c.id}/${c.portrait}` : '');
 
 export class AppState {
   settings = null;

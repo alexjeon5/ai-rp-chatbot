@@ -32,8 +32,9 @@ export class Composer {
   /** 입력창 높이를 글에 맞춥니다. */
   grow() {
     const input = $('input');
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+    if (input.style.height !== 'auto') input.style.height = 'auto';
+    const height = `${Math.min(input.scrollHeight, 220)}px`;
+    if (input.style.height !== height) input.style.height = height;
   }
 
   /* ---------------- 컨텍스트 게이지 ---------------- */
@@ -205,6 +206,23 @@ export class Composer {
     let sourcesEl = null;
     let succeeded = false;
     let reload = false;
+    let frame = null;
+    let dirty = false;
+    // 토큰이 한꺼번에 오면 한 프레임에 한 번만 그립니다. 숨긴 탭에서는 바로 그립니다.
+    const cancelFrame = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+    };
+    const flush = () => {
+      cancelFrame();
+      if (!dirty) return;
+      dirty = false;
+      textEl.innerHTML = format(base + acc);
+      if (isOpen()) {
+        ui.scrollToEnd();
+        app.stage.live(base + acc);
+      }
+    };
 
     try {
       const result = await generate(chat.id, {
@@ -214,13 +232,12 @@ export class Composer {
         onContext: (info) => { if (isOpen()) this.paintContext(info); },
         onDelta: (d) => {
           acc += d;
-          textEl.innerHTML = format(base + acc);
-          if (isOpen()) {
-            ui.scrollToEnd();
-            app.stage.live(base + acc);
-          }
+          dirty = true;
+          if (document.hidden) flush();
+          else if (frame === null) frame = requestAnimationFrame(flush);
         },
         onThought: (t) => {
+          flush();
           thought += t;
           if (!thoughtEl) {
             thoughtEl = ui.thoughtEl('');
@@ -230,6 +247,7 @@ export class Composer {
           if (isOpen()) ui.scrollToEnd();
         },
         onSources: (list) => {
+          flush();
           if (!sourcesEl) {
             sourcesEl = ui.sourcesEl(list);
             textEl.after(sourcesEl);
@@ -239,6 +257,7 @@ export class Composer {
           if (isOpen()) ui.scrollToEnd();
         }
       });
+      flush();
       if (result.message) {
         succeeded = true;
         const msg = result.message;
@@ -253,6 +272,7 @@ export class Composer {
         ui.showError('응답이 비어 있습니다. 모델과 프롬프트 설정을 확인해 주세요.');
       }
     } catch (e) {
+      flush();
       // 연결을 끊어서 멈춘 경우엔 서버가 쓰던 답변을 저장했을 수 있어, 끝난 뒤 다시 읽습니다.
       if (e.name === 'AbortError' && run.stopped) reload = true;
       if (e.name !== 'AbortError' && isOpen()) {
@@ -264,6 +284,7 @@ export class Composer {
         }
       }
     } finally {
+      cancelFrame();
       if (!succeeded) {
         if (mode === 'continue') {
           textEl.innerHTML = format(base);

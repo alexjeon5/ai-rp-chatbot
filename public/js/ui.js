@@ -1,10 +1,13 @@
-import { esc } from './core/dom.js';
+import { esc, portraitUrl } from './core/dom.js';
+export { portraitUrl };
 import { fillTokens } from './shared/korean.js';
 export { setMarkup, formatText } from './ui/format.js';
 import { formatText } from './ui/format.js';
 
 /** {{char}} / {{user}} 를 이름으로 바꾸고, 뒤에 붙은 조사를 받침에 맞춥니다 (서버와 같은 shared/korean.js). */
 export const fillNames = (text = '', { char = '캐릭터', user = '나' } = {}) => fillTokens(text, char, user);
+
+const emptyRow = (text) => `<li class="rail-empty">${text}</li>`;
 
 /**
  * 알림은 popover 로 띄웁니다. 설정 창 같은 모달은 최상위 층에 올라가서,
@@ -51,9 +54,6 @@ export async function copyText(text) {
   ta.remove();
   return ok;
 }
-
-/** 캐릭터의 프로필 그림 주소. 없으면 빈 문자열입니다. */
-export const portraitUrl = (c) => (c?.id && c.portrait ? `/api/character-art/${c.id}/${c.portrait}` : '');
 
 /** 동그란 아바타. 프로필 그림이 있으면 그림, 없으면 아이콘(이모지) 글자. */
 export function avatarHtml(c, { fallback = '◦', cls = 'rail-avatar' } = {}) {
@@ -165,8 +165,8 @@ export function renderChatList(chats, activeId, characters,
       ? '보관한 대화가 없습니다.'
       : '새 채팅을 눌러 시작해 보세요.';
     ul.innerHTML = head + (hiddenCount
-      ? `<li class="rail-empty">성인 대화 ${hiddenCount}개가 숨겨져 있습니다.</li>`
-      : `<li class="rail-empty">${empty}</li>`) + foot;
+      ? emptyRow(`성인 대화 ${hiddenCount}개가 숨겨져 있습니다.`)
+      : emptyRow(empty)) + foot;
     return;
   }
 
@@ -174,7 +174,7 @@ export function renderChatList(chats, activeId, characters,
     ? groupedRows(visible, characters, activeId, collapsed)
     : visible.map((c) => chatRow(c, characters, activeId)).join('');
   ul.innerHTML = head + rows +
-    (hiddenCount ? `<li class="rail-empty">성인 대화 ${hiddenCount}개 숨김</li>` : '') +
+    (hiddenCount ? emptyRow(`성인 대화 ${hiddenCount}개 숨김`) : '') +
     foot;
 }
 
@@ -209,9 +209,7 @@ export function renderCharacterList(characters, { tab = 'mine', missing = 0 } = 
       title="앱에 들어 있는 기본 캐릭터 중 목록에 없는 것만 추가합니다">${label}</button></li>`);
   }
   if (!shown.length && !(tab === 'builtin' && missing)) {
-    rows.push(tab === 'builtin'
-      ? '<li class="rail-empty">기본 캐릭터가 없습니다.</li>'
-      : '<li class="rail-empty">아직 만든 캐릭터가 없습니다.</li>');
+    rows.push(emptyRow(tab === 'builtin' ? '기본 캐릭터가 없습니다.' : '아직 만든 캐릭터가 없습니다.'));
   }
   document.getElementById('character-list').innerHTML = rows.join('');
 }
@@ -477,7 +475,7 @@ export function scrollToEnd({ force = false } = {}) {
 export function renderPersonaList(personas, activeId) {
   const ul = document.getElementById('persona-list');
   if (!personas.length) {
-    ul.innerHTML = '<li class="rail-empty">페르소나를 하나 추가해 주세요.</li>';
+    ul.innerHTML = emptyRow('페르소나를 하나 추가해 주세요.');
     return;
   }
   ul.innerHTML = personas
