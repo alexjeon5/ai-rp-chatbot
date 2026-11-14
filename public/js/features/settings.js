@@ -21,6 +21,25 @@ const MODEL_HINTS = {
 /** 서버가 거부한 이유를 보고, 고칠 칸이 있는 탭을 짐작합니다. */
 const tabForError = (message = '') => (/ComfyUI|워크플로/.test(message) ? 'image' : /엔진 주소|API 키/.test(message) ? 'engine' : null);
 
+/** 롤플레이와 어시스턴트의 같은 샘플링 칸을 읽고 채웁니다. */
+function fillParams(prefix, params) {
+  $(`s-${prefix}temp`).value = params.temperature;
+  $(`v-${prefix}temp`).textContent = params.temperature;
+  $(`s-${prefix}topk`).value = params.topK ?? 0;
+  $(`s-${prefix}repeat`).value = params.repeatPenalty ?? 1;
+  $(`s-${prefix}maxtokens`).value = params.maxTokens;
+}
+
+function readParams(prefix, params) {
+  return {
+    temperature: Number($(`s-${prefix}temp`).value),
+    maxTokens: Number($(`s-${prefix}maxtokens`).value),
+    topP: params.topP,
+    topK: Number($(`s-${prefix}topk`).value),
+    repeatPenalty: Number($(`s-${prefix}repeat`).value)
+  };
+}
+
 export class Settings {
   constructor(app) {
     this.app = app;
@@ -303,19 +322,11 @@ export class Settings {
     this.shownProvider = s.activeProvider;
     this.fillProviderBox(s.activeProvider);
     this.showPreset(s.activePresetId);
-    $('s-temp').value = s.params.temperature;
-    $('v-temp').textContent = s.params.temperature;
-    $('s-topk').value = s.params.topK ?? 0;
-    $('s-repeat').value = s.params.repeatPenalty ?? 1;
-    $('s-maxtokens').value = s.params.maxTokens;
+    fillParams('', s.params);
     $('s-history').value = s.historyLimit;
     $('s-ask-mode').checked = s.askModeOnNewChat !== false;
     $('s-assistant-prompt').value = s.assistant.systemPrompt;
-    $('s-atemp').value = s.assistant.params.temperature;
-    $('v-atemp').textContent = s.assistant.params.temperature;
-    $('s-atopk').value = s.assistant.params.topK ?? 0;
-    $('s-arepeat').value = s.assistant.params.repeatPenalty ?? 1;
-    $('s-amaxtokens').value = s.assistant.params.maxTokens;
+    fillParams('a', s.assistant.params);
     this.image.fill();
     this.dev.fill();
     this.showTab(tab);
@@ -338,24 +349,12 @@ export class Settings {
       askModeOnNewChat: $('s-ask-mode').checked,
       presets: this.draftPresets,
       activePresetId: this.shownPreset,
-      params: {
-        temperature: Number($('s-temp').value),
-        maxTokens: Number($('s-maxtokens').value),
-        topP: s.params.topP,
-        topK: Number($('s-topk').value),
-        repeatPenalty: Number($('s-repeat').value)
-      },
+      params: readParams('', s.params),
       providers: this.draftProviders,
       defaultProvider: $('s-default-provider').value || undefined,
       assistant: {
         systemPrompt: $('s-assistant-prompt').value,
-        params: {
-          temperature: Number($('s-atemp').value),
-          maxTokens: Number($('s-amaxtokens').value),
-          topP: s.assistant.params.topP,
-          topK: Number($('s-atopk').value),
-          repeatPenalty: Number($('s-arepeat').value)
-        }
+        params: readParams('a', s.assistant.params)
       },
       removeProviders: this.dev.removedProviders,
       image: this.image.read(),

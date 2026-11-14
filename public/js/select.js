@@ -43,6 +43,7 @@ function enhance(select) {
   btn.type = 'button';
   btn.className = 'sel-btn';
   btn.innerHTML = '<span class="sel-label"></span><span class="sel-chev" aria-hidden="true">⌄</span>';
+  const label = btn.querySelector('.sel-label');
   btn.setAttribute('aria-haspopup', 'listbox');
   btn.setAttribute('aria-expanded', 'false');
   if (select.title) btn.title = select.title;
@@ -61,7 +62,7 @@ function enhance(select) {
 
   function refresh() {
     const opt = current();
-    btn.querySelector('.sel-label').textContent = opt ? opt.textContent.trim() : '';
+    label.textContent = opt ? opt.textContent.trim() : '';
     // 항목 수로 잠그면 안 됩니다. innerHTML 로 항목을 갈아끼운 직후에는
     // MutationObserver 가 아직 안 돌아서, 비어 있던 것으로 오해할 수 있습니다.
     btn.disabled = select.disabled;
@@ -117,7 +118,7 @@ function enhance(select) {
   }
 
   function move(step) {
-    const opts = options();
+    const opts = select.options;
     if (!opts.length) return;
     let next = index < 0 ? select.selectedIndex : index;
     for (let n = 0; n < opts.length; n++) {

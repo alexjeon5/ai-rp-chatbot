@@ -143,17 +143,16 @@ export class CharacterArtEditor {
   }
 
   async removeExpression(label) {
-    try {
-      await api.removeExpression(this.state.editingCharacterId, label);
-      await this.refresh();
-    } catch (err) {
-      ui.toast(err.message);
-    }
+    await this.removeArt('removeExpression', label);
   }
 
   async removeAsset(name) {
+    await this.removeArt('removeAsset', name);
+  }
+
+  async removeArt(method, name) {
     try {
-      await api.removeAsset(this.state.editingCharacterId, name);
+      await api[method](this.state.editingCharacterId, name);
       await this.refresh();
     } catch (err) {
       ui.toast(err.message);

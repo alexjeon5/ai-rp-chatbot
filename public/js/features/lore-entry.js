@@ -21,7 +21,6 @@ export class LoreEntryEditor {
   load(entries) {
     this.entries = structuredClone(entries || []);
     this.fill(null);
-    this.paintList();
   }
 
   paintList() {
@@ -48,7 +47,8 @@ export class LoreEntryEditor {
   }
 
   onListClick(e) {
-    const entry = this.entries.find((x) => x.id === e.target.closest('[data-entry]')?.dataset.entry);
+    const id = e.target.closest('[data-entry]')?.dataset.entry;
+    const entry = this.entries.find((x) => x.id === id);
     if (!entry) return;
     if (e.target.closest('[data-toggle]')) entry.enabled = !entry.enabled;
     else if (e.target.closest('[data-edit]')) return this.fill(entry);

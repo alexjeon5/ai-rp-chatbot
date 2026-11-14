@@ -59,11 +59,12 @@ export class ProviderKeys {
     $('s-api-key-select').innerHTML = '<option value="">키 사용 안 함</option>' + cfg.apiKeys
       .map((k) => `<option value="${esc(k.id)}">${esc(k.name)}${k.hasApiKey || k.apiKey ? '' : ' (입력 필요)'}</option>`).join('');
     $('s-api-key-select').value = cfg.activeApiKeyId || '';
-    $('s-api-key-name').value = this.selected?.name || '';
-    $('s-apikey').value = this.selected?.apiKey || '';
+    const selected = this.selected;
+    $('s-api-key-name').value = selected?.name || '';
+    $('s-apikey').value = selected?.apiKey || '';
     this.settings.setKeyVisible(false);
     $('s-apikey').placeholder = cfg.keyFromEnv ? '환경변수로 지정되어 있습니다'
-      : this.selected?.hasApiKey ? '저장됨 — 빈칸은 기존 키 유지' : 'API 키를 입력하세요';
+      : selected?.hasApiKey ? '저장됨 — 빈칸은 기존 키 유지' : 'API 키를 입력하세요';
     $('s-api-key-hint').textContent = cfg.keyFromEnv
       ? '환경변수 키가 우선 적용됩니다. 저장된 키를 사용하려면 서버 환경변수에서 해당 키를 제거하세요.'
       : !this.settings.state.settings.canManage ? 'API 키 목록과 사용 키는 주인 계정이 관리합니다.'
@@ -72,12 +73,10 @@ export class ProviderKeys {
   }
 
   paintControls() {
-    $('s-api-key-select').disabled = !this.editable;
-    $('s-api-key-name').disabled = !this.editable || !this.selected;
-    $('s-api-key-add').disabled = !this.editable || (this.cfg?.apiKeys?.length || 0) >= 20;
-    $('s-api-key-delete').disabled = !this.editable || !this.selected;
-    $('s-apikey').disabled = !this.editable;
-    $('s-key-toggle').disabled = !this.editable;
+    const editable = this.editable, selected = this.selected;
+    for (const id of ['s-api-key-select', 's-apikey', 's-key-toggle']) $(id).disabled = !editable;
+    for (const id of ['s-api-key-name', 's-api-key-delete']) $(id).disabled = !editable || !selected;
+    $('s-api-key-add').disabled = !editable || (this.cfg?.apiKeys?.length || 0) >= 20;
   }
 
   invalidateModels() {

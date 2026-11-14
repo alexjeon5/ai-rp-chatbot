@@ -540,7 +540,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .rail-item.is-grouped.depth-3 { padding-left: 92px; }
 .rail-branch { flex: none; margin-left: -18px; width: 12px; color: var(--brass-soft); font-size: 13px; }
 
-.head-select, .sel--sm.head-wrap {
+.head-select {
   max-width: 180px;
   padding: 6px 10px;
   border: 1px solid var(--line);
@@ -1335,7 +1335,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .grid-2.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 /* 창 안에서 여러 칸을 묶어 한꺼번에 숨기거나 보일 때, 묶음 안쪽 간격을 창과 같게 둡니다. */
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
-.grid-3 { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); }
 .grid-4 { display: grid; gap: 14px; grid-template-columns: repeat(4, 1fr); }
 /* 입력칸 옆 버튼은 입력칸과 같은 높이로 늘립니다. 드롭다운·콤보는 감싼 칸 안의 버튼·입력칸까지 늘어나게 합니다. */
 .model-row { display: flex; gap: 8px; align-items: stretch; }
@@ -2120,7 +2119,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
     text-align: center;
   }
 
-  .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr; }
   .theme-grid { grid-template-columns: repeat(3, 1fr); }
 }
 

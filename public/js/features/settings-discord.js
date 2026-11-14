@@ -16,35 +16,30 @@ export class DiscordSettings {
     on('d-unlink', 'click', () => this.unlink());
   }
 
-  async load() {
+  async request(action, message) {
     try {
-      this.status = await api.discordLink();
+      await action();
+      return true;
     } catch (err) {
-      ui.toast(`디스코드 연결 상태를 불러오지 못했습니다 — ${err.message}`);
-      return;
+      ui.toast(`${message} — ${err.message}`);
+      return false;
     }
+  }
+
+  async load() {
+    if (!await this.request(async () => { this.status = await api.discordLink(); }, '디스코드 연결 상태를 불러오지 못했습니다')) return;
     if (this.status.linked) this.code = null;
     this.paint();
   }
 
   async issue() {
-    try {
-      this.code = await api.discordLinkCode();
-    } catch (err) {
-      ui.toast(`코드를 받지 못했습니다 — ${err.message}`);
-      return;
-    }
+    if (!await this.request(async () => { this.code = await api.discordLinkCode(); }, '코드를 받지 못했습니다')) return;
     this.paint();
   }
 
   async unlink() {
     if (!confirm('디스코드 연결을 끊을까요? 봇에서 이 계정으로 대화할 수 없게 됩니다.')) return;
-    try {
-      await api.discordUnlink();
-    } catch (err) {
-      ui.toast(`연결을 끊지 못했습니다 — ${err.message}`);
-      return;
-    }
+    if (!await this.request(() => api.discordUnlink(), '연결을 끊지 못했습니다')) return;
     this.code = null;
     ui.toast('디스코드 연결을 끊었습니다');
     this.load();

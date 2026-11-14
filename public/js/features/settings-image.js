@@ -7,9 +7,10 @@ import { ContentFilter } from './content-filter.js';
 
 /** 목록으로 select 를 채웁니다. 지금 값이 목록에 없어도 사라지지 않게 맨 앞에 둡니다. */
 function fillChoice(id, list, current) {
-  const items = current && !list.includes(current) ? [current, ...list] : list;
+  const available = new Set(list);
+  const items = current && !available.has(current) ? [current, ...list] : list;
   $(id).innerHTML = items
-    .map((v) => `<option value="${esc(v)}">${esc(v)}${list.includes(v) ? '' : ' (목록에 없음)'}</option>`)
+    .map((v) => `<option value="${esc(v)}">${esc(v)}${available.has(v) ? '' : ' (목록에 없음)'}</option>`)
     .join('');
   $(id).value = current || items[0] || '';
 }

@@ -47,7 +47,8 @@ export class Lorebooks {
     }
     // 서버가 범위 안으로 맞춘 값을 보여 주되, 지금 입력 중인 칸은 덮어쓰지 않습니다.
     for (const [id, key] of [['ls-depth', 'scanDepth'], ['ls-budget', 'tokenBudget']]) {
-      if (document.activeElement !== $(id)) $(id).value = state.settings.lorebook[key];
+      const input = $(id);
+      if (document.activeElement !== input) input.value = state.settings.lorebook[key];
     }
     this.app.composer.refreshContext();
   }

@@ -19,23 +19,16 @@ function tagCopy(image = {}) {
       foot: '설정의 그림 스타일은 그릴 때 앞에 붙고, 고정 차단 목록도 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
     };
   }
-  if (image.promptStyle === 'prose') {
-    return {
-      label: '장면 묘사 <small class="field-hint">— 영어 문장</small>',
-      reviewTitle: '그릴 장면 확인',
-      editTitle: '묘사 고쳐 그리기',
-      reviewHint: '',
-      editHint: '새 시드로 다시 그립니다.',
-      foot: '앞에 붙일 글, 설정의 네거티브, 고정 차단 목록·고정 네거티브는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
-    };
-  }
+  const prose = image.promptStyle === 'prose';
   return {
-    label: '태그 <small class="field-hint">— 쉼표로 구분합니다</small>',
-    reviewTitle: '그릴 태그 확인',
-    editTitle: '태그 고쳐 그리기',
+    label: prose ? '장면 묘사 <small class="field-hint">— 영어 문장</small>' : '태그 <small class="field-hint">— 쉼표로 구분합니다</small>',
+    reviewTitle: prose ? '그릴 장면 확인' : '그릴 태그 확인',
+    editTitle: prose ? '묘사 고쳐 그리기' : '태그 고쳐 그리기',
     reviewHint: '',
     editHint: '새 시드로 다시 그립니다.',
-    foot: '앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
+    foot: prose
+      ? '앞에 붙일 글, 설정의 네거티브, 고정 차단 목록·고정 네거티브는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
+      : '앞에 붙일 품질 태그, 설정의 네거티브, 필터(고정 차단 목록·고정 네거티브 포함)는 그릴 때 다시 적용됩니다. Ctrl+Enter 로 바로 그립니다.'
   };
 }
 
