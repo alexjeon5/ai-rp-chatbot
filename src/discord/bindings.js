@@ -60,7 +60,8 @@ export class ThreadBindings {
 
   /** 이 대화에 이어진 스레드 id 들. */
   threadsOf(chatId) {
-    return Object.entries(this.threads).filter(([, b]) => b.chatId === chatId).map(([id]) => id);
+    const threads = this.threads;
+    return Object.keys(threads).filter((id) => threads[id].chatId === chatId);
   }
 }
 

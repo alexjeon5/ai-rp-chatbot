@@ -13,7 +13,7 @@
 import { COMMANDS } from './commands.js';
 import { ThreadBindings, ChannelBindings } from './bindings.js';
 
-export const discordConfig = (env = process.env) => ({
+const discordConfig = (env = process.env) => ({
   token: (env.DISCORD_TOKEN || '').trim(),
   guildIds: (env.DISCORD_GUILD_IDS || '').split(',').map((s) => s.trim()).filter(Boolean)
 });

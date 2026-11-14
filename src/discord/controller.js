@@ -32,6 +32,7 @@ import { guestKey } from './bindings.js';
 const EPHEMERAL = MessageFlags.Ephemeral;
 const NO_MENTIONS = { parse: [] };
 const AUTOCOMPLETE_MAX = 25;
+const REPLY_ACTIONS = new Set(['regen', 'cont', 'prev', 'next', 'choices', 'imp', 'check']);
 const NOT_LINKED = '먼저 앱 계정과 이어 주세요. 웹의 설정 → 디스코드에서 코드를 받아 `/rp link code:코드` 로 넣으면 됩니다.';
 const ADULT_CHANNEL = '성인 모드 대화는 연령 제한(NSFW) 채널에서만 쓸 수 있습니다.';
 const STALE = '지난 차례의 것이라 쓸 수 없습니다. 가장 최근 답변의 버튼으로 다시 받아 주세요.';
@@ -44,7 +45,7 @@ const plainText = (raw) => String(raw ?? '').trim();
 
 /** 버튼 id: rp:<일>:<대화 id>[:<덧붙임>] */
 const buttonId = (action, chatId, arg) => ['rp', action, chatId, arg].filter((x) => x !== undefined).join(':');
-export const parseButton = (id) => {
+const parseButton = (id) => {
   const [prefix, action, chatId, arg] = String(id).split(':');
   return prefix === 'rp' && action && chatId ? { action, chatId, arg } : null;
 };
@@ -59,10 +60,10 @@ function button(action, chatId, { label, emoji, style = ButtonStyle.Secondary, d
 const rows = (...lines) => lines.filter((l) => l.length).map((components) => ({ type: ComponentType.ActionRow, components }));
 
 /** 쓰는 동안 마지막 메시지에 다는 버튼. */
-export const liveButtons = (chatId) => rows([button('stop', chatId, { label: '멈추기', emoji: '⏹', style: ButtonStyle.Danger })]);
+const liveButtons = (chatId) => rows([button('stop', chatId, { label: '멈추기', emoji: '⏹', style: ButtonStyle.Danger })]);
 
 /** 다 쓴 답변에 다는 버튼. 넘겨볼 다른 답변이 있으면 ◀ n/m ▶, 롤플레이면 선택지·대신 쓰기·판정 줄을 더합니다. */
-export function replyComponents(chat, msg) {
+function replyComponents(chat, msg) {
   const first = [];
   const count = msg?.swipes?.length || 0;
   if (count > 1) {
@@ -77,21 +78,20 @@ export function replyComponents(chat, msg) {
   const second = [];
   if (chat.kind !== 'assistant') {
     second.push(button('choices', chat.id, { label: '선택지', emoji: '💡' }), button('imp', chat.id, { label: '대신 쓰기', emoji: '✍️' }));
-    if (chat.dice && msg?.check) {
-      const c = msg.check;
-      second.push(button('check', chat.id, { label: `${c.label} 판정 (d${c.sides}, 난이도 ${c.dc})`, emoji: '🎲', style: ButtonStyle.Primary }));
-    }
+    if (chat.dice && msg?.check) second.push(button('check', chat.id, {
+      label: `${msg.check.label} 판정 (d${msg.check.sides}, 난이도 ${msg.check.dc})`, emoji: '🎲', style: ButtonStyle.Primary
+    }));
   }
   return rows(first, second);
 }
 
 /** 연령 제한 채널인지. 스레드는 부모 채널을 따릅니다. */
-export const isNsfwChannel = (channel) => Boolean((channel?.isThread?.() ? channel.parent : channel)?.nsfw);
+const isNsfwChannel = (channel) => Boolean((channel?.isThread?.() ? channel.parent : channel)?.nsfw);
 
 /* ---------------- 보내는 쪽 (ReplyRelay 의 sink) ---------------- */
 
 /** 봇 이름으로 스레드에 보내기. 메시지는 id 로 고치고 지웁니다. */
-export const botSink = (thread) => ({
+const botSink = (thread) => ({
   via: 'bot',
   send: async (content, components = [], embeds = []) => ({ id: (await thread.send({ content, components, embeds, allowedMentions: NO_MENTIONS })).id }),
   edit: (h, content, components = [], embeds = []) => thread.messages.edit(h.id, { content, components, embeds, allowedMentions: NO_MENTIONS }),
@@ -100,7 +100,7 @@ export const botSink = (thread) => ({
 });
 
 /** 웹훅으로 캐릭터 이름·그림을 달고 스레드에 보내기. 웹훅이 지워졌으면 잊고 오류를 넘깁니다. */
-export function webhookSink(hook, thread, { username, avatarURL }, onGone = () => {}) {
+function webhookSink(hook, thread, { username, avatarURL }, onGone = () => {}) {
   const base = { threadId: thread.id, withComponents: true, allowedMentions: NO_MENTIONS };
   const guard = (work) => work.catch((e) => {
     if (e?.code === 10015) onGone();
@@ -122,7 +122,7 @@ export function webhookSink(hook, thread, { username, avatarURL }, onGone = () =
  * 이어지는 메시지(길어서 나뉜 것)는 멘션 없이 보냅니다. 고칠 때도 첫 메시지의 멘션은 지킵니다(다시 울리지는 않음).
  * @param {{ userId: string, replyTo?: object, firstId?: string }} o  firstId 는 이미 보낸 첫 메시지(다시 쓰기·이어 쓰기)
  */
-export function mentionSink(channel, { userId, replyTo = null, firstId = null }) {
+function mentionSink(channel, { userId, replyTo = null, firstId = null }) {
   let first = firstId;
   const tag = `<@${userId}>`;
   const ping = { users: [userId], repliedUser: true };
@@ -181,20 +181,24 @@ export class DiscordController {
   }
 
   checkAdult(chat, channel) {
-    if (chat.kind === 'assistant') return;
-    if (this.services.context.presetOf(chat).adult && !isNsfwChannel(channel)) throw new AppError(ADULT_CHANNEL);
+    if (chat.kind !== 'assistant' && this.services.context.presetOf(chat).adult && !isNsfwChannel(channel)) throw new AppError(ADULT_CHANNEL);
   }
 
   /** 명령·버튼에 오류를 알립니다. 사람에게 보여 줄 수 있는 오류(AppError)만 그대로, 나머지는 기록만 합니다. */
   async fail(interaction, error) {
-    const content = error instanceof AppError ? error.message : '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
-    if (!(error instanceof AppError)) this.log.error(error);
+    const content = this.errorText(error);
     try {
       if (interaction.deferred || interaction.replied) await interaction.followUp({ content, flags: EPHEMERAL });
       else await interaction.reply({ content, flags: EPHEMERAL });
     } catch (e) {
       this.log.error(e);
     }
+  }
+
+  /** 사람에게 보여 줄 오류와 기록할 오류를 나눕니다. */
+  errorText(error) {
+    if (!(error instanceof AppError)) this.log.error(error);
+    return error instanceof AppError ? error.message : '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
   }
 
   /** 스레드·채널에 남기는 알림. userId 를 주면 그 사람을 멘션합니다(어시스턴트 채널). */
@@ -293,14 +297,13 @@ export class DiscordController {
     const name = this.speakerName(chat, user);
     const hook = this.webhooks && await this.webhooks.for(thread);
     for (const chunk of splitMessage(text)) {
+      const send = () => thread.send({ content: `**${name}** ▸ ${chunk}`, allowedMentions: NO_MENTIONS });
       if (hook) {
         await hook.send({
           content: chunk, username: webhookName(name, '나'), avatarURL: user.displayAvatarURL?.() || undefined,
           threadId: thread.id, allowedMentions: NO_MENTIONS
-        }).catch(() => thread.send({ content: `**${name}** ▸ ${chunk}`, allowedMentions: NO_MENTIONS }));
-      } else {
-        await thread.send({ content: `**${name}** ▸ ${chunk}`, allowedMentions: NO_MENTIONS });
-      }
+        }).catch(send);
+      } else await send();
     }
   }
 
@@ -503,15 +506,14 @@ export class DiscordController {
   channelSeat(channelId, user) {
     const { discordLinks, setup } = this.services;
     const linked = discordLinks.actorOf(user.id);
-    if (linked) {
-      setup.ensure(linked);
-      return { actor: linked, slot: this.channels.slot(channelId, linked.id, user.id) };
+    let actor = linked;
+    if (!actor) {
+      const channel = this.channels.get(channelId);
+      actor = channel?.guests ? discordLinks.actorOf(channel.setBy) : null;
+      if (!actor || actor.id !== channel.hostUserId) throw new AppError(NOT_LINKED, 401);
     }
-    const channel = this.channels.get(channelId);
-    const host = channel?.guests ? discordLinks.actorOf(channel.setBy) : null;
-    if (!host || host.id !== channel.hostUserId) throw new AppError(NOT_LINKED, 401);
-    setup.ensure(host);
-    return { actor: host, slot: this.channels.slot(channelId, guestKey(user.id), user.id) };
+    setup.ensure(actor);
+    return { actor, slot: this.channels.slot(channelId, linked ? linked.id : guestKey(user.id), user.id) };
   }
 
   /** 어시스턴트 채널이면 질문한 사람을 멘션할 정보. 스레드면 null. */
@@ -584,7 +586,7 @@ export class DiscordController {
       return i.deferUpdate();
     }
     // 가장 최근 답변에 단 버튼들
-    if (['regen', 'cont', 'prev', 'next', 'choices', 'imp', 'check'].includes(action)) {
+    if (REPLY_ACTIONS.has(action)) {
       if (!slot.reply?.messageIds?.includes(i.message?.id)) throw new AppError('가장 최근 답변에서만 누를 수 있습니다.');
       if (jobs.running.has(chatId)) throw new AppError('아직 답변을 쓰는 중입니다.');
     }
@@ -597,11 +599,10 @@ export class DiscordController {
         this.spend(actor, slot);
         await i.deferUpdate();
         const reply = slot.reply;
-        if (action === 'regen') return this.stream(thread, actor, chatId, { mode: 'regenerate', slot, reuse: reply });
         // 이어 쓰기는 새 메시지로 덧붙입니다. 쓰기 시작하면 앞 메시지의 버튼은 뗍니다.
-        return this.stream(thread, actor, chatId, {
-          mode: 'continue', slot, keep: reply, onBegin: () => this.clearButtons(thread, { reply, setReply() {} })
-        });
+        return this.stream(thread, actor, chatId, action === 'regen'
+          ? { mode: 'regenerate', slot, reuse: reply }
+          : { mode: 'continue', slot, keep: reply, onBegin: () => this.clearButtons(thread, { reply, setReply() {} }) });
       }
       case 'prev':
       case 'next': {
@@ -635,10 +636,7 @@ export class DiscordController {
         await i.update({ content: '초안을 보냈습니다.', components: [] });
         return this.takeTurn(thread, actor, slot, p.text, { user: i.user, show: true });
       }
-      case 'edit': {
-        const p = this.pendingFor(slot, chat, 'draft');
-        return i.showModal(draftModal(chatId, p.text));
-      }
+      case 'edit': return i.showModal(draftModal(chatId, this.pendingFor(slot, chat, 'draft').text));
       case 'redraft': {
         this.pendingFor(slot, chat, 'draft');
         return this.offerDraft(i, actor, thread, chat, slot, { fresh: false });
@@ -732,8 +730,7 @@ export class DiscordController {
       }
       await this.takeTurn(thread, actor, this.bindings.slot(thread.id), content, { user: message.author });
     } catch (e) {
-      if (!(e instanceof AppError)) this.log.error(e);
-      await this.notice(thread, e instanceof AppError ? e.message : '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.');
+      await this.notice(thread, this.errorText(e));
     }
   }
 
@@ -761,8 +758,7 @@ export class DiscordController {
       }
       await this.takeTurn(channel, actor, slot, content, { user: author, replyTo: message });
     } catch (e) {
-      if (!(e instanceof AppError)) this.log.error(e);
-      await warn(e instanceof AppError ? e.message : '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.');
+      await warn(this.errorText(e));
     }
   }
 
@@ -860,7 +856,7 @@ export class DiscordController {
 }
 
 /** 자동완성 한 줄(100자): '🌸 이름 — 한 줄 소개…'. 이름은 늘 다 보이게, 소개는 남는 만큼. */
-export function choiceName(label, about = '') {
+function choiceName(label, about = '') {
   const head = String(label || '').trim().slice(0, 100) || '(이름 없음)';
   const room = 100 - head.length - 3;
   if (!about || room < 6) return head;

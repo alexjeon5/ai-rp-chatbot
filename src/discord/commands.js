@@ -11,7 +11,7 @@ const SUB = 1;
 const STRING = 3;
 const BOOLEAN = 5;
 
-export const RP_COMMAND = {
+const RP_COMMAND = {
   name: 'rp',
   description: 'AI 롤플레이',
   // 서버 채널에서만. 스레드를 만들어야 해서 DM 에서는 쓸 수 없습니다.
@@ -42,7 +42,7 @@ export const RP_COMMAND = {
   ]
 };
 
-export const ASK_COMMAND = {
+const ASK_COMMAND = {
   name: 'ask',
   description: 'AI 어시스턴트에게 묻습니다 (새 스레드에서 이어서 대화)',
   contexts: [0],
@@ -52,7 +52,7 @@ export const ASK_COMMAND = {
   ]
 };
 
-export const ASSISTANT_COMMAND = {
+const ASSISTANT_COMMAND = {
   name: 'assistant',
   description: '어시스턴트 채널: 이 채널에 쓰는 말에 AI 어시스턴트가 답합니다',
   contexts: [0],

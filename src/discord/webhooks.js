@@ -42,7 +42,10 @@ export class Webhooks {
     if (since !== undefined && this.now() - since < RETRY_MS) return null;
     try {
       const hooks = await channel.fetchWebhooks();
-      const mine = [...hooks.values()].find((h) => h.token && h.applicationId === this.applicationId());
+      let mine;
+      for (const h of hooks.values()) if (h.token && h.applicationId === this.applicationId()) {
+        mine = h; break;
+      }
       const hook = mine || await channel.createWebhook({ name: HOOK_NAME, reason: '롤플레이 캐릭터 이름으로 말하기' });
       this.cache.set(channel.id, hook);
       this.denied.delete(channel.id);

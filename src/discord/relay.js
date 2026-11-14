@@ -106,7 +106,7 @@ export class ReplyRelay {
       const last = i === chunks.length - 1;
       const comps = last ? (final ? components : this.liveComponents) : [];
       const extra = last && final ? embeds : [];
-      const key = `${chunks[i]}\u0000${JSON.stringify(comps)}\u0000${JSON.stringify(extra)}`;
+      const key = last ? `${chunks[i]}\u0000${JSON.stringify(comps)}\u0000${JSON.stringify(extra)}` : `${chunks[i]}\u0000[]\u0000[]`;
       if (!this.handles[i]) {
         this.handles[i] = await this.sink.send(chunks[i], comps, extra);
         if (i === 0) this.onFirst();
