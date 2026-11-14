@@ -1,4 +1,5 @@
 /** 내 페르소나 창: 목록(사용·수정·삭제), 아래 입력칸(성별·나이·특징), 랜덤 페르소나. */
+import { icon } from '../core/icons.js';
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, esc, on } from '../core/dom.js';
@@ -75,7 +76,7 @@ export class Personas {
   paintTraits() {
     $('p-traits').innerHTML = this.traits
       .map((t, i) => `<li class="trait-item"><span>${esc(t)}</span>` +
-        `<button type="button" data-trait="${i}" aria-label="${esc(t)} 빼기">✕</button></li>`)
+        `<button type="button" data-trait="${i}" aria-label="${esc(t)} 빼기">${icon('x')}</button></li>`)
       .join('');
   }
 

@@ -1,3 +1,4 @@
+import { icon } from './core/icons.js';
 import { esc, portraitUrl } from './core/dom.js';
 export { portraitUrl };
 import { fillTokens } from './shared/korean.js';
@@ -71,7 +72,7 @@ function chatRow(c, characters, activeId, { grouped = false, depth = 0 } = {}) {
   const ch = characters.find((x) => x.id === c.characterId);
   const face = c.kind === 'assistant' ? { avatar: '✳' } : { ...ch, avatar: c.avatar || ch?.avatar };
   const lead = grouped
-    ? (depth ? '<span class="rail-branch" aria-hidden="true">↳</span>' : '')
+    ? (depth ? `<span class="rail-branch" aria-hidden="true">${icon('corner-down-right')}</span>` : '')
     : avatarHtml(face);
   const cls = ['rail-item', c.id === activeId ? 'active' : '', grouped ? `is-grouped depth-${Math.min(depth, 3)}` : '']
     .filter(Boolean).join(' ');
@@ -136,7 +137,7 @@ function groupedRows(chats, characters, activeId, collapsed) {
         ${avatarHtml(face)}
         <span class="label">${esc(name)}</span>
         <span class="char-count">${list.length}</span>
-        <span class="rail-chev" aria-hidden="true">${open ? '▾' : '▸'}</span></button></li>`;
+        <span class="rail-chev" aria-hidden="true">${icon(open ? 'chevron-down' : 'chevron-right')}</span></button></li>`;
     if (!open) return head;
     return head + withBranches(list).map(({ chat, depth }) => chatRow(chat, characters, activeId, { grouped: true, depth })).join('');
   }).join('');
@@ -154,7 +155,7 @@ export function renderChatList(chats, activeId, characters,
   const hiddenCount = chats.length - visible.length;
 
   const head = archiveView
-    ? '<li class="rail-archive"><button class="ghost-btn" data-archive-view="off">← 대화 목록으로</button></li>'
+    ? `<li class="rail-archive"><button class="ghost-btn" data-archive-view="off">${icon('arrow-left')} 대화 목록으로</button></li>`
     : '';
   const foot = !archiveView && archivedCount
     ? `<li class="rail-archive"><button class="ghost-btn" data-archive-view="on">보관함 <span class="char-count">${archivedCount}</span></button></li>`
@@ -297,9 +298,9 @@ function swipeNav(message) {
   if (total < 2) return '';
   const at = (message.swipeIndex ?? total - 1) + 1;
   return `<div class="swipe-nav" role="group" aria-label="다른 답변 넘겨보기">
-    <button type="button" class="tool" data-act="swipe-prev" ${at <= 1 ? 'disabled' : ''} aria-label="이전 답변">‹</button>
+    <button type="button" class="tool" data-act="swipe-prev" ${at <= 1 ? 'disabled' : ''} aria-label="이전 답변">${icon('chevron-left')}</button>
     <span class="swipe-count">${at} / ${total}</span>
-    <button type="button" class="tool" data-act="swipe-next" aria-label="${at >= total ? '새 답변 쓰기' : '다음 답변'}">›</button>
+    <button type="button" class="tool" data-act="swipe-next" aria-label="${at >= total ? '새 답변 쓰기' : '다음 답변'}">${icon('chevron-right')}</button>
   </div>`;
 }
 
@@ -322,8 +323,8 @@ export function turnEl({ message, speaker, isUser, plain = false, bubbles = fals
       <button class="tool" data-act="copy">복사</button>
       <button class="tool" data-act="delete">삭제</button>
       <button class="tool" data-act="branch" title="이 메시지까지 복사해 새 대화로 갈라집니다. 원본은 그대로 남습니다">분기</button>
-      ${message.check && !isUser && !plain ? `<button class="tool check-btn" data-act="roll-check" hidden title="주사위를 굴려 결과를 내 메시지로 보냅니다">🎲 ${esc(message.check.label)} 판정 (d${message.check.sides} · 난이도 ${message.check.dc})</button>` : ''}
-      ${!isUser && !plain && drawing.enabled ? '<button class="tool" data-act="draw">🎨 그리기</button>' : ''}
+      ${message.check && !isUser && !plain ? `<button class="tool check-btn" data-act="roll-check" hidden title="주사위를 굴려 결과를 내 메시지로 보냅니다">${icon('dices')} ${esc(message.check.label)} 판정 (d${message.check.sides} · 난이도 ${message.check.dc})</button>` : ''}
+      ${!isUser && !plain && drawing.enabled ? `<button class="tool" data-act="draw">${icon('brush')} 그리기</button>` : ''}
     </div>`;
   return li;
 }

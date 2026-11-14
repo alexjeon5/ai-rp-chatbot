@@ -1,4 +1,5 @@
 /** 캐릭터 창의 그림 칸: 프로필·표정 그림과 카드에서 가져온 에셋. 저장된 캐릭터는 고르는 즉시 서버에 올리고, 새 캐릭터는 저장할 때 올립니다. */
+import { icon } from '../core/icons.js';
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, esc, on } from '../core/dom.js';
@@ -59,7 +60,7 @@ export class CharacterArtEditor {
     $('c-expr-list').innerHTML = list.map((e) => `<li class="art-expr">
         <img src="/api/character-art/${esc(ch.id)}/${esc(e.file)}" alt="">
         <span class="art-expr-name">${esc(e.label)}</span>
-        <button class="tool" type="button" data-remove-expr="${esc(e.label)}" aria-label="${esc(e.label)} 표정 지우기">✕</button>
+        <button class="tool" type="button" data-remove-expr="${esc(e.label)}" aria-label="${esc(e.label)} 표정 지우기">${icon('x')}</button>
       </li>`).join('');
     const assets = ch?.assets || [];
     $('c-asset-box').hidden = !assets.length;
@@ -67,7 +68,7 @@ export class CharacterArtEditor {
     $('c-asset-list').innerHTML = assets.map((a) => `<li class="art-expr">
         <img src="/api/character-art/${encodeURIComponent(ch.id)}/${encodeURIComponent(a.file)}" alt="" loading="lazy">
         <span class="art-expr-name">${esc(a.name)}</span>
-        <button class="tool" type="button" data-remove-asset="${esc(a.name)}" aria-label="${esc(a.name)} 에셋 그림 지우기">✕</button>
+        <button class="tool" type="button" data-remove-asset="${esc(a.name)}" aria-label="${esc(a.name)} 에셋 그림 지우기">${icon('x')}</button>
       </li>`).join('');
   }
 

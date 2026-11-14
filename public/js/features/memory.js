@@ -1,4 +1,5 @@
 /** 기억: 답변 뒤에 도는 자동 기억·요약과, 기억·작가 노트 창. */
+import { icon } from '../core/icons.js';
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, esc, on } from '../core/dom.js';
@@ -113,8 +114,8 @@ export class Memory {
       ? this.draftFacts.map((f) => `<li class="fact-row${f.pinned ? ' is-pinned' : ''}" data-fact="${esc(f.id)}">
         <input class="fact-text" value="${esc(f.text)}" maxlength="240" aria-label="기억 항목">
         <span class="fact-tag" title="${f.auto ? 'AI 가 뽑은 항목' : '직접 적거나 고친 항목'}">${f.auto ? '자동' : '직접'}</span>
-        <button type="button" class="tool" data-pin aria-pressed="${f.pinned}" title="고정하면 AI 가 고치거나 지우지 않습니다">📌</button>
-        <button type="button" class="tool" data-del title="삭제">✕</button>
+        <button type="button" class="tool" data-pin aria-pressed="${f.pinned}" title="고정하면 AI 가 고치거나 지우지 않습니다" aria-label="고정하면 AI 가 고치거나 지우지 않습니다">${icon('pin')}</button>
+        <button type="button" class="tool" data-del title="삭제" aria-label="삭제">${icon('x')}</button>
       </li>`).join('')
       : '<li class="rail-empty">아직 없습니다.</li>';
   }

@@ -1,4 +1,5 @@
 /** 선택지 제안과 주사위. 입력창 위 후보 칩, 주사위 팝오버, 답변에 붙는 판정 버튼을 맡습니다. */
+import { icon } from '../core/icons.js';
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, esc, on } from '../core/dom.js';
@@ -52,7 +53,7 @@ export class Choices {
     const controller = new AbortController();
     this.pending = controller;
     btn.disabled = true;
-    btn.textContent = '제안 받는 중…';
+    btn.innerHTML = `${icon('list')} 제안 받는 중…`;
     try {
       const { choices } = await api.suggestChoices(chat.id, COUNT, controller.signal);
       if (state.chat !== chat || state.run || controller.signal.aborted) return;
@@ -62,7 +63,7 @@ export class Choices {
       if (!auto && e.name !== 'AbortError' && state.chat === chat) ui.toast(`선택지를 받지 못했습니다 — ${e.message}`);
     } finally {
       if (this.pending === controller) this.pending = null;
-      btn.textContent = '✦ 선택지';
+      btn.innerHTML = `${icon('list')} 선택지`;
       btn.disabled = Boolean(state.run);
     }
   }
@@ -73,8 +74,8 @@ export class Choices {
     tray.hidden = !choices.length;
     tray.innerHTML = choices.map((c, i) => `<button type="button" class="choice-chip" data-i="${i}">
       <span class="choice-text">${esc(c.text)}</span>${c.check
-        ? `<span class="choice-check">🎲 ${esc(c.check.label)} d${c.check.sides} · ${c.check.dc}</span>` : ''}</button>`).join('')
-      + '<button type="button" class="choices-close" aria-label="선택지 닫기" title="닫기">×</button>';
+        ? `<span class="choice-check">${icon('dices')} ${esc(c.check.label)} d${c.check.sides} · ${c.check.dc}</span>` : ''}</button>`).join('')
+      + `<button type="button" class="choices-close" aria-label="선택지 닫기" title="닫기">${icon('x')}</button>`;
   }
 
   /** 칩을 고르면 입력창에 초안으로 들어갑니다. 판정이 붙은 칩은 그 자리에서 굴려 결과 줄을 덧붙입니다. */

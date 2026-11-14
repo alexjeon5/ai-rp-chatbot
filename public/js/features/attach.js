@@ -2,6 +2,7 @@
 import { api } from '../api.js';
 import * as ui from '../ui.js';
 import { $, esc, on } from '../core/dom.js';
+import { icon } from '../core/icons.js';
 
 const MAX_IMAGES = 4;
 const MAX_SIDE = 1600;
@@ -136,7 +137,7 @@ export class AttachTray {
     tray.hidden = !this.items.length && !this.uploading;
     tray.innerHTML = this.items
       .map((i, n) => `<span class="attach-chip"><img src="${i.url}" alt="${esc(i.name)}" title="${esc(i.name)}">
-        <button type="button" class="attach-x" data-remove="${n}" aria-label="빼기" title="빼기">×</button></span>`)
+        <button type="button" class="attach-x" data-remove="${n}" aria-label="빼기" title="빼기">${icon('x')}</button></span>`)
       .join('') + (this.uploading ? '<span class="attach-chip is-loading" aria-label="올리는 중"></span>'.repeat(this.uploading) : '');
     $('btn-attach').setAttribute('aria-pressed', String(this.items.length > 0));
   }

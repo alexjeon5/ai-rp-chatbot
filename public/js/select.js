@@ -4,6 +4,7 @@
  * 원래 select 는 지우지 않고 화면에서만 숨깁니다. 값의 주인은 그대로 select 이고,
  * 고를 때마다 change 이벤트를 다시 쏘기 때문에 기존 코드는 손댈 필요가 없습니다.
  */
+import { icon } from './core/icons.js';
 
 const esc = (s = '') =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -42,7 +43,7 @@ function enhance(select) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'sel-btn';
-  btn.innerHTML = '<span class="sel-label"></span><span class="sel-chev" aria-hidden="true">⌄</span>';
+  btn.innerHTML = `<span class="sel-label"></span><span class="sel-chev" aria-hidden="true">${icon('chevron-down')}</span>`;
   const label = btn.querySelector('.sel-label');
   btn.setAttribute('aria-haspopup', 'listbox');
   btn.setAttribute('aria-expanded', 'false');
