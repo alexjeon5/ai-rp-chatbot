@@ -40,6 +40,8 @@ const defaultSettings = () => ({
 
 /* ---------------- 저장소 ---------------- */
 
+const compareNames = new Intl.Collator('ko').compare;
+
 /**
  * 데이터는 항목별 파일로 나뉩니다. 하나를 찾으려고 전체를 뒤질 일이 없고,
  * 편집기로 열어 직접 고치기도 쉽습니다.
@@ -60,7 +62,7 @@ export class Store {
     this.settingsDoc = new JsonDoc(path.join(dir, 'settings.json'), defaultSettings);
     this.characters = new Collection(path.join(dir, 'characters'));
     this.personas = new Collection(path.join(dir, 'personas'));
-    this.lorebooks = new Collection(path.join(dir, 'lorebooks'), (a, b) => String(a.name).localeCompare(String(b.name), 'ko'));
+    this.lorebooks = new Collection(path.join(dir, 'lorebooks'), (a, b) => compareNames(String(a.name), String(b.name)));
     this.chats = new Collection(path.join(dir, 'chats'));
     this.backgrounds = new Collection(path.join(dir, 'backgrounds'), (a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     this.prefs = new Collection(path.join(dir, 'prefs'));

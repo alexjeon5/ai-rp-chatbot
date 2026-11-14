@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { AppError } from './services/errors.js';
 
-export const MAX_API_KEYS = 20;
+const MAX_API_KEYS = 20;
 const ID = /^[a-zA-Z0-9_-]{1,64}$/;
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 

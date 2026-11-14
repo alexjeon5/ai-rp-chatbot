@@ -112,6 +112,7 @@ export class Collection {
   constructor(dir, sort) {
     this.dir = dir;
     this.items = new Map();
+    this.sorted = null;
     this.sort = sort || ((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
 
@@ -123,6 +124,7 @@ export class Collection {
     for (const item of items) {
       if (item?.id) this.items.set(item.id, item);
     }
+    this.sorted = null;
     return this;
   }
 
@@ -131,7 +133,8 @@ export class Collection {
   }
 
   all() {
-    return [...this.items.values()].sort(this.sort);
+    this.sorted ||= [...this.items.values()].sort(this.sort);
+    return this.sorted.slice();
   }
 
   get(id) {
@@ -166,12 +169,14 @@ export class Collection {
 
   /** 항목을 직접 고친 뒤 이걸 불러 저장합니다. */
   save(id) {
+    this.sorted = null;
     const item = this.get(id);
     if (!item) return;
     schedule(this.fileOf(id), () => item);
   }
 
   async remove(id) {
+    this.sorted = null;
     if (!this.items.delete(id)) return false;
     pending.delete(this.fileOf(id));
     // 이미 쓰고 있던 중이면, 그 쓰기가 지운 파일을 되살리지 않도록 끝나길 기다립니다.

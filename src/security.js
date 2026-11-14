@@ -24,7 +24,7 @@ export function hostOf(url = '') {
 }
 
 /** 사설망·루프백 주소인지. 호스트명 전체가 일치해야 합니다. */
-export function isLocalHost(host) {
+function isLocalHost(host) {
   if (!host) return false;
   if (host === 'localhost' || host === 'host.docker.internal' || host === '::1') return true;
   if (/^127\./.test(host)) return true;
@@ -125,13 +125,8 @@ const ENV_KEYS = {
 };
 
 /** 환경변수가 있으면 그쪽이 우선입니다. */
-export function resolveApiKey(providerKey, cfg = {}) {
-  const fromEnvVar = ENV_KEYS[providerKey] ? process.env[ENV_KEYS[providerKey]] : '';
-  return (fromEnvVar || '').trim() || normalizeApiKeys(cfg).apiKey;
-}
-
-export const keyComesFromEnv = (providerKey) =>
-  Boolean(ENV_KEYS[providerKey] && (process.env[ENV_KEYS[providerKey]] || '').trim());
+const envApiKey = (providerKey) => (ENV_KEYS[providerKey] ? process.env[ENV_KEYS[providerKey]] || '' : '').trim();
+export const resolveApiKey = (providerKey, cfg = {}) => envApiKey(providerKey) || normalizeApiKeys(cfg).apiKey;
 
 /**
  * 밖으로 내보낼 설정에서 키를 지웁니다.
@@ -147,8 +142,8 @@ export function maskProviders(providers = {}) {
       apiKey: '',
       apiKeys: normalized.apiKeys.map((k) => ({ id: k.id, name: k.name, apiKey: '', hasApiKey: true })),
       activeApiKeyId: normalized.activeApiKeyId,
-      hasApiKey: Boolean(resolveApiKey(key, cfg)),
-      keyFromEnv: keyComesFromEnv(key)
+      hasApiKey: Boolean(envApiKey(key) || normalized.apiKey),
+      keyFromEnv: Boolean(envApiKey(key))
     };
   }
   return out;

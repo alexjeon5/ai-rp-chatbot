@@ -114,20 +114,33 @@ function writeJsonAtomic(file, data, mode) {
 }
 
 /** users.json 을 읽습니다. 파일이 바뀌었을 때만 다시 읽습니다. */
-export const readUsers = cachedJson(USERS_FILE, (raw) => (Array.isArray(raw?.users) ? raw.users : []));
+let usersById = null;
+export const readUsers = cachedJson(USERS_FILE, (raw) => {
+  const users = Array.isArray(raw?.users) ? raw.users : [];
+  // 같은 id 가 여럿이면 예전 find 처럼 첫 항목을 씁니다. 깨진 목록은 기존 검사에 맡깁니다.
+  usersById = users.every((u) => u && typeof u === 'object') ? new Map() : null;
+  if (usersById) for (const user of users) if (!usersById.has(user.id)) usersById.set(user.id, user);
+  return users;
+});
 
 /** scripts/user.js 가 씁니다. 비밀번호 해시가 들어 있어 주인만 읽을 수 있게 만듭니다. */
 export const writeUsers = (users) => writeJsonAtomic(USERS_FILE, { users }, 0o600);
 
-export const findUser = (name) => readUsers().find((u) => nameKey(u.name) === nameKey(name)) || null;
-const userById = (id) => readUsers().find((u) => u.id === id) || null;
+const findUser = (name) => {
+  const users = readUsers(), key = nameKey(name);
+  return users.find((u) => nameKey(u.name) === key) || null;
+};
+const userById = (id) => {
+  const users = readUsers();
+  return (usersById ? usersById.get(id) : users.find((u) => u.id === id)) || null;
+};
 
 /** 화면으로 내보내도 되는 부분만. */
 const publicUser = (u) => ({ id: u.id, name: u.name, role: u.role });
 
 /* ---------------- 터미널에서 건 임시 설정 ---------------- */
 
-export const CONTROL_FILE = path.join(DATA_DIR, 'auth.json');
+const CONTROL_FILE = path.join(DATA_DIR, 'auth.json');
 
 /**
  *   offUntil  이 시각까지는 로그인 없이 주인으로 들어옵니다 (auth off). 지나면 저절로 다시 켜집니다.

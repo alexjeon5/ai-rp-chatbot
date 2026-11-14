@@ -25,15 +25,20 @@ const listFiles = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((d)
 /**
  * 지금 public/ 의 판과 고쳐 쓴 페이지들. 파일의 크기·수정 시각이 바뀌었을 때만 다시 계산합니다
  * (node --watch 는 public/ 이 바뀌어도 서버를 다시 켜지 않으므로, 부팅 때 한 번만 계산하면 옛 판이 남습니다).
+ * 페이지는 매번 확인하고, 한꺼번에 들어오는 판별 파일 요청만 1초 동안 앞선 확인을 씁니다.
  */
 function shellOf(publicDir) {
   let cached = null;
-  return () => {
+  let checkedAt = 0;
+  return (reuse = false) => {
+    const now = Date.now();
+    if (reuse && cached && now - checkedAt < 1000) return cached;
     const files = listFiles(publicDir).sort();
     const sig = files.map((f) => {
       const s = statSync(f);
       return `${f}:${s.size}:${s.mtimeMs}`;
     }).join('|');
+    checkedAt = now;
     if (cached?.sig === sig) return cached;
 
     const hash = createHash('sha256');
@@ -68,7 +73,7 @@ export function staticFiles(publicDir) {
   router.get(Object.keys(PAGES), (req, res) => {
     res.set('Cache-Control', 'no-cache').type('html').send(shell().pages[PAGES[req.path]]);
   });
-  router.use('/v/:version', (req, res, next) => (req.params.version === shell().version ? versioned : stale)(req, res, next));
+  router.use('/v/:version', (req, res, next) => (req.params.version === shell(true).version ? versioned : stale)(req, res, next));
   router.use(plain);
   return router;
 }
