@@ -24,9 +24,13 @@ export class Chats {
   /** 최근에 대화한 순서로 보여 줍니다. 오래된 대화를 이어가면 위로 올라옵니다. 메시지 대신 요약만 담습니다. */
   list(actor) {
     const time = (c) => c.updatedAt || c.createdAt || 0;
+    const settings = new Map();
     return this.access.chats(actor).sort((a, b) => time(b) - time(a)).map(({ messages, ...rest }) => {
       const assistant = rest.kind === 'assistant';
-      const preset = this.context.presetOf(rest);
+      const owner = this.access.ownerOf(rest);
+      if (!settings.has(owner.id)) settings.set(owner.id, this.settings.view(owner));
+      const s = settings.get(owner.id);
+      const preset = s.presets.find((p) => p.id === rest.presetId) || s.presets.find((p) => p.id === s.activePresetId) || s.presets[0];
       const character = assistant ? null : this.context.characterOf(rest);
       return {
         ...rest,

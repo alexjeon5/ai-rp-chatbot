@@ -101,7 +101,8 @@ export class CharacterArt {
   async removeExpression(actor, id, label) {
     const character = this.character(actor, id);
     const list = character.expressions || [];
-    const gone = list.find((e) => sameLabel(e.label, cleanLabel(label)));
+    const name = cleanLabel(label);
+    const gone = list.find((e) => sameLabel(e.label, name));
     if (!gone) throw new ArtError('없는 표정입니다.', 404);
     await this.files.remove(id, gone.file);
     return this.store.characters.update(id, { expressions: list.filter((e) => e !== gone) });
@@ -158,7 +159,8 @@ export class CharacterArt {
   async removeAsset(actor, id, name) {
     const character = this.character(actor, id);
     const list = character.assets || [];
-    const gone = list.find((asset) => sameAssetName(asset.name, cleanAssetName(name)));
+    const cleaned = cleanAssetName(name);
+    const gone = list.find((asset) => sameAssetName(asset.name, cleaned));
     if (!gone) throw new ArtError('없는 에셋 그림입니다.', 404);
     await this.files.remove(id, gone.file);
     return this.store.characters.update(id, { assets: list.filter((asset) => asset !== gone) });

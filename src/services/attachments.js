@@ -9,6 +9,7 @@ import { ImageFiles } from './image-files.js';
 export const ATTACHMENT_LIMITS = { perMessage: 4, bytes: 10 * 1024 * 1024, nameChars: 80 };
 
 const MIME_BY_EXT = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
+const CACHE_BYTES = 16 * 1024 * 1024;
 
 /** 파일 머리의 표식으로 종류를 알아냅니다. 지원하지 않는 형식이면 null. */
 export function sniffImage(buf) {
@@ -24,6 +25,8 @@ const cleanName = (v) => String(v ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '')
 export class Attachments {
   constructor(root) {
     this.files = new ImageFiles(root);
+    this.cache = new Map();
+    this.cacheBytes = 0;
   }
 
   isSafe(chatId, file) {
@@ -85,10 +88,36 @@ export class Attachments {
       const images = [];
       for (const a of attachments) {
         if (!this.isSafe(chatId, a.file)) continue;
-        const data = await readFile(this.path(chatId, a.file)).catch(() => null);
-        if (data) images.push({ mime: a.mime, data: data.toString('base64') });
+        const data = await this.#base64(this.path(chatId, a.file));
+        if (data !== null) images.push({ mime: a.mime, data });
       }
       return images.length ? { ...turn, images } : turn;
     }));
+  }
+
+  /** 바뀌지 않은 파일은 다시 읽지 않고, base64 합계를 16MB 안에 둡니다. */
+  async #base64(file) {
+    const info = await stat(file).catch(() => null);
+    const cached = this.cache.get(file);
+    if (info && cached?.size === info.size && cached.mtimeMs === info.mtimeMs && cached.ctimeMs === info.ctimeMs) return cached.data;
+    if (cached) {
+      this.cache.delete(file);
+      this.cacheBytes -= cached.data.length;
+    }
+    const buffer = await readFile(file).catch(() => null);
+    if (!buffer) return null;
+    const data = buffer.toString('base64');
+    if (info && data.length <= CACHE_BYTES) {
+      while (this.cacheBytes + data.length > CACHE_BYTES) {
+        const oldest = this.cache.keys().next().value;
+        this.cacheBytes -= this.cache.get(oldest).data.length;
+        this.cache.delete(oldest);
+      }
+      // 동시에 읽은 같은 파일이 이미 들어 있어도 두 번 세지 않습니다.
+      this.cacheBytes -= this.cache.get(file)?.data.length || 0;
+      this.cache.set(file, { size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, data });
+      this.cacheBytes += data.length;
+    }
+    return data;
   }
 }

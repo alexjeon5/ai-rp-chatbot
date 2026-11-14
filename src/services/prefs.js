@@ -15,7 +15,7 @@ export const PREF_KEYS = [
   'params', 'assistant', 'memory', 'lorebook', 'dev'
 ];
 
-export const defaultPrefs = () => ({
+const defaultPrefs = () => ({
   // 비워 두면 공용 기본 엔진(settings.json 의 defaultProvider)을 씁니다.
   activeProvider: null,
   activePersonaId: null,
@@ -56,7 +56,7 @@ export const defaultPrefs = () => ({
  *   onboarded       기본 페르소나·내장 캐릭터를 넣어 준 계정인지
  *   seededPersonas  넣어 준 적 있는 내장 페르소나 이름. 사용자가 지운 것이 되살아나지 않게 합니다
  */
-export const BOOK_KEYS = ['onboarded', 'seededPersonas'];
+const BOOK_KEYS = ['onboarded', 'seededPersonas'];
 
 /** 어떤 설정 묶음에서 계정별 항목만 골라 냅니다. dev 의 adultCloud 는 공용이라 뺍니다. */
 export function pickPrefs(source = {}) {
@@ -72,7 +72,8 @@ export function pickPrefs(source = {}) {
  * @param {{ presets?: object[], activePresetId?: string }} p  고칠 설정 (그 자리에서 바꿉니다)
  */
 export function normalizePresets(p, legacyTemplate) {
-  if (!Array.isArray(p.presets) || !p.presets.length) p.presets = BUILTIN_TEMPLATES();
+  const builtins = BUILTIN_TEMPLATES();
+  if (!Array.isArray(p.presets) || !p.presets.length) p.presets = builtins;
 
   const RENAMED = {
     default: ['기본 롤플레이', '롤플레이'],
@@ -90,13 +91,13 @@ export function normalizePresets(p, legacyTemplate) {
     if (typeof preset.template === 'string') preset.template = preset.template.replace(/^(\[[^\]\n]*?) — 로컬 엔진 전용\]/, '$1]');
   }
 
-  for (const builtin of BUILTIN_TEMPLATES()) {
+  for (const builtin of builtins) {
     if (!p.presets.some((x) => x.id === builtin.id)) p.presets.push(builtin);
   }
 
   // 내장 모드는 일반/성인이 섞이지 않도록 정해진 순서로 다시 앞쪽에 모읍니다.
   // 사용자가 만든 커스텀 모드는 순서를 건드리지 않고 그 뒤로 보냅니다.
-  const order = new Map(BUILTIN_TEMPLATES().map((t, i) => [t.id, i]));
+  const order = new Map(builtins.map((t, i) => [t.id, i]));
   const builtinPresets = p.presets.filter((x) => order.has(x.id)).sort((a, b) => order.get(a.id) - order.get(b.id));
   const customPresets = p.presets.filter((x) => !order.has(x.id));
   p.presets = [...builtinPresets, ...customPresets];
